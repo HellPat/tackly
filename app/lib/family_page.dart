@@ -65,7 +65,7 @@ class _FamilyPageState extends State<FamilyPage> {
               controller: url,
               keyboardType: TextInputType.url,
               decoration: const InputDecoration(
-                labelText: 'Sync server URL',
+                labelText: 'Sync server URL (optional)',
                 hintText: 'https://sync.example.com',
               ),
             ),
@@ -260,6 +260,52 @@ class _FamilyPageState extends State<FamilyPage> {
     }
   }
 
+  Future<void> _connectServer() async {
+    final url = TextEditingController(text: _service.credentials?.serverUrl);
+    final submitted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Connect sync server'),
+        content: TextField(
+          controller: url,
+          keyboardType: TextInputType.url,
+          decoration: const InputDecoration(labelText: 'Sync server URL'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Connect'),
+          ),
+        ],
+      ),
+    );
+    if (submitted != true) {
+      url.dispose();
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await _service.enableSync(url.text.trim());
+      await scheduleBackgroundSync();
+      if (mounted) setState(() => _message = 'Family is ready to share.');
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => _message = _service.credentials?.serverUrl.isNotEmpty == true
+              ? 'Saved the server address. Connection will retry when available: $error'
+              : 'Could not save the server address: $error',
+        );
+      }
+    } finally {
+      url.dispose();
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _checkInvite() async {
     final invite = _invitation;
     if (invite == null || _pendingDevice != null || _checkingInvite) return;
@@ -388,7 +434,28 @@ class _FamilyPageState extends State<FamilyPage> {
                 child: const Text('Restore with recovery key'),
               ),
             ] else if (widget.invitationOnly) ...[
-              if (family.owner && _invitation == null)
+              if (family.serverUrl.isEmpty)
+                FilledButton(
+                  onPressed: _busy ? null : _connectServer,
+                  child: const Text('Connect sync server'),
+                ),
+              if (family.serverUrl.isNotEmpty && family.deviceToken.isEmpty)
+                Column(
+                  children: [
+                    const Text('Waiting for the sync server to connect.'),
+                    OutlinedButton(
+                      onPressed: _busy ? null : _connectServer,
+                      child: const Text('Change sync server'),
+                    ),
+                    TextButton(
+                      onPressed: _busy ? null : widget.controller.syncNow,
+                      child: const Text('Retry connection'),
+                    ),
+                  ],
+                ),
+              if (family.owner &&
+                  family.deviceToken.isNotEmpty &&
+                  _invitation == null)
                 FilledButton(
                   onPressed: _busy ? null : _invite,
                   child: const Text('Create invitation'),

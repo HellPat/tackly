@@ -1,6 +1,6 @@
-import base64, concurrent.futures, hashlib, json, secrets, urllib.error, urllib.request, uuid
+import base64, concurrent.futures, hashlib, json, os, secrets, urllib.error, urllib.request, uuid
 
-BASE = 'http://127.0.0.1:3000'
+BASE = os.environ.get('TACKLY_TEST_BASE_URL', 'http://127.0.0.1:3000')
 
 def b64(data):
     return base64.urlsafe_b64encode(data).rstrip(b'=').decode()

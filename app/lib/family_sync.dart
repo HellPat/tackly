@@ -60,6 +60,20 @@ class FamilyCredentials {
     );
   }
 
+  Future<void> update() async {
+    await _storage.write(
+      key: 'family_credentials_v1',
+      value: jsonEncode({
+        'serverUrl': serverUrl,
+        'familyId': familyId,
+        'deviceToken': deviceToken,
+        'familyKey': encodeBytes(familyKey),
+        'recoverySecret': encodeBytes(recoverySecret),
+        'owner': owner,
+      }),
+    );
+  }
+
   static Future<void> clear() => _storage.delete(key: 'family_credentials_v1');
 }
 
@@ -172,23 +186,16 @@ class FamilySync {
 
   Future<void> createFamily(String serverInput, String familyName) async {
     if (credentials != null) throw StateError('Already connected to a family.');
-    final serverUrl = _safeServerUrl(serverInput);
+    final serverUrl = serverInput.trim().isEmpty
+        ? ''
+        : _safeServerUrl(serverInput);
     final familyId = _ids.v4();
     final key = randomBytes(32);
     final recoverySecret = randomBytes(32);
-    final response = await _request(
-      'POST',
-      '$serverUrl/v1/families',
-      body: {
-        'family_id': familyId,
-        'device_id': store.deviceId,
-        'recovery_verifier': await _verifier(recoverySecret),
-      },
-    );
     final created = FamilyCredentials(
       serverUrl: serverUrl,
       familyId: familyId,
-      deviceToken: response['device_token'] as String,
+      deviceToken: '',
       familyKey: key,
       recoverySecret: recoverySecret,
       owner: true,
@@ -201,6 +208,48 @@ class FamilySync {
     } catch (_) {
       // The family is already saved locally. The outbox will retry.
     }
+  }
+
+  Future<void> enableSync(String serverInput) async {
+    final family = credentials;
+    if (family == null || !family.owner || family.deviceToken.isNotEmpty) {
+      throw StateError('This family is already connected to a server.');
+    }
+    final connected = FamilyCredentials(
+      serverUrl: _safeServerUrl(serverInput),
+      familyId: family.familyId,
+      deviceToken: '',
+      familyKey: family.familyKey,
+      recoverySecret: family.recoverySecret,
+      owner: true,
+    );
+    await connected.update();
+    credentials = connected;
+    await syncOnce();
+  }
+
+  Future<void> _registerLocalFamily() async {
+    final family = credentials!;
+    if (family.serverUrl.isEmpty || family.deviceToken.isNotEmpty) return;
+    final response = await _request(
+      'POST',
+      '${family.serverUrl}/v1/families',
+      body: {
+        'family_id': family.familyId,
+        'device_id': store.deviceId,
+        'recovery_verifier': await _verifier(family.recoverySecret),
+      },
+    );
+    final registered = FamilyCredentials(
+      serverUrl: family.serverUrl,
+      familyId: family.familyId,
+      deviceToken: response['device_token'] as String,
+      familyKey: family.familyKey,
+      recoverySecret: family.recoverySecret,
+      owner: family.owner,
+    );
+    await registered.update();
+    credentials = registered;
   }
 
   Future<String> _verifier(List<int> secret) async =>
@@ -369,8 +418,9 @@ class FamilySync {
   }
 
   Future<bool> syncOnce() async {
-    final family = credentials;
-    if (family == null) return false;
+    if (credentials == null || credentials!.serverUrl.isEmpty) return false;
+    await _registerLocalFamily();
+    final family = credentials!;
     final endpoint =
         '${family.serverUrl}/v1/families/${family.familyId}/events';
     for (final event in await store.pendingEvents()) {

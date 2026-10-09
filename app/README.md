@@ -6,12 +6,15 @@ tasks. Every task belongs to one list. Completion records the tap time and
 available coordinates, even if the phone is offline. Missing location never
 blocks completion.
 
-You can use the app on one phone without a server. To share with your wife,
-open **Family**, create a family with your sync server's HTTPS URL, save the
-displayed recovery key in a password manager, and show the five-minute QR to
-her phone. On her phone, open **Family** and scan the code. Compare the six-digit
-confirmation code on both phones before allowing the request. Each installation
-connects to at most one family. The server
+On first launch, choose **Create Family**, **Scan Invitation Code**, or
+**Restore with recovery key**. Creating a family does not require a server.
+Save the displayed recovery key in a password manager. To share later, open
+the invitation action from the task screen, enter the sync server's HTTPS URL,
+and show the five-minute QR to the other phone. That phone scans the code from
+its first-launch screen. Compare the six-digit confirmation code on both phones
+before allowing the request. Each installation connects to at most one family.
+The connected Family screen contains Logout, which clears this phone's local
+events and credentials. The server
 has no UI; its deployment steps are in [server/README.md](../server/README.md).
 
 The local event body is encrypted with an Android-secured key. For sync, event
@@ -23,9 +26,11 @@ pending offline events follow it, with competing task edits shown for a choice.
 
 The app tries to sync after local changes, on resume, every 20 seconds while
 open, and through network-constrained Android WorkManager jobs. Android can
-delay background jobs, so opening the app or tapping **Sync now** is the
-fastest way to reconcile. The app shows a small message when the server cannot
-be reached. Camera photos are resized and embedded in encrypted events.
+delay background jobs. Local work continues when the server cannot be reached;
+the app shows a small sync warning and retries. Camera photos are resized and
+embedded in encrypted events. Typing a new task name searches existing tasks
+on the phone. Choosing a completed suggestion appends a reopen event to that
+same task.
 
 The app disables Android backup. Uninstalling it removes local data and secure
 keys. A saved recovery key lets a fresh installation reconnect to server-held
@@ -56,6 +61,6 @@ controlled image picker result; it does not drive the external Android camera
 app.
 `integration_test/live_relay_test.dart` exercises client encryption, family
 pairing, offline event upload, completion and recovery against the real Rust
-server and PostgreSQL. It simulates two phones as separate event stores in one
+server and SQLite. It simulates two phones as separate event stores in one
 emulator process; it does not test camera capture or two physical phones.
 The release workflow runs these emulator suites on main pushes.

@@ -11,7 +11,7 @@ import 'package:tackly/family_sync.dart';
 import 'package:uuid/uuid.dart';
 
 // Android emulator: --dart-define=TACKLY_E2E_SERVER=http://10.0.2.2:3000
-// Runs against the real Rust server and disposable PostgreSQL database.
+// Runs against the real Rust server and disposable SQLite database.
 const serverUrl = String.fromEnvironment('TACKLY_E2E_SERVER');
 const storage = FlutterSecureStorage();
 
@@ -125,6 +125,18 @@ void main() {
         await memberSync.syncOnce();
         await member.refreshFromDisk();
         expect(member.state.tasks[taskId]!.isCompleted, isFalse);
+
+        await owner.completeTask(taskId);
+        await ownerSync.syncOnce();
+        await memberSync.syncOnce();
+        await member.refreshFromDisk();
+        expect(member.state.tasks[taskId]!.isCompleted, isTrue);
+        await owner.reopenTask(taskId);
+        await ownerSync.syncOnce();
+        await memberSync.syncOnce();
+        await member.refreshFromDisk();
+        expect(member.state.tasks[taskId]!.isCompleted, isFalse);
+        expect(owner.state.tasks.length, 1);
 
         // A recovery code restores the same event history, without changing
         // the recovered member into an owner.

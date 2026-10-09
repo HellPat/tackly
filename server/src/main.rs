@@ -1,4 +1,4 @@
-use std::{env, net::SocketAddr};
+use std::{env, net::SocketAddr, str::FromStr, time::Duration};
 
 use axum::{
     Json, Router,
@@ -11,12 +11,15 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rand::{RngCore, rngs::OsRng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row, postgres::PgPoolOptions};
+use sqlx::{
+    Row, SqlitePool,
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
+};
 use uuid::Uuid;
 
 #[derive(Clone)]
 struct AppState {
-    db: PgPool,
+    db: SqlitePool,
 }
 
 #[derive(Debug)]
@@ -68,24 +71,24 @@ struct Device {
     owner: bool,
 }
 
-async fn device(db: &PgPool, headers: &HeaderMap, family_id: Uuid) -> Result<Device, ApiError> {
+async fn device(db: &SqlitePool, headers: &HeaderMap, family_id: Uuid) -> Result<Device, ApiError> {
     let bearer = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
         .ok_or(ApiError(StatusCode::UNAUTHORIZED, "device token required"))?;
     let row = sqlx::query(
-        "SELECT id, is_owner FROM devices WHERE family_id = $1 AND token_hash = $2 AND revoked_at IS NULL",
+        "SELECT id, is_owner FROM devices WHERE family_id = ? AND token_hash = ? AND revoked_at IS NULL",
     )
-    .bind(family_id)
+    .bind(family_id.to_string())
     .bind(token_hash(bearer))
     .fetch_optional(db)
     .await
     .map_err(internal)?
     .ok_or(ApiError(StatusCode::UNAUTHORIZED, "invalid device token"))?;
     Ok(Device {
-        id: row.get("id"),
-        owner: row.get("is_owner"),
+        id: row.get::<String, _>("id").parse().expect("stored UUID"),
+        owner: row.get::<i64, _>("is_owner") != 0,
     })
 }
 
@@ -109,19 +112,37 @@ async fn create_family(
     let token = random_token();
     let verifier = decode(&input.recovery_verifier, Some(32))?;
     let mut tx = state.db.begin().await.map_err(internal)?;
-    sqlx::query("INSERT INTO families (id) VALUES ($1)")
-        .bind(input.family_id)
+    let inserted = sqlx::query("INSERT INTO families (id) VALUES (?) ON CONFLICT DO NOTHING")
+        .bind(input.family_id.to_string())
         .execute(&mut *tx)
         .await
-        .map_err(|error| match error {
-            sqlx::Error::Database(ref db) if db.is_unique_violation() => conflict("family exists"),
-            other => internal(other),
-        })?;
+        .map_err(internal)?;
+    if inserted.rows_affected() == 0 {
+        let retried = sqlx::query(
+            "UPDATE devices SET token_hash=? WHERE id=? AND family_id=? \
+             AND recovery_verifier=? AND is_owner=1 AND revoked_at IS NULL RETURNING id",
+        )
+        .bind(token_hash(&token))
+        .bind(input.device_id.to_string())
+        .bind(input.family_id.to_string())
+        .bind(verifier)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(internal)?;
+        if retried.is_none() {
+            return Err(conflict("family exists"));
+        }
+        tx.commit().await.map_err(internal)?;
+        return Ok(Json(DeviceToken {
+            device_token: token,
+            owner: true,
+        }));
+    }
     sqlx::query(
-        "INSERT INTO devices (id, family_id, token_hash, recovery_verifier, is_owner) VALUES ($1, $2, $3, $4, true)",
+        "INSERT INTO devices (id, family_id, token_hash, recovery_verifier, is_owner) VALUES (?, ?, ?, ?, 1)",
     )
-    .bind(input.device_id)
-    .bind(input.family_id)
+    .bind(input.device_id.to_string())
+    .bind(input.family_id.to_string())
     .bind(token_hash(&token))
     .bind(verifier)
     .execute(&mut *tx)
@@ -148,14 +169,14 @@ async fn recover_device(
     let verifier = decode(&input.recovery_verifier, Some(32))?;
     let token = random_token();
     let inserted = sqlx::query(
-        "INSERT INTO devices (id, family_id, token_hash, recovery_verifier, is_owner) \
-         SELECT $1, family_id, $3, recovery_verifier, is_owner FROM devices \
-         WHERE family_id=$2 AND recovery_verifier=$4 AND revoked_at IS NULL \
-         LIMIT 1 ON CONFLICT (id) DO NOTHING RETURNING is_owner",
+        "INSERT OR IGNORE INTO devices (id, family_id, token_hash, recovery_verifier, is_owner) \
+         SELECT ?, family_id, ?, recovery_verifier, is_owner FROM devices \
+         WHERE family_id=? AND recovery_verifier=? AND revoked_at IS NULL \
+         LIMIT 1 RETURNING is_owner",
     )
-    .bind(input.device_id)
-    .bind(family_id)
+    .bind(input.device_id.to_string())
     .bind(token_hash(&token))
+    .bind(family_id.to_string())
     .bind(verifier)
     .fetch_optional(&state.db)
     .await
@@ -165,7 +186,7 @@ async fn recover_device(
     };
     Ok(Json(DeviceToken {
         device_token: token,
-        owner: inserted.get("is_owner"),
+        owner: inserted.get::<i64, _>("is_owner") != 0,
     }))
 }
 
@@ -201,13 +222,7 @@ async fn append_events(
         return Err(bad_request("send between one and eight events"));
     }
     let mut tx = state.db.begin().await.map_err(internal)?;
-    // Allocate sequence numbers only while holding this family's row lock.
-    // Otherwise a reader can advance past an uncommitted lower sequence.
-    sqlx::query("SELECT id FROM families WHERE id=$1 FOR UPDATE")
-        .bind(family_id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(internal)?;
+    // The single SQLite writer connection serializes allocation and commit.
     for event in &input.events {
         if event.origin_device_id != caller.id || event.key_version < 1 {
             return Err(bad_request("invalid event origin or key version"));
@@ -221,13 +236,13 @@ async fn append_events(
         let inserted = sqlx::query(
             "INSERT INTO encrypted_events \
              (family_id, event_id, aggregate_id, origin_device_id, key_version, nonce, ciphertext, mac) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8) \
+             VALUES (?,?,?,?,?,?,?,?) \
              ON CONFLICT (family_id, event_id) DO NOTHING",
         )
-        .bind(family_id)
-        .bind(event.event_id)
-        .bind(event.aggregate_id)
-        .bind(event.origin_device_id)
+        .bind(family_id.to_string())
+        .bind(event.event_id.to_string())
+        .bind(event.aggregate_id.to_string())
+        .bind(event.origin_device_id.to_string())
         .bind(event.key_version)
         .bind(&nonce)
         .bind(&ciphertext)
@@ -238,15 +253,15 @@ async fn append_events(
         if inserted.rows_affected() == 0 {
             let old = sqlx::query(
                 "SELECT aggregate_id, origin_device_id, key_version, nonce, ciphertext, mac \
-                 FROM encrypted_events WHERE family_id=$1 AND event_id=$2",
+                 FROM encrypted_events WHERE family_id=? AND event_id=?",
             )
-            .bind(family_id)
-            .bind(event.event_id)
+            .bind(family_id.to_string())
+            .bind(event.event_id.to_string())
             .fetch_one(&mut *tx)
             .await
             .map_err(internal)?;
-            if old.get::<Uuid, _>("aggregate_id") != event.aggregate_id
-                || old.get::<Uuid, _>("origin_device_id") != event.origin_device_id
+            if old.get::<String, _>("aggregate_id") != event.aggregate_id.to_string()
+                || old.get::<String, _>("origin_device_id") != event.origin_device_id.to_string()
                 || old.get::<i32, _>("key_version") != event.key_version
                 || old.get::<Vec<u8>, _>("nonce") != nonce
                 || old.get::<Vec<u8>, _>("ciphertext") != ciphertext
@@ -295,9 +310,9 @@ async fn list_events(
     let rows = sqlx::query(
         "SELECT sequence, event_id, aggregate_id, origin_device_id, \
          key_version, nonce, ciphertext, mac FROM encrypted_events \
-         WHERE family_id=$1 AND sequence>$2 ORDER BY sequence LIMIT $3",
+         WHERE family_id=? AND sequence>? ORDER BY sequence LIMIT ?",
     )
-    .bind(family_id)
+    .bind(family_id.to_string())
     .bind(after)
     .bind(limit)
     .fetch_all(&state.db)
@@ -308,9 +323,18 @@ async fn list_events(
         .map(|row| SequencedEvent {
             sequence: row.get("sequence"),
             event: EncryptedEvent {
-                event_id: row.get("event_id"),
-                aggregate_id: row.get("aggregate_id"),
-                origin_device_id: row.get("origin_device_id"),
+                event_id: row
+                    .get::<String, _>("event_id")
+                    .parse()
+                    .expect("stored UUID"),
+                aggregate_id: row
+                    .get::<String, _>("aggregate_id")
+                    .parse()
+                    .expect("stored UUID"),
+                origin_device_id: row
+                    .get::<String, _>("origin_device_id")
+                    .parse()
+                    .expect("stored UUID"),
                 key_version: row.get("key_version"),
                 nonce: URL_SAFE_NO_PAD.encode(row.get::<Vec<u8>, _>("nonce")),
                 ciphertext: URL_SAFE_NO_PAD.encode(row.get::<Vec<u8>, _>("ciphertext")),
@@ -345,20 +369,17 @@ async fn create_invite(
     let verifier = decode(&input.verifier, Some(32))?;
     let row = sqlx::query(
         "INSERT INTO invitations (id, family_id, verifier_hash, created_by) \
-         VALUES ($1,$2,$3,$4) RETURNING expires_at",
+         VALUES (?,?,?,?) RETURNING expires_at",
     )
-    .bind(input.invite_id)
-    .bind(family_id)
+    .bind(input.invite_id.to_string())
+    .bind(family_id.to_string())
     .bind(verifier)
-    .bind(caller.id)
+    .bind(caller.id.to_string())
     .fetch_one(&state.db)
     .await
     .map_err(internal)?;
-    let expiry: time::OffsetDateTime = row.get("expires_at");
     Ok(Json(InviteExpiry {
-        expires_at_utc: expiry
-            .format(&time::format_description::well_known::Rfc3339)
-            .expect("valid expiry"),
+        expires_at_utc: row.get("expires_at"),
     }))
 }
 
@@ -381,12 +402,13 @@ async fn request_join(
 ) -> ApiResult<InviteStatus> {
     let verifier = decode(&input.verifier, Some(32))?;
     let result = sqlx::query(
-        "UPDATE invitations SET status='pending', pending_device_id=$3 \
-         WHERE id=$1 AND verifier_hash=$2 AND status='open' AND expires_at>now()",
+        "UPDATE invitations SET status='pending', pending_device_id=? \
+         WHERE id=? AND verifier_hash=? AND status='open' \
+         AND expires_at>strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
     )
-    .bind(invite_id)
+    .bind(input.device_id.to_string())
+    .bind(invite_id.to_string())
     .bind(verifier)
-    .bind(input.device_id)
     .execute(&state.db)
     .await
     .map_err(internal)?;
@@ -409,17 +431,20 @@ async fn invite_status(
         return Err(ApiError(StatusCode::FORBIDDEN, "owner required"));
     }
     let row = sqlx::query(
-        "SELECT status, pending_device_id FROM invitations WHERE id=$1 AND family_id=$2 AND expires_at>now()",
+        "SELECT status, pending_device_id FROM invitations WHERE id=? AND family_id=? \
+         AND expires_at>strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
     )
-    .bind(invite_id)
-    .bind(family_id)
+    .bind(invite_id.to_string())
+    .bind(family_id.to_string())
     .fetch_optional(&state.db)
     .await
     .map_err(internal)?
     .ok_or(ApiError(StatusCode::GONE, "invitation unavailable"))?;
     Ok(Json(InviteStatus {
         status: row.get("status"),
-        pending_device_id: row.get("pending_device_id"),
+        pending_device_id: row
+            .get::<Option<String>, _>("pending_device_id")
+            .map(|id| id.parse().expect("stored UUID")),
     }))
 }
 
@@ -448,15 +473,16 @@ async fn approve_join(
         return Err(bad_request("invalid key package size"));
     }
     let result = sqlx::query(
-        "UPDATE invitations SET status='approved', package_nonce=$4, package_ciphertext=$5, package_mac=$6 \
-         WHERE id=$1 AND family_id=$2 AND pending_device_id=$3 AND status='pending' AND expires_at>now()",
+        "UPDATE invitations SET status='approved', package_nonce=?, package_ciphertext=?, package_mac=? \
+         WHERE id=? AND family_id=? AND pending_device_id=? AND status='pending' \
+         AND expires_at>strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
     )
-    .bind(invite_id)
-    .bind(family_id)
-    .bind(input.device_id)
     .bind(nonce)
     .bind(ciphertext)
     .bind(mac)
+    .bind(invite_id.to_string())
+    .bind(family_id.to_string())
+    .bind(input.device_id.to_string())
     .execute(&state.db)
     .await
     .map_err(internal)?;
@@ -495,30 +521,33 @@ async fn claim_invite(
     let mut tx = state.db.begin().await.map_err(internal)?;
     let row = sqlx::query(
         "SELECT family_id, package_nonce, package_ciphertext, package_mac FROM invitations \
-         WHERE id=$1 AND verifier_hash=$2 AND pending_device_id=$3 \
-         AND status='approved' AND expires_at>now() FOR UPDATE",
+         WHERE id=? AND verifier_hash=? AND pending_device_id=? \
+         AND status='approved' AND expires_at>strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
     )
-    .bind(invite_id)
+    .bind(invite_id.to_string())
     .bind(verifier)
-    .bind(input.device_id)
+    .bind(input.device_id.to_string())
     .fetch_optional(&mut *tx)
     .await
     .map_err(internal)?
     .ok_or(ApiError(StatusCode::GONE, "invitation unavailable"))?;
-    let family_id: Uuid = row.get("family_id");
+    let family_id: Uuid = row
+        .get::<String, _>("family_id")
+        .parse()
+        .expect("stored UUID");
     let token = random_token();
     sqlx::query(
-        "INSERT INTO devices (id, family_id, token_hash, recovery_verifier) VALUES ($1,$2,$3,$4)",
+        "INSERT INTO devices (id, family_id, token_hash, recovery_verifier) VALUES (?,?,?,?)",
     )
-    .bind(input.device_id)
-    .bind(family_id)
+    .bind(input.device_id.to_string())
+    .bind(family_id.to_string())
     .bind(token_hash(&token))
     .bind(recovery_verifier)
     .execute(&mut *tx)
     .await
     .map_err(internal)?;
-    sqlx::query("UPDATE invitations SET status='used' WHERE id=$1")
-        .bind(invite_id)
+    sqlx::query("UPDATE invitations SET status='used' WHERE id=?")
+        .bind(invite_id.to_string())
         .execute(&mut *tx)
         .await
         .map_err(internal)?;
@@ -542,10 +571,10 @@ async fn cancel_invite(
         return Err(ApiError(StatusCode::FORBIDDEN, "owner required"));
     }
     sqlx::query(
-        "UPDATE invitations SET status='cancelled' WHERE id=$1 AND family_id=$2 AND status IN ('open','pending','approved')",
+        "UPDATE invitations SET status='cancelled' WHERE id=? AND family_id=? AND status IN ('open','pending','approved')",
     )
-    .bind(invite_id)
-    .bind(family_id)
+    .bind(invite_id.to_string())
+    .bind(family_id.to_string())
     .execute(&state.db)
     .await
     .map_err(internal)?;
@@ -557,10 +586,16 @@ async fn cancel_invite(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let database_url = env::var("DATABASE_URL")?;
-    let pool = PgPoolOptions::new()
-        .max_connections(10)
-        .connect(&database_url)
+    let database_url =
+        env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://tackly-sync.db".into());
+    let options = SqliteConnectOptions::from_str(&database_url)?
+        .create_if_missing(true)
+        .foreign_keys(true)
+        .busy_timeout(Duration::from_secs(10))
+        .journal_mode(SqliteJournalMode::Wal);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
         .await?;
     if env::args().nth(1).as_deref() == Some("migrate") {
         sqlx::migrate::Migrator::new(std::path::Path::new("./migrations"))

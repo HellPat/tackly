@@ -1,19 +1,19 @@
 # Tackly sync server
 
-This is a headless PostgreSQL relay for the Android app's append-only events.
+This is a headless SQLite relay for the Android app's append-only events.
 It stores encrypted event bodies and encrypted invitation key packages. It
 cannot project task lists or read task names, photos, completion details, or
 coordinates. Each phone decrypts and replays its own events.
 
 ## Run
 
-Create an empty PostgreSQL database and set `DATABASE_URL` for a database user
-allowed to create tables and indexes. Apply the migration explicitly:
+Choose a private, writable location for the SQLite database and apply the
+migration explicitly. The database file is created if needed:
 
 ```sh
 cd server
-DATABASE_URL=postgres://user:password@localhost:5432/tackly cargo run -- migrate
-DATABASE_URL=postgres://user:password@localhost:5432/tackly cargo run --release
+DATABASE_URL=sqlite:///var/lib/tackly/tackly-sync.db cargo run -- migrate
+DATABASE_URL=sqlite:///var/lib/tackly/tackly-sync.db cargo run --release
 ```
 
 The server binds to `127.0.0.1:3000` by default. Set `TACKLY_BIND` to another
@@ -24,7 +24,7 @@ listener directly to the internet without TLS, request limits, and abuse
 controls. `/health` returns 204 and does not expose data.
 
 The server and database are not deployed by this repository. A public HTTPS
-endpoint and PostgreSQL credentials must be supplied before two phones can
+endpoint must be supplied before two phones can
 pair or synchronize outside a local development network.
 
 With a disposable local database and the server running, run
@@ -32,16 +32,17 @@ With a disposable local database and the server running, run
 The latter covers every current HTTP endpoint, authorization and tenant
 isolation, event validation/paging/idempotency, concurrent writes, one-use
 joining, invitation expiry, cancellation, and owner/member recovery. Set
-`TACKLY_TEST_DB_COMMAND=psql` and `DATABASE_URL` to include the expiry test
+`TACKLY_TEST_DB_PATH=/path/to/test.db` to include the expiry test
 against the disposable database. Run
-`psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/retention.sql` only against
-a disposable database to verify the append-only trigger. These API tests use
+`python3 tests/retention.py` with the same variable only against a disposable
+database to verify the append-only triggers. These API tests use
 synthetic payload bytes; the Android live-relay suite covers actual client
 encryption against this server. Neither is a two-physical-phone test.
 
 ## Protocol
 
-- A phone creates one family and receives a random device bearer token. The
+- A phone can create one family locally without a server. Once a server is
+  configured, it registers that family and receives a random device bearer token. The
   server stores only its SHA-256 hash. Each phone generates its own recovery
   secret; the server stores only a verifier for that device's role. The full
   recovery code also includes the family data key and stays on the phone.
@@ -53,8 +54,8 @@ encryption against this server. Neither is a two-physical-phone test.
   cursor from the same path. UUID event IDs make retries idempotent. Server
   writes are serialized per family so a cursor cannot skip a late commit.
 - The server retains every accepted encrypted event indefinitely. It has no
-  event expiry, pruning, or deletion API. A database trigger rejects updates,
-  deletes, and truncation of the event table. Corrections and reversals append
+  event expiry, pruning, or deletion API. Database triggers reject updates and
+  deletes of the event table. Corrections, reversals, and reopenings append
   new events; projections and snapshots are rebuildable caches, not replacements
   for the event history.
 - The app keeps an encrypted SQLite event log, a durable encrypted upload
@@ -75,9 +76,10 @@ recovery code can recover an owner device and decrypt family data; a member's
 code recovers only member access. Store these codes in a password manager and
 do not put them in server configuration or logs.
 
-Indefinite retention also needs durable PostgreSQL backups and periodic restore
-checks; this repository does not deploy or operate those backups. A privileged
-database administrator can bypass the trigger. Future key rotation must keep
+Indefinite retention also needs durable SQLite file backups that include the
+write-ahead log, plus periodic restore checks; this repository does not deploy
+or operate those backups. A privileged database administrator can bypass the
+trigger. Future key rotation must keep
 the old decryption keys available to authorized clients, because old event
 ciphertext is never rewritten. Future event-schema upcasters should run during
 client replay and leave stored events intact.

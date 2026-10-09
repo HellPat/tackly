@@ -176,6 +176,18 @@ class AppController extends ChangeNotifier {
     await _replay(localChange: true);
   }
 
+  Future<void> reopenTask(String taskId) async {
+    final task = state.tasks[taskId];
+    if (task == null || !task.isCompleted || task.hasConflict) {
+      throw StateError('This task cannot be reopened.');
+    }
+    await _store.append('task.reopened', taskId, {
+      'baseEventId': task.lastChangeEventId,
+      'completionEventId': task.completionEventId,
+    });
+    await _replay(localChange: true);
+  }
+
   Future<void> resolveConflict(String taskId, {String? useEventId}) async {
     final task = state.tasks[taskId];
     if (task == null || !task.hasConflict) return;
@@ -197,6 +209,7 @@ class AppController extends ChangeNotifier {
           snapshot['accuracyMeters'] = chosen.payload['accuracyMeters'];
           snapshot['locationStatus'] = chosen.payload['locationStatus'];
         case 'task.completion_reverted':
+        case 'task.reopened':
           snapshot['completionEventId'] = null;
           snapshot['completedAtUtc'] = null;
           snapshot['latitude'] = null;

@@ -473,14 +473,14 @@ class AppState {
         task.locationStatus = payload['locationStatus'] as String;
         return;
       case 'task.completion_reverted':
+      case 'task.reopened':
         final task = tasks[event.aggregateId];
         if (task == null) throw FormatException('Revert for missing task');
-        if (!task.accepts(event)) return;
-        if (task.completionEventId != payload['completionEventId'] &&
-            !task.hasConflict) {
+        if (task.completionEventId != payload['completionEventId']) {
           task.conflictingEvents.add(event);
           return;
         }
+        if (!task.accepts(event)) return;
         task.completionEventId = null;
         task.completedAtUtc = null;
         task.latitude = null;

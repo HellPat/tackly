@@ -17,18 +17,9 @@ jobs:
       run:
         working-directory: app
     env:
-      DATABASE_URL: postgres://postgres:tackly_e2e_only@127.0.0.1:5432/tackly
+      DATABASE_URL: sqlite:///tmp/tackly-android-e2e.db
     steps:
       - uses: actions/checkout@v6
-      - name: Start local PostgreSQL
-        working-directory: .
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql postgresql-client
-          sudo systemctl start postgresql
-          sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'tackly_e2e_only'"
-          sudo -u postgres createdb tackly
-          pg_isready -h 127.0.0.1 -U postgres -d tackly
       - uses: actions/setup-java@v6
         with:
           distribution: temurin

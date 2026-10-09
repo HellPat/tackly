@@ -4,32 +4,31 @@ An Android Flutter task app with a headless encrypted sync server. Lists contain
 tasks. Each task can be checked off; its completion event records the time and
 available phone coordinates. Saved changes are append-only events in an
 app-private SQLite database, and visible state is rebuilt by replaying them.
-The optional PostgreSQL server relays encrypted events between two phones in
-one family. The app remains usable offline.
+The optional SQLite server relays encrypted events between two phones in
+one family. A family and its tasks can be created without a server; enter a
+server URL later from the invitation screen when ready to share. New task names
+search existing tasks locally, and selecting a completed match reopens it.
 
 The app and data model are documented in [app/README.md](app/README.md), and
 server setup and security limits in [server/README.md](server/README.md).
 
 ## Install a build from GitHub
 
-1. Open the latest successful **Android** run under this repository's **Actions**
-   tab.
-2. Download the `tackly-android` artifact and unzip it.
-3. Move `app-debug.apk` to an Android phone and open it. Android may ask you to
-   allow installs from the app you used to open the APK.
+1. Open [GitHub Releases](https://github.com/HellPat/tackly/releases) and
+   download the APK from the latest release.
+2. Open the APK on an Android phone. Android may ask you to allow installs
+   from the app you used to open it.
 
 Alternatively, with Android Debug Bridge connected:
 
 ```sh
-adb install app-debug.apk
+adb install tackly-android-<release-number>.apk
 ```
 
-The workflow currently publishes a **debug-signed** APK. Different workflow
-runs can use different debug signing keys. An update from another run may fail
-to install over the first APK; uninstalling the old app also deletes its local
-database because backup is disabled. Do not rely on these artifacts to preserve
-important data across updates. A stable release signing key needs a separate
-approved setup before distributing updates.
+The current releases use a stable signing key. The earlier debug preview APK
+cannot be upgraded in place to a release APK; uninstalling the debug version
+deletes its local data because Android backup is disabled. Save the recovery
+key before replacing an installation with important data.
 
 ## Continuous GitHub releases
 
@@ -66,7 +65,7 @@ flutter build apk --debug
 ```
 
 The emulator suite covers local task flows, controlled camera results, offline
-conflicts, and a Flutter-to-Rust-to-PostgreSQL live relay. Android location
+conflicts, and a Flutter-to-Rust-to-SQLite live relay. Android location
 integration runs both disabled-service and captured-coordinate cases; the
 captured case uses a temporary Android GPS test provider. The server workflow
 also checks every current HTTP endpoint and append-only retention. See

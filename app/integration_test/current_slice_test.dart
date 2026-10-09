@@ -79,6 +79,13 @@ void main() {
     expect(completion.locationStatus, 'captured');
     expect(find.text('Green apples'), findsNothing);
     await tester.tap(find.text('↶ Revert'));
+    for (
+      var attempt = 0;
+      attempt < 50 && controller.state.tasks[taskId]!.isCompleted;
+      attempt++
+    ) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
     await tester.pumpAndSettle();
     expect(find.text('Green apples'), findsOneWidget);
     expect(controller.state.tasks[taskId]!.isCompleted, isFalse);
@@ -99,6 +106,45 @@ void main() {
     expect(replayed.tasks[taskId]!.title, 'Green apples');
     expect(replayed.tasks[taskId]!.isCompleted, isFalse);
     expect((await reopened.readEvents()).length, 5);
+    await reopened.close();
+  });
+
+  testWidgets('fuzzy suggestion reopens a completed task without a duplicate', (
+    tester,
+  ) async {
+    final databaseName = 'suggest_${DateTime.now().microsecondsSinceEpoch}.db';
+    final store = await EventStore.open(databaseName: databaseName);
+    final controller = AppController(
+      store,
+      await store.load(),
+      captureLocation: () async =>
+          const CompletionLocation(status: 'unavailable'),
+    );
+    final listId = await controller.createList('Shopping', '🛒', null);
+    await controller.createTask(listId, 'Buy apples', '🍎', null);
+    final taskId = controller.state.tasks.keys.single;
+    await controller.completeTask(taskId);
+    await tester.pumpWidget(TacklyApp(controller: controller));
+    await tester.tap(find.text('Shopping'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add task'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'buy aples');
+    await tester.pumpAndSettle();
+    expect(find.text('Buy apples'), findsOneWidget);
+    expect(find.text('Reopen'), findsOneWidget);
+    await tester.tap(find.text('Buy apples'));
+    await tester.pumpAndSettle();
+    expect(controller.state.tasks.length, 1);
+    expect(controller.state.tasks[taskId]!.isCompleted, isFalse);
+    expect(controller.state.tasks[taskId]!.listId, listId);
+    expect(find.text('Buy apples'), findsOneWidget);
+    final events = await store.readEvents();
+    expect(events.last.type, 'task.reopened');
+    await store.close();
+    final reopened = await EventStore.open(databaseName: databaseName);
+    final replayed = await reopened.load();
+    expect(replayed.tasks[taskId]!.isCompleted, isFalse);
     await reopened.close();
   });
 
@@ -262,7 +308,13 @@ void main() {
       }
       final listId = controller.state.lists.keys.single;
       expect(controller.state.lists[listId]!.photo, base64Encode(camera.bytes));
-
+      for (
+        var attempt = 0;
+        attempt < 50 && find.text('Add task').evaluate().isEmpty;
+        attempt++
+      ) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
       await tester.tap(find.text('Add task'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('📝'));

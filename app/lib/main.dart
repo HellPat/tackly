@@ -9,6 +9,7 @@ import 'background_sync.dart';
 import 'event_store.dart';
 import 'family_page.dart';
 import 'family_sync.dart';
+import 'task_suggestions.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -606,6 +607,8 @@ class _EditorPageState extends State<_EditorPage> {
   String? _selectedListId;
   bool _saving = false;
 
+  void _refreshSuggestions() => setState(() {});
+
   @override
   void initState() {
     super.initState();
@@ -613,6 +616,7 @@ class _EditorPageState extends State<_EditorPage> {
         ? null
         : widget.controller.state.tasks[widget.taskId];
     _name = TextEditingController(text: task?.title ?? '');
+    _name.addListener(_refreshSuggestions);
     _emoji = task?.emoji ?? (widget.kind == _EditorKind.list ? '🗂️' : '📝');
     _photo = task?.photo;
     _selectedListId = task?.listId ?? widget.listId;
@@ -620,6 +624,7 @@ class _EditorPageState extends State<_EditorPage> {
 
   @override
   void dispose() {
+    _name.removeListener(_refreshSuggestions);
     _name.dispose();
     super.dispose();
   }
@@ -749,11 +754,31 @@ class _EditorPageState extends State<_EditorPage> {
     }
   }
 
+  Future<void> _acceptSuggestion(TaskItem task) async {
+    if (_saving || !task.isCompleted) return;
+    setState(() => _saving = true);
+    try {
+      await widget.controller.reopenTask(task.id);
+      if (mounted) Navigator.pop(context);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not reopen task: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isList = widget.kind == _EditorKind.list;
     final editing = widget.taskId != null;
     final list = widget.controller.state.lists[_selectedListId];
+    final suggestions = !isList && !editing
+        ? suggestTasks(widget.controller.state, _name.text)
+        : <TaskItem>[];
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
@@ -798,6 +823,23 @@ class _EditorPageState extends State<_EditorPage> {
               ),
             ),
           ),
+          if (suggestions.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            for (final task in suggestions)
+              ListTile(
+                leading: _Avatar(
+                  emoji: task.emoji,
+                  photo: task.photo,
+                  size: 36,
+                ),
+                title: Text(task.title),
+                subtitle: Text(
+                  '${widget.controller.state.lists[task.listId]?.name ?? 'List'} · ${task.isCompleted ? 'Completed' : 'Already open'}',
+                ),
+                trailing: task.isCompleted ? const Text('Reopen') : null,
+                onTap: task.isCompleted ? () => _acceptSuggestion(task) : null,
+              ),
+          ],
           if (!isList && list != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),

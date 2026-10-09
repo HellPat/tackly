@@ -3,22 +3,23 @@
 This table covers only the implemented Android Flutter app and the headless
 encrypted sync server. “Emulator” means the Flutter integration test runs in
 an installed Android app. “Live relay” means the Flutter client talks to the
-real Rust API and disposable PostgreSQL; its two phones are simulated as
+real Rust API and disposable SQLite; its two phones are simulated as
 separate local event stores in one emulator process.
 
 | Implemented behavior | End-to-end check |
 |---|---|
 | Lists, required task parent, All Tasks, task creation/edit, emoji choice, completion and Revert | app/integration_test/current_slice_test.dart on emulator |
+| Fuzzy completed-task suggestions, accepting a suggestion, one task reopened by a new event, and replay without a duplicate | app/integration_test/current_slice_test.dart on emulator |
 | List and task photo choice, image storage, and replay | app/integration_test/current_slice_test.dart on emulator with a controlled image-picker result |
 | Local encrypted event replay after database reopen; rapid completion/reversal | app/integration_test/current_slice_test.dart on emulator |
 | Completion time and coordinates when supplied by location service | app/integration_test/current_slice_test.dart with deterministic location and app/integration_test/device_location_test.dart with Android's GPS test provider |
 | Completion time when Android location service is disabled | app/integration_test/device_location_test.dart on emulator |
 | Offline concurrent edits, task-only conflict, visible choice, convergence | app/integration_test/family_sync_test.dart on emulator with deterministic HTTP relay |
-| QR invitation, owner approval, one family per phone, offline upload, ciphertext-only relay, completion sync, member recovery | app/integration_test/live_relay_test.dart on emulator with real Rust server and PostgreSQL |
-| First-launch Create Family / Scan Invitation Code / Restore choices; recovery-key display; separate invitation and cancellation; connected Family screen with Logout only; local data and credential removal; recovery of synced events | app/integration_test/family_ui_test.dart on emulator with real Rust server and PostgreSQL |
-| Family creation/recovery, tenant isolation, API authorization, event validation, batching, paging, retry idempotency | server/tests/api_e2e.py against real server and PostgreSQL |
-| One-use joining, invitation expiry, owner/member permissions, cancellation at each stage, concurrent event order | server/tests/api_e2e.py against real server and PostgreSQL |
-| Accepted events reject update/delete/truncate | server/tests/retention.sql against PostgreSQL |
+| QR invitation, owner approval, one family per phone, offline upload, ciphertext-only relay, completion sync, member recovery | app/integration_test/live_relay_test.dart on emulator with real Rust server and SQLite |
+| First-launch Create Family / Scan Invitation Code / Restore choices; create a family and tasks without a server; later connection and event sync; recovery-key display; separate invitation and cancellation; connected Family screen with Logout only; local data and credential removal; recovery of synced events | app/integration_test/family_ui_test.dart on emulator with real Rust server and SQLite |
+| Family creation/recovery, tenant isolation, API authorization, event validation, batching, paging, retry idempotency | server/tests/api_e2e.py against real server and SQLite |
+| One-use joining, invitation expiry, owner/member permissions, cancellation at each stage, concurrent event order | server/tests/api_e2e.py against real server and SQLite |
+| Accepted events reject update/delete | server/tests/retention.py against SQLite |
 
 The server transport smoke path in server/tests/transport_smoke.py is a
 second, compact check of the primary API flow. The Android CI workflow runs

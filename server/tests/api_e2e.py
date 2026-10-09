@@ -1,4 +1,4 @@
-"""Black-box API tests against a running Tackly server and PostgreSQL.
+"""Black-box API tests against a running Tackly server and SQLite.
 
 Run after migrations with TACKLY_TEST_BASE_URL set if the server is not on
 http://127.0.0.1:3000. Every test creates fresh families and devices.
@@ -10,8 +10,7 @@ import hashlib
 import json
 import os
 import secrets
-import shlex
-import subprocess
+import sqlite3
 import unittest
 import urllib.error
 import urllib.request
@@ -93,13 +92,22 @@ def invite(family_id, token):
 class ApiEndToEnd(unittest.TestCase):
     def test_family_creation_recovery_and_isolation(self):
         self.assertEqual(request("GET", "/health")[0], 204)
-        family_id, _, recovery, owner_token = family()
+        family_id, owner_device_id, recovery, owner_token = family()
         other_family, _, _, other_token = family()
         events_path = f"/v1/families/{family_id}/events"
         self.assertEqual(request("GET", events_path)[0], 401)
         self.assertEqual(request("GET", events_path, token="wrong")[0], 401)
         self.assertEqual(request("GET", events_path, token=other_token)[0], 401)
         self.assertEqual(request("GET", f"/v1/families/{other_family}/events", token=owner_token)[0], 401)
+        self.assertEqual(request("GET", events_path, token=owner_token)[0], 200)
+        status, retry = request(
+            "POST", "/v1/families",
+            {"family_id": family_id, "device_id": owner_device_id,
+             "recovery_verifier": recovery},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(request("GET", events_path, token=owner_token)[0], 401)
+        owner_token = retry["device_token"]
         self.assertEqual(request(
             "POST", "/v1/families",
             {"family_id": family_id, "device_id": identifier(), "recovery_verifier": verifier()},
@@ -230,21 +238,15 @@ class ApiEndToEnd(unittest.TestCase):
                 "verifier": proof, "device_id": member_id, "recovery_verifier": verifier(),
             })[0], 410)
 
-    @unittest.skipUnless(os.environ.get("TACKLY_TEST_DB_COMMAND"), "requires disposable database SQL command")
+    @unittest.skipUnless(os.environ.get("TACKLY_TEST_DB_PATH"), "requires disposable SQLite database")
     def test_expired_invitation_cannot_be_used(self):
         family_id, _, _, owner_token = family()
         invite_id, proof, path = invite(family_id, owner_token)
-        command = shlex.split(os.environ["TACKLY_TEST_DB_COMMAND"])
-        if os.environ.get("DATABASE_URL") and command[0] == "psql":
-            command.append(os.environ["DATABASE_URL"])
-        subprocess.run(
-            command + [
-                "-v", "ON_ERROR_STOP=1", "-c",
-                f"UPDATE invitations SET expires_at=now()-interval '1 second' WHERE id='{invite_id}'",
-            ],
-            check=True,
-            capture_output=True,
-        )
+        with sqlite3.connect(os.environ["TACKLY_TEST_DB_PATH"]) as db:
+            db.execute(
+                "UPDATE invitations SET expires_at='2000-01-01T00:00:00.000Z' WHERE id=?",
+                (invite_id,),
+            )
         self.assertEqual(request("GET", path, token=owner_token)[0], 410)
         self.assertEqual(request("POST", f"/v1/invites/{invite_id}/request", {
             "verifier": proof, "device_id": identifier(),
