@@ -17,6 +17,7 @@ class AppController extends ChangeNotifier {
   FamilySync? familySync;
   Timer? _syncTimer;
   bool _syncing = false;
+  bool _loggingOut = false;
   String? syncError;
 
   void attachFamilySync(FamilySync service) {
@@ -32,7 +33,7 @@ class AppController extends ChangeNotifier {
 
   Future<void> syncNow() async {
     final service = familySync;
-    if (service?.credentials == null || _syncing) return;
+    if (service?.credentials == null || _syncing || _loggingOut) return;
     _syncing = true;
     try {
       final changed = await service!.syncOnce();
@@ -67,6 +68,32 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> refreshFromDisk() => _replay();
+
+  Future<int> pendingChangeCount() async =>
+      (await _store.pendingEvents()).length;
+
+  Future<void> logout() async {
+    final service = familySync;
+    if (service?.credentials == null) return;
+    _loggingOut = true;
+    try {
+      while (_syncing) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      try {
+        await cancelBackgroundSync();
+      } catch (_) {
+        // Foreground logout still clears credentials and local data.
+      }
+      await _store.clearForLogout();
+      await service!.logout();
+      state = AppState();
+      syncError = null;
+      notifyListeners();
+    } finally {
+      _loggingOut = false;
+    }
+  }
 
   Future<String> createList(String name, String emoji, String? photo) async {
     final id = _store.newId();

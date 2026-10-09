@@ -51,9 +51,14 @@ class TacklyApp extends StatefulWidget {
 }
 
 class _TacklyAppState extends State<TacklyApp> with WidgetsBindingObserver {
+  late bool _needsFamily;
+
   @override
   void initState() {
     super.initState();
+    _needsFamily =
+        widget.controller.familySync?.credentials == null &&
+        widget.controller.familySync != null;
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -83,13 +88,22 @@ class _TacklyAppState extends State<TacklyApp> with WidgetsBindingObserver {
         surfaceTintColor: Colors.transparent,
       ),
     ),
-    home: ListsPage(controller: widget.controller),
+    home: _needsFamily
+        ? FamilyPage(
+            controller: widget.controller,
+            onConnected: () => setState(() => _needsFamily = false),
+          )
+        : ListsPage(
+            controller: widget.controller,
+            onLoggedOut: () => setState(() => _needsFamily = true),
+          ),
   );
 }
 
 class _FamilyAction extends StatelessWidget {
-  const _FamilyAction({required this.controller});
+  const _FamilyAction({required this.controller, required this.onLoggedOut});
   final AppController controller;
+  final VoidCallback onLoggedOut;
 
   @override
   Widget build(BuildContext context) => IconButton(
@@ -97,7 +111,28 @@ class _FamilyAction extends StatelessWidget {
     icon: const Icon(Icons.group_outlined),
     onPressed: () => Navigator.push<void>(
       context,
-      MaterialPageRoute(builder: (_) => FamilyPage(controller: controller)),
+      MaterialPageRoute(
+        builder: (_) =>
+            FamilyPage(controller: controller, onLoggedOut: onLoggedOut),
+      ),
+    ),
+  );
+}
+
+class _InviteAction extends StatelessWidget {
+  const _InviteAction({required this.controller});
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: 'Invite to family',
+    icon: const Icon(Icons.person_add_outlined),
+    onPressed: () => Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            FamilyPage(controller: controller, invitationOnly: true),
+      ),
     ),
   );
 }
@@ -114,8 +149,9 @@ class _SyncWarning extends StatelessWidget {
 }
 
 class ListsPage extends StatelessWidget {
-  const ListsPage({super.key, required this.controller});
+  const ListsPage({super.key, required this.controller, this.onLoggedOut});
   final AppController controller;
+  final VoidCallback? onLoggedOut;
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -126,8 +162,13 @@ class ListsPage extends StatelessWidget {
         appBar: AppBar(
           title: const Text('Tackly 🌱'),
           actions: [
+            if (controller.familySync?.credentials?.owner == true)
+              _InviteAction(controller: controller),
             if (controller.familySync != null)
-              _FamilyAction(controller: controller),
+              _FamilyAction(
+                controller: controller,
+                onLoggedOut: onLoggedOut ?? () {},
+              ),
           ],
           bottom: controller.syncError == null
               ? null
@@ -175,15 +216,25 @@ class ListsPage extends StatelessWidget {
   void _openTasks(BuildContext context, String? listId) => Navigator.push<void>(
     context,
     MaterialPageRoute(
-      builder: (_) => TasksPage(controller: controller, listId: listId),
+      builder: (_) => TasksPage(
+        controller: controller,
+        listId: listId,
+        onLoggedOut: onLoggedOut,
+      ),
     ),
   );
 }
 
 class TasksPage extends StatefulWidget {
-  const TasksPage({super.key, required this.controller, required this.listId});
+  const TasksPage({
+    super.key,
+    required this.controller,
+    required this.listId,
+    this.onLoggedOut,
+  });
   final AppController controller;
   final String? listId;
+  final VoidCallback? onLoggedOut;
 
   @override
   State<TasksPage> createState() => _TasksPageState();
@@ -313,8 +364,16 @@ class _TasksPageState extends State<TasksPage> {
             style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w500),
           ),
           actions: [
+            if (widget.controller.familySync?.credentials?.owner == true)
+              _InviteAction(controller: widget.controller),
             if (widget.controller.familySync != null)
-              _FamilyAction(controller: widget.controller),
+              _FamilyAction(
+                controller: widget.controller,
+                onLoggedOut: () {
+                  Navigator.of(context).popUntil((route) => route.isFirst);
+                  widget.onLoggedOut?.call();
+                },
+              ),
           ],
           bottom: widget.controller.syncError == null
               ? null

@@ -50,3 +50,5 @@ Future<void> requestBackgroundSync() => Workmanager().registerOneOffTask(
   constraints: Constraints(networkType: NetworkType.connected),
   existingWorkPolicy: ExistingWorkPolicy.keep,
 );
+
+Future<void> cancelBackgroundSync() => Workmanager().cancelAll();

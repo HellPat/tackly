@@ -10,8 +10,17 @@ import 'crypto_box.dart';
 import 'family_sync.dart';
 
 class FamilyPage extends StatefulWidget {
-  const FamilyPage({super.key, required this.controller});
+  const FamilyPage({
+    super.key,
+    required this.controller,
+    this.onConnected,
+    this.onLoggedOut,
+    this.invitationOnly = false,
+  });
   final AppController controller;
+  final VoidCallback? onConnected;
+  final VoidCallback? onLoggedOut;
+  final bool invitationOnly;
 
   @override
   State<FamilyPage> createState() => _FamilyPageState();
@@ -89,10 +98,7 @@ class _FamilyPageState extends State<FamilyPage> {
       await widget.controller.syncNow();
       if (mounted) await _showRecoveryKey();
       if (mounted) {
-        setState(
-          () => _message =
-              'Family created. Invite your wife when she has Tackly installed.',
-        );
+        widget.onConnected?.call();
       }
     } catch (error) {
       if (mounted) setState(() => _message = 'Could not create family: $error');
@@ -133,7 +139,7 @@ class _FamilyPageState extends State<FamilyPage> {
       await widget.controller.refreshFromDisk();
       await widget.controller.syncNow();
       if (mounted) {
-        setState(() => _message = 'Joined the family. Tasks are syncing.');
+        widget.onConnected?.call();
       }
     } catch (error) {
       if (mounted) setState(() => _message = 'Could not join: $error');
@@ -189,7 +195,7 @@ class _FamilyPageState extends State<FamilyPage> {
       await widget.controller.refreshFromDisk();
       await widget.controller.syncNow();
       if (mounted) {
-        setState(() => _message = 'Family restored. Tasks are syncing.');
+        widget.onConnected?.call();
       }
     } catch (error) {
       if (mounted) setState(() => _message = 'Could not restore: $error');
@@ -316,52 +322,76 @@ class _FamilyPageState extends State<FamilyPage> {
     }
   }
 
+  Future<void> _logout() async {
+    final pending = await widget.controller.pendingChangeCount();
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Log out of family?'),
+        content: Text(
+          'This removes the family data and keys from this phone. '
+          'You will need your recovery key or a new invitation to return.'
+          '${pending == 0 ? '' : ' $pending changes have not synced and will be lost.'}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Log out'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await widget.controller.logout();
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      widget.onLoggedOut?.call();
+    } catch (error) {
+      if (mounted) setState(() => _message = 'Could not log out: $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: widget.controller,
     builder: (context, _) {
       final family = _service.credentials;
       return Scaffold(
-        appBar: AppBar(title: const Text('Family')),
+        appBar: AppBar(
+          title: Text(widget.invitationOnly ? 'Invite' : 'Family'),
+        ),
         body: ListView(
           padding: const EdgeInsets.all(20),
           children: [
             if (family == null) ...[
-              const Text(
-                'Share lists and tasks with one family. Existing tasks on this phone are shared when you join.',
-              ),
-              const SizedBox(height: 24),
               FilledButton(
                 onPressed: _busy ? null : _createFamily,
-                child: const Text('Create family'),
+                child: const Text('Create Family'),
               ),
               const SizedBox(height: 12),
               OutlinedButton(
                 onPressed: _busy ? null : _joinFamily,
-                child: const Text('Scan invitation'),
+                child: const Text('Scan Invitation Code'),
               ),
               const SizedBox(height: 12),
               TextButton(
                 onPressed: _busy ? null : _recoverFamily,
                 child: const Text('Restore with recovery key'),
               ),
-            ] else ...[
-              Text(
-                widget.controller.state.familyName ?? 'Your family',
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(height: 8),
-              Text(family.serverUrl),
-              const SizedBox(height: 20),
-              OutlinedButton(
-                onPressed: _showRecoveryKey,
-                child: const Text('Show recovery key'),
-              ),
-              const SizedBox(height: 12),
+            ] else if (widget.invitationOnly) ...[
               if (family.owner && _invitation == null)
                 FilledButton(
                   onPressed: _busy ? null : _invite,
-                  child: const Text('Invite wife'),
+                  child: const Text('Create invitation'),
                 ),
               if (_invitation case final invite?) ...[
                 const Text(
@@ -385,10 +415,10 @@ class _FamilyPageState extends State<FamilyPage> {
                   child: const Text('Cancel invitation'),
                 ),
               ],
-              const SizedBox(height: 16),
+            ] else ...[
               OutlinedButton(
-                onPressed: _busy ? null : widget.controller.syncNow,
-                child: const Text('Sync now'),
+                onPressed: _busy ? null : _logout,
+                child: const Text('Logout'),
               ),
             ],
             if (_busy)

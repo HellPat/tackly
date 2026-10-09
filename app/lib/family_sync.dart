@@ -59,6 +59,8 @@ class FamilyCredentials {
       }),
     );
   }
+
+  static Future<void> clear() => _storage.delete(key: 'family_credentials_v1');
 }
 
 class FamilyInvitation {
@@ -139,6 +141,11 @@ class FamilySync {
 
   Future<void> load() async {
     credentials = await FamilyCredentials.load();
+  }
+
+  Future<void> logout() async {
+    await FamilyCredentials.clear();
+    credentials = null;
   }
 
   Future<Map<String, dynamic>> _request(

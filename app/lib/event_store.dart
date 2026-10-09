@@ -11,8 +11,8 @@ class EventStore {
   EventStore._(this._database, this._localKey, this.deviceId);
 
   final Database _database;
-  final List<int> _localKey;
-  final String deviceId;
+  List<int> _localKey;
+  String deviceId;
   static const _ids = Uuid();
   static const _secrets = FlutterSecureStorage();
 
@@ -188,6 +188,23 @@ class EventStore {
       orderBy: 'sequence ASC',
     );
     return Future.wait(rows.map(_openLocal));
+  }
+
+  /// Forget this phone's family data and identity before another family joins.
+  Future<void> clearForLogout() async {
+    final nextKey = randomBytes(32);
+    final nextDeviceId = _ids.v4();
+    await _database.rawQuery('PRAGMA secure_delete = ON');
+    await _database.transaction((tx) async {
+      await tx.delete('sync_outbox');
+      await tx.delete('events');
+      await tx.delete('sync_metadata');
+    });
+    await _database.execute('VACUUM');
+    await _secrets.write(key: 'local_event_key', value: encodeBytes(nextKey));
+    await _secrets.write(key: 'device_id', value: nextDeviceId);
+    _localKey = nextKey;
+    deviceId = nextDeviceId;
   }
 
   Future<void> markPushed(String eventId) async {
