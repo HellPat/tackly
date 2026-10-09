@@ -1,12 +1,14 @@
 # Tackly
 
-An Android-only, single-user Flutter task app. Lists contain tasks. Each task
-can be checked off; its completion event records the time and available phone
-coordinates. All saved changes are append-only events in an app-private SQLite
-database, and the visible state is rebuilt by replaying those events. There is
-no account, sharing, server, or sync in this slice.
+An Android Flutter task app with a headless encrypted sync server. Lists contain
+tasks. Each task can be checked off; its completion event records the time and
+available phone coordinates. Saved changes are append-only events in an
+app-private SQLite database, and visible state is rebuilt by replaying them.
+The optional PostgreSQL server relays encrypted events between two phones in
+one family. The app remains usable offline.
 
-The app and data model are documented in [app/README.md](app/README.md).
+The app and data model are documented in [app/README.md](app/README.md), and
+server setup and security limits in [server/README.md](server/README.md).
 
 ## Install a build from GitHub
 
@@ -29,6 +31,28 @@ database because backup is disabled. Do not rely on these artifacts to preserve
 important data across updates. A stable release signing key needs a separate
 approved setup before distributing updates.
 
+## Continuous GitHub releases
+
+After the four signing secrets below are configured, each push to `main` runs
+the emulator suite, builds a signed release APK with a new Android version code,
+and publishes it at [GitHub Releases](https://github.com/HellPat/tackly/releases).
+The release job fails clearly if signing is not configured. The existing debug
+APK cannot be upgraded to the first release APK because its signing key differs;
+uninstalling it deletes the local SQLite database. Keep the release key backed
+up: future APKs need the same signing key to update in place.
+
+The required repository Actions secrets are:
+
+- `TACKLY_KEYSTORE_BASE64`: base64 encoding of a private Android keystore
+- `TACKLY_STORE_PASSWORD`: keystore password
+- `TACKLY_KEY_ALIAS`: key alias in that keystore
+- `TACKLY_KEY_PASSWORD`: key password
+
+The keystore and passwords must not be committed. `app/android/key.properties`
+is ignored locally. GitHub Releases do not automatically install updates on a
+phone. Google Play internal testing can do that later; moving a GitHub install
+to Play without losing app data requires the same Android app signing identity.
+
 ## Build and test locally
 
 Use Flutter 3.47.7, Android SDK, and JDK 21:
@@ -41,11 +65,10 @@ flutter test integration_test/current_slice_test.dart -d <android-device-id>
 flutter build apk --debug
 ```
 
-The emulator suite covers list creation, task assignment, emoji choice, edit by
-long press, completion, Revert, event replay after reopening SQLite, and rapid
-repeat actions. `integration_test/device_location_test.dart` separately checks
-the real Android location plugin with `EXPECT_LOCATION=service_disabled` or
-`EXPECT_LOCATION=captured` after configuring an emulator's location and runtime
-permission. The captured-GPS variant is not a CI gate because the local API 36
-emulator has timed out despite simulated fixes; completion correctly records
-`unavailable` in that case.
+The emulator suite covers local task flows, controlled camera results, offline
+conflicts, and a Flutter-to-Rust-to-PostgreSQL live relay. Android location
+integration runs both disabled-service and captured-coordinate cases; the
+captured case uses a temporary Android GPS test provider. The server workflow
+also checks every current HTTP endpoint and append-only retention. See
+[current end-to-end coverage](acceptance/CURRENT-SCOPE-E2E.md) for the exact
+drivers and remaining device-level gaps.

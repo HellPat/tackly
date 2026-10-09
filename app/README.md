@@ -1,36 +1,37 @@
 # Tackly Android app
 
-This is the current single-user, Android-only first slice. It has no account,
-family, sharing, server connection, recommendations, timer, or background
-location tracking.
+The Flutter app keeps one phone's tasks in an app-private SQLite event log.
+Every saved change appends an event; screens replay events to derive lists and
+tasks. Every task belongs to one list. Completion records the tap time and
+available coordinates, even if the phone is offline. Missing location never
+blocks completion.
 
-## What it does
+You can use the app on one phone without a server. To share with your wife,
+open **Family**, create a family with your sync server's HTTPS URL, save the
+displayed recovery key in a password manager, and show the five-minute QR to
+her phone. On her phone, open **Family** and scan the code. Compare the six-digit
+confirmation code on both phones before allowing the request. Each installation
+connects to at most one family. The server
+has no UI; its deployment steps are in [server/README.md](../server/README.md).
 
-- Create lists, each with an emoji or a camera photo.
-- Add tasks to a list, with an emoji or camera photo. Every task belongs to one
-  list. The root shows an All Tasks view and the open count for each list.
-- Press and hold an open task to edit its name or image.
-- Check a task to complete it. A completion event records the time of the tap
-  and the phone's coordinates and accuracy when available. If location is
-  denied, disabled, or times out, completion still succeeds and records that
-  status. The confirmation offers Revert, which appends another event.
+The local event body is encrypted with an Android-secured key. For sync, event
+bodies are encrypted again under the family key and stored in a durable outbox
+before upload. The server has neither key. The family key and bearer token are
+kept in Android secure storage. The database contains events and sync metadata,
+not mutable task projections. Server-confirmed sequence defines replay order;
+pending offline events follow it, with competing task edits shown for a choice.
 
-## Local data model
+The app tries to sync after local changes, on resume, every 20 seconds while
+open, and through network-constrained Android WorkManager jobs. Android can
+delay background jobs, so opening the app or tapping **Sync now** is the
+fastest way to reconcile. The app shows a small message when the server cannot
+be reached. Camera photos are resized and embedded in encrypted events.
 
-The app-private SQLite database is `tackly_events.db`. Its single `events`
-table has a monotonic local sequence, UUID event ID, schema version, aggregate
-ID, event type, UTC event time, and JSON payload. Each saved change appends an
-event: `list.created`, `task.created`, `task.updated`, `task.completed`, or
-`task.completion_reverted`. The UI reads all events in sequence and derives its
-list/task state in memory. It stores no mutable task or list projection table.
-Navigation, typing before Save, and canceled camera actions are not domain
-events.
-
-Camera images are resized and embedded in the relevant event as Base64 so the
-event contains the task/list image without relying on a temporary camera path.
-Only local SQLite storage is implemented. A future PostgreSQL server can store
-and relay these events, but synchronization and conflict rules are not part of
-this app. The Android app disables system backup of its local database.
+The app disables Android backup. Uninstalling it removes local data and secure
+keys. A saved recovery key lets a fresh installation reconnect to server-held
+events. Existing debug APKs may use a different signing key, so a new APK may
+not install over them; do not uninstall a phone with unsynced or otherwise
+unrecoverable data.
 
 ## Build
 
@@ -42,10 +43,19 @@ flutter pub get
 flutter run
 ```
 
-For the emulator end-to-end suite, run
-`flutter test integration_test/current_slice_test.dart -d <android-device-id>`.
-The GitHub Actions workflow runs this suite and publishes a debug APK.
+The project currently contains an Android platform host only. Location
+permission is requested at completion; there is no background location
+permission. The UI uses Flutter Material controls and the Android camera app.
 
-The project contains only an Android platform host. Device location permission
-is requested when the first task is completed; no background permission is
-requested. The UI uses Flutter's Material controls and the Android camera app.
+The emulator integration suites are `integration_test/current_slice_test.dart`
+for local task flows, `integration_test/device_location_test.dart` for
+Android GPS capture and the location-service fallback, and `integration_test/family_sync_test.dart`
+for encrypted offline edits and conflict-choice UI with a deterministic relay.
+`current_slice_test.dart` also checks list/task camera-result storage with a
+controlled image picker result; it does not drive the external Android camera
+app.
+`integration_test/live_relay_test.dart` exercises client encryption, family
+pairing, offline event upload, completion and recovery against the real Rust
+server and PostgreSQL. It simulates two phones as separate event stores in one
+emulator process; it does not test camera capture or two physical phones.
+The release workflow runs these emulator suites on main pushes.

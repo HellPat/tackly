@@ -1,0 +1,63 @@
+name: Sync server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - '.github/workflows/server.yml'
+  pull_request:
+    paths:
+      - 'server/**'
+      - '.github/workflows/server.yml'
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: server
+    env:
+      DATABASE_URL: postgres://postgres:tackly_smoke_only@127.0.0.1:5432/tackly
+      TACKLY_TEST_DB_COMMAND: psql
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: tackly_smoke_only
+          POSTGRES_DB: tackly
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d tackly"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v6
+      - run: cargo fmt --check
+      - run: cargo check --locked
+      - run: cargo run --locked -- migrate
+      - name: Ensure PostgreSQL client is available
+        run: |
+          if ! command -v psql > /dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+      - name: Start relay
+        run: |
+          cargo run --locked > "$RUNNER_TEMP/tackly-sync.log" 2>&1 &
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3000/health > /dev/null; then
+              python3 tests/transport_smoke.py
+              python3 tests/api_e2e.py
+              psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/retention.sql
+              exit $?
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/tackly-sync.log"
+          exit 1

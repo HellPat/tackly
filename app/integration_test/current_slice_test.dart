@@ -1,5 +1,9 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:tackly/app_controller.dart';
 import 'package:tackly/event_store.dart';
@@ -46,6 +50,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'Apples');
     await tester.tap(find.text('Add task').last);
+    for (
+      var attempt = 0;
+      attempt < 30 && controller.state.tasks.isEmpty;
+      attempt++
+    ) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
     await tester.pumpAndSettle();
     final taskId = controller.state.tasks.keys.single;
     expect(controller.state.tasks[taskId]!.listId, listId);
@@ -188,11 +199,119 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Add task').last);
     await tester.pumpAndSettle();
+    for (
+      var attempt = 0;
+      attempt < 30 && controller.state.tasks.isEmpty;
+      attempt++
+    ) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
     expect(
       controller.state.tasks.values.single.listId,
       controller.state.lists.keys.single,
     );
     expect(find.text('Milk'), findsOneWidget);
+    await tester.longPress(find.text('Milk'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('📝'));
+    await tester.pumpAndSettle();
+    expect(find.text('Pick emoji'), findsOneWidget);
+    expect(find.text('Take photo'), findsOneWidget);
+    await tester.tap(find.text('Pick emoji'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField), '🥛');
+    await tester.tap(find.text('Use emoji'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save task'));
+    await tester.pumpAndSettle();
+    expect(controller.state.tasks.values.single.emoji, '🥛');
     await store.close();
   });
+
+  testWidgets('camera result is saved for a list and task across replay', (
+    tester,
+  ) async {
+    final originalPicker = ImagePickerPlatform.instance;
+    final camera = _CameraResult();
+    ImagePickerPlatform.instance = camera;
+    final databaseName = 'photos_${DateTime.now().microsecondsSinceEpoch}.db';
+    final store = await EventStore.open(databaseName: databaseName);
+    final controller = AppController(
+      store,
+      await store.load(),
+      captureLocation: () async =>
+          const CompletionLocation(status: 'unavailable'),
+    );
+    try {
+      await tester.pumpWidget(TacklyApp(controller: controller));
+      await tester.tap(find.text('Add list'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('🗂️'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Take photo'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Photos');
+      await tester.tap(find.text('Create list'));
+      await tester.pumpAndSettle();
+      for (
+        var attempt = 0;
+        attempt < 30 && controller.state.lists.isEmpty;
+        attempt++
+      ) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      final listId = controller.state.lists.keys.single;
+      expect(controller.state.lists[listId]!.photo, base64Encode(camera.bytes));
+
+      await tester.tap(find.text('Add task'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('📝'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Take photo'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Camera task');
+      await tester.tap(find.text('Add task').last);
+      await tester.pumpAndSettle();
+      for (
+        var attempt = 0;
+        attempt < 30 && controller.state.tasks.isEmpty;
+        attempt++
+      ) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      final taskId = controller.state.tasks.keys.single;
+      expect(controller.state.tasks[taskId]!.photo, base64Encode(camera.bytes));
+      expect(camera.calls, 2);
+      expect(camera.sources, everyElement(ImageSource.camera));
+      await store.close();
+      final reopened = await EventStore.open(databaseName: databaseName);
+      final replayed = await reopened.load();
+      expect(replayed.lists[listId]!.photo, base64Encode(camera.bytes));
+      expect(replayed.tasks[taskId]!.photo, base64Encode(camera.bytes));
+      await reopened.close();
+    } finally {
+      ImagePickerPlatform.instance = originalPicker;
+      controller.dispose();
+    }
+  });
+}
+
+class _CameraResult extends ImagePickerPlatform {
+  final bytes = Uint8List.fromList(
+    base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC',
+    ),
+  );
+  final sources = <ImageSource>[];
+  int calls = 0;
+
+  @override
+  Future<XFile?> getImageFromSource({
+    required ImageSource source,
+    ImagePickerOptions options = const ImagePickerOptions(),
+  }) async {
+    calls++;
+    sources.add(source);
+    return XFile.fromData(bytes, mimeType: 'image/png');
+  }
 }

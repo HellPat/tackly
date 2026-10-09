@@ -33,6 +33,7 @@ migrate_working_dir/
 /build/
 /coverage/
 /.local-signing/
+/android/key.properties
 
 # Symbolication related
 app.*.symbols

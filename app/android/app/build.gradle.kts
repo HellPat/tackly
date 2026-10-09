@@ -1,7 +1,15 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+val releaseKeyProperties = Properties()
+val releaseKeyPropertiesFile = rootProject.file("key.properties")
+if (releaseKeyPropertiesFile.exists()) {
+    releaseKeyPropertiesFile.inputStream().use { releaseKeyProperties.load(it) }
 }
 
 android {
@@ -29,10 +37,20 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (releaseKeyPropertiesFile.exists()) {
+            create("release") {
+                keyAlias = releaseKeyProperties.getProperty("keyAlias")
+                keyPassword = releaseKeyProperties.getProperty("keyPassword")
+                storeFile = file(releaseKeyProperties.getProperty("storeFile"))
+                storePassword = releaseKeyProperties.getProperty("storePassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // A distributable release needs a separately approved signing setup.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 }

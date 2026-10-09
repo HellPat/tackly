@@ -1,16 +1,36 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'app_controller.dart';
+import 'background_sync.dart';
 import 'event_store.dart';
+import 'family_page.dart';
+import 'family_sync.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
+    try {
+      await initializeBackgroundSync();
+    } catch (_) {
+      // The foreground retry loop still works if background scheduling fails.
+    }
     final store = await EventStore.open();
-    runApp(TacklyApp(controller: AppController(store, await store.load())));
+    final controller = AppController(store, await store.load());
+    final familySync = FamilySync(store);
+    await familySync.load();
+    controller.attachFamilySync(familySync);
+    if (familySync.credentials != null) {
+      try {
+        await scheduleBackgroundSync();
+      } catch (_) {
+        // The app can still synchronize while open.
+      }
+    }
+    runApp(TacklyApp(controller: controller));
   } catch (error) {
     runApp(
       MaterialApp(
@@ -22,9 +42,33 @@ Future<void> main() async {
   }
 }
 
-class TacklyApp extends StatelessWidget {
+class TacklyApp extends StatefulWidget {
   const TacklyApp({super.key, required this.controller});
   final AppController controller;
+
+  @override
+  State<TacklyApp> createState() => _TacklyAppState();
+}
+
+class _TacklyAppState extends State<TacklyApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(widget.controller.syncNow());
+    }
+  }
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -39,7 +83,33 @@ class TacklyApp extends StatelessWidget {
         surfaceTintColor: Colors.transparent,
       ),
     ),
-    home: ListsPage(controller: controller),
+    home: ListsPage(controller: widget.controller),
+  );
+}
+
+class _FamilyAction extends StatelessWidget {
+  const _FamilyAction({required this.controller});
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: 'Family',
+    icon: const Icon(Icons.group_outlined),
+    onPressed: () => Navigator.push<void>(
+      context,
+      MaterialPageRoute(builder: (_) => FamilyPage(controller: controller)),
+    ),
+  );
+}
+
+class _SyncWarning extends StatelessWidget {
+  const _SyncWarning(this.message);
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+    child: Text(message),
   );
 }
 
@@ -53,7 +123,19 @@ class ListsPage extends StatelessWidget {
     builder: (context, _) {
       final state = controller.state;
       return Scaffold(
-        appBar: AppBar(title: const Text('Tackly 🌱')),
+        appBar: AppBar(
+          title: const Text('Tackly 🌱'),
+          actions: [
+            if (controller.familySync != null)
+              _FamilyAction(controller: controller),
+          ],
+          bottom: controller.syncError == null
+              ? null
+              : PreferredSize(
+                  preferredSize: const Size.fromHeight(32),
+                  child: _SyncWarning(controller.syncError!),
+                ),
+        ),
         body: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
           children: [
@@ -109,6 +191,59 @@ class TasksPage extends StatefulWidget {
 
 class _TasksPageState extends State<TasksPage> {
   final Set<String> _finishing = {};
+
+  Future<void> _resolve(TaskItem task) async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Changes need a choice'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              ListTile(
+                title: Text('Keep ${task.title}'),
+                subtitle: const Text('Current version on this phone'),
+                onTap: () => Navigator.pop(context, 'current'),
+              ),
+              for (final event in task.conflictingEvents)
+                ListTile(
+                  title: Text(
+                    event.type == 'task.updated'
+                        ? event.payload['title'] as String
+                        : event.type == 'task.completed'
+                        ? 'Mark done'
+                        : event.type == 'task.conflict_resolved'
+                        ? 'Other phone’s choice'
+                        : 'Revert completion',
+                  ),
+                  subtitle: Text(
+                    '${event.originDeviceId == widget.controller.familySync?.store.deviceId ? 'This phone' : 'Other phone'} · ${event.occurredAtUtc.toLocal()}',
+                  ),
+                  onTap: () => Navigator.pop(context, event.id),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Later'),
+          ),
+        ],
+      ),
+    );
+    if (choice == null || !mounted) return;
+    try {
+      await widget.controller.resolveConflict(
+        task.id,
+        useEventId: choice == 'current' ? null : choice,
+      );
+    } catch (error) {
+      if (mounted) _showError(error);
+    }
+  }
 
   Future<void> _finish(TaskItem task) async {
     if (!_finishing.add(task.id)) return;
@@ -177,6 +312,16 @@ class _TasksPageState extends State<TasksPage> {
             list?.name ?? 'All Tasks',
             style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w500),
           ),
+          actions: [
+            if (widget.controller.familySync != null)
+              _FamilyAction(controller: widget.controller),
+          ],
+          bottom: widget.controller.syncError == null
+              ? null
+              : PreferredSize(
+                  preferredSize: const Size.fromHeight(32),
+                  child: _SyncWarning(widget.controller.syncError!),
+                ),
         ),
         body: tasks.isEmpty
             ? const Center(child: Text('Nothing to do here right now. 🌱'))
@@ -192,16 +337,21 @@ class _TasksPageState extends State<TasksPage> {
                         Expanded(
                           child: InkWell(
                             borderRadius: BorderRadius.circular(12),
-                            onLongPress: () => Navigator.push<void>(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => _EditorPage(
-                                  controller: widget.controller,
-                                  kind: _EditorKind.task,
-                                  taskId: task.id,
-                                ),
-                              ),
-                            ),
+                            onTap: task.hasConflict
+                                ? () => _resolve(task)
+                                : null,
+                            onLongPress: () => task.hasConflict
+                                ? _resolve(task)
+                                : Navigator.push<void>(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => _EditorPage(
+                                        controller: widget.controller,
+                                        kind: _EditorKind.task,
+                                        taskId: task.id,
+                                      ),
+                                    ),
+                                  ),
                             child: Padding(
                               padding: const EdgeInsets.all(10),
                               child: Row(
@@ -209,6 +359,11 @@ class _TasksPageState extends State<TasksPage> {
                                   _Avatar(emoji: task.emoji, photo: task.photo),
                                   const SizedBox(width: 12),
                                   Expanded(child: Text(task.title)),
+                                  if (task.hasConflict)
+                                    const Icon(
+                                      Icons.sync_problem,
+                                      color: Colors.deepOrange,
+                                    ),
                                 ],
                               ),
                             ),
@@ -229,7 +384,9 @@ class _TasksPageState extends State<TasksPage> {
                                 : Checkbox(
                                     value: false,
                                     semanticLabel: 'Mark ${task.title} done',
-                                    onChanged: (_) => _finish(task),
+                                    onChanged: task.hasConflict
+                                        ? null
+                                        : (_) => _finish(task),
                                   ),
                           ),
                         ),

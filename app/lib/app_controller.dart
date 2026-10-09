@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
 import 'event_store.dart';
+import 'background_sync.dart';
+import 'family_sync.dart';
 
 class AppController extends ChangeNotifier {
   AppController(this._store, this.state, {LocationCapture? captureLocation})
@@ -10,11 +14,59 @@ class AppController extends ChangeNotifier {
   final EventStore _store;
   final LocationCapture _locationCapture;
   AppState state;
+  FamilySync? familySync;
+  Timer? _syncTimer;
+  bool _syncing = false;
+  String? syncError;
 
-  Future<void> _replay() async {
-    state = await _store.load();
+  void attachFamilySync(FamilySync service) {
+    familySync = service;
+    _syncTimer?.cancel();
+    _syncTimer = Timer.periodic(
+      const Duration(seconds: 20),
+      (_) => unawaited(syncNow()),
+    );
+    unawaited(syncNow());
     notifyListeners();
   }
+
+  Future<void> syncNow() async {
+    final service = familySync;
+    if (service?.credentials == null || _syncing) return;
+    _syncing = true;
+    try {
+      final changed = await service!.syncOnce();
+      syncError = null;
+      if (changed) await _replay();
+    } on SyncHttpException catch (error) {
+      syncError = error.statusCode == 401
+          ? 'Sync access expired · local changes stay on this phone'
+          : 'Sync failed (${error.statusCode}) · local changes stay on this phone';
+    } catch (_) {
+      syncError = 'Sync failed · local changes stay on this phone';
+    } finally {
+      _syncing = false;
+      notifyListeners();
+    }
+  }
+
+  @override
+  void dispose() {
+    _syncTimer?.cancel();
+    familySync?.close();
+    super.dispose();
+  }
+
+  Future<void> _replay({bool localChange = false}) async {
+    state = await _store.load();
+    notifyListeners();
+    if (localChange) unawaited(syncNow());
+    if (localChange && familySync?.credentials != null) {
+      unawaited(requestBackgroundSync().catchError((Object _) {}));
+    }
+  }
+
+  Future<void> refreshFromDisk() => _replay();
 
   Future<String> createList(String name, String emoji, String? photo) async {
     final id = _store.newId();
@@ -23,7 +75,7 @@ class AppController extends ChangeNotifier {
       'emoji': emoji,
       'photo': photo,
     });
-    await _replay();
+    await _replay(localChange: true);
     return id;
   }
 
@@ -43,7 +95,7 @@ class AppController extends ChangeNotifier {
       'emoji': emoji,
       'photo': photo,
     });
-    await _replay();
+    await _replay(localChange: true);
   }
 
   Future<void> updateTask(
@@ -53,43 +105,89 @@ class AppController extends ChangeNotifier {
     String? photo,
   ) async {
     final task = state.tasks[id];
-    if (task == null || task.isCompleted) {
+    if (task == null || task.isCompleted || task.hasConflict) {
       throw StateError('This task is no longer open.');
     }
     await _store.append('task.updated', id, {
+      'baseEventId': task.lastChangeEventId,
       'title': title,
       'emoji': emoji,
       'photo': photo,
     });
-    await _replay();
+    await _replay(localChange: true);
   }
 
   Future<StoredEvent> completeTask(String id) async {
     final task = state.tasks[id];
-    if (task == null || task.isCompleted) {
+    if (task == null || task.isCompleted || task.hasConflict) {
       throw StateError('This task is no longer open.');
     }
     // Capture the tap time before a permission prompt or GPS wait.
     final completedAt = DateTime.now().toUtc();
     final location = await _locationCapture();
     final event = await _store.append('task.completed', id, {
+      'baseEventId': task.lastChangeEventId,
       'completedAtUtc': completedAt.toIso8601String(),
       'latitude': location.latitude,
       'longitude': location.longitude,
       'accuracyMeters': location.accuracyMeters,
       'locationStatus': location.status,
     });
-    await _replay();
+    await _replay(localChange: true);
     return event;
   }
 
   Future<void> revertCompletion(String taskId, String completionEventId) async {
     final task = state.tasks[taskId];
-    if (task?.completionEventId != completionEventId) return;
+    if (task?.completionEventId != completionEventId || task!.hasConflict) {
+      return;
+    }
     await _store.append('task.completion_reverted', taskId, {
+      'baseEventId': task.lastChangeEventId,
       'completionEventId': completionEventId,
     });
-    await _replay();
+    await _replay(localChange: true);
+  }
+
+  Future<void> resolveConflict(String taskId, {String? useEventId}) async {
+    final task = state.tasks[taskId];
+    if (task == null || !task.hasConflict) return;
+    final snapshot = task.snapshot();
+    if (useEventId != null) {
+      final chosen = task.conflictingEvents.firstWhere(
+        (event) => event.id == useEventId,
+      );
+      switch (chosen.type) {
+        case 'task.updated':
+          snapshot['title'] = chosen.payload['title'];
+          snapshot['emoji'] = chosen.payload['emoji'];
+          snapshot['photo'] = chosen.payload['photo'];
+        case 'task.completed':
+          snapshot['completionEventId'] = chosen.id;
+          snapshot['completedAtUtc'] = chosen.payload['completedAtUtc'];
+          snapshot['latitude'] = chosen.payload['latitude'];
+          snapshot['longitude'] = chosen.payload['longitude'];
+          snapshot['accuracyMeters'] = chosen.payload['accuracyMeters'];
+          snapshot['locationStatus'] = chosen.payload['locationStatus'];
+        case 'task.completion_reverted':
+          snapshot['completionEventId'] = null;
+          snapshot['completedAtUtc'] = null;
+          snapshot['latitude'] = null;
+          snapshot['longitude'] = null;
+          snapshot['accuracyMeters'] = null;
+          snapshot['locationStatus'] = null;
+        case 'task.conflict_resolved':
+          snapshot.addAll(chosen.payload);
+      }
+    }
+    await _store.append('task.conflict_resolved', taskId, {
+      ...snapshot,
+      'resolvedEventIds': [
+        task.lastChangeEventId,
+        ...task.conflictingEvents.map((event) => event.id),
+      ],
+    });
+    await _replay(localChange: true);
   }
 }
 
@@ -124,7 +222,7 @@ Future<CompletionLocation> captureDeviceLocation() async {
     final position = await Geolocator.getCurrentPosition(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 8),
+        timeLimit: Duration(seconds: 8),
       ),
     );
     return CompletionLocation(
