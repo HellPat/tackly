@@ -15,6 +15,7 @@ separate local event stores in one emulator process.
 | Completion time when Android location service is disabled | app/integration_test/device_location_test.dart on emulator |
 | Offline concurrent edits, task-only conflict, visible choice, convergence | app/integration_test/family_sync_test.dart on emulator with deterministic HTTP relay |
 | QR invitation, owner approval, one family per phone, offline upload, ciphertext-only relay, completion sync, member recovery | app/integration_test/live_relay_test.dart on emulator with real Rust server and PostgreSQL |
+| Family screen create, recovery-key display, invite and cancellation, manual sync, and restore controls | app/integration_test/family_ui_test.dart on emulator with real Rust server and PostgreSQL |
 | Family creation/recovery, tenant isolation, API authorization, event validation, batching, paging, retry idempotency | server/tests/api_e2e.py against real server and PostgreSQL |
 | One-use joining, invitation expiry, owner/member permissions, cancellation at each stage, concurrent event order | server/tests/api_e2e.py against real server and PostgreSQL |
 | Accepted events reject update/delete/truncate | server/tests/retention.sql against PostgreSQL |

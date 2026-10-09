@@ -18,21 +18,17 @@ jobs:
         working-directory: app
     env:
       DATABASE_URL: postgres://postgres:tackly_e2e_only@127.0.0.1:5432/tackly
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_PASSWORD: tackly_e2e_only
-          POSTGRES_DB: tackly
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d tackly"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v6
+      - name: Start local PostgreSQL
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql postgresql-client
+          sudo systemctl start postgresql
+          sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'tackly_e2e_only'"
+          sudo -u postgres createdb tackly
+          pg_isready -h 127.0.0.1 -U postgres -d tackly
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -74,6 +70,7 @@ jobs:
             flutter test integration_test/current_slice_test.dart
             flutter test integration_test/family_sync_test.dart
             flutter test integration_test/live_relay_test.dart --dart-define=TACKLY_E2E_SERVER=http://10.0.2.2:3000
+            flutter test integration_test/family_ui_test.dart --dart-define=TACKLY_E2E_SERVER=http://10.0.2.2:3000
             adb shell settings put secure location_mode 0
             flutter test integration_test/device_location_test.dart --dart-define=EXPECT_LOCATION=service_disabled
             adb shell settings put secure location_mode 3
