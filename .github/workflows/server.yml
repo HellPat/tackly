@@ -30,6 +30,7 @@ jobs:
       - run: cargo run --locked -- migrate
       - name: Start relay
         run: |
+          set -euo pipefail
           cargo run --locked > "$RUNNER_TEMP/tackly-sync.log" 2>&1 &
           for attempt in {1..30}; do
             if curl --fail --silent http://127.0.0.1:3000/health > /dev/null; then
