@@ -6,7 +6,7 @@
   <title>Tackly prototype</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;600&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;600&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&display=block" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/daisyui@5.7.47/daisyui.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.3"></script>
@@ -33,13 +33,10 @@
   </style>
 </head>
 <body class="bg-stone-300 text-stone-800 antialiased">
-  <div id="app" class="fixed inset-0 mx-auto max-w-[430px] bg-stone-100 flex flex-col overflow-hidden">
+  <div id="app" class="fixed inset-0 mx-auto max-w-[430px] flex flex-col overflow-hidden bg-stone-100">
 
-    <!-- When nothing is mine: a calm picture behind everything but the navigation, faded at the top so the title and filters stay readable. -->
-    <div id="calm" class="hidden absolute inset-x-0 top-0 bottom-20">
-      <img src="https://images.unsplash.com/photo-1767508938873-a2afdfb1b8a3?ixlib=rb-4.1.0&q=80&fm=jpg&crop=entropy&cs=srgb&w=1200" alt="" class="size-full object-cover object-[50%_65%]">
-      <div class="absolute inset-x-0 top-0 h-96 bg-linear-to-b from-white from-15% via-white/75 via-50% to-white/0"></div>
-    </div>
+    <!-- A calm illustration at the bottom, behind the content (picked in the background switcher). -->
+    <div id="scene" class="absolute inset-x-0 bottom-20 h-[42%] pointer-events-none" aria-hidden="true"></div>
 
     <header id="header" class="relative z-10 shrink-0 flex items-center gap-1 px-2 h-16">
       <button id="backBtn" class="hidden size-12 grid place-items-center rounded-full text-stone-700 hover:bg-stone-200" aria-label="Back"><span class="material-symbols-rounded" aria-hidden="true">arrow_back</span></button>
@@ -48,7 +45,7 @@
       <span id="offline" class="hidden mr-2 items-center gap-1 h-8 px-3 rounded-full bg-stone-200 text-sm text-stone-700"><span class="material-symbols-rounded !text-[18px]" aria-hidden="true">cloud_off</span>Offline</span>
     </header>
 
-    <!-- The content: the list and its main action, the add bar. When nothing is mine, a calm picture fills it. -->
+    <!-- The content: the list and its main action, the add bar. -->
     <div id="content" class="relative flex-1 min-h-0 flex flex-col">
     <main id="main" class="relative z-10 flex-1 overflow-y-auto px-3 pb-6"></main>
 
@@ -85,6 +82,12 @@
     <section id="toasts" class="absolute inset-x-4 bottom-40 z-50 h-0" aria-label="Notifications" aria-live="polite"></section>
   </div>
 
+  <!-- Prototype tool, not part of the app: try page backgrounds. -->
+  <details id="bgSwitcher" class="max-[600px]:hidden fixed top-3 right-3 z-[60] rounded-xl bg-white shadow-lg text-sm text-stone-800 open:p-3 [&:not([open])]:p-0">
+    <summary class="list-none cursor-pointer size-10 grid place-items-center rounded-xl" aria-label="Background"><span class="material-symbols-rounded" aria-hidden="true">wallpaper</span></summary>
+    <div class="mt-2 grid grid-cols-5 gap-2 w-[420px]" role="radiogroup" aria-label="Background"></div>
+  </details>
+
 <script>
 const $ = (s) => document.querySelector(s);
 const icon = (name, cls = '') => `<span class="material-symbols-rounded ${cls}" aria-hidden="true">${name}</span>`;
@@ -100,7 +103,7 @@ const CARD = 'bg-[#fffdfb] rounded-2xl shadow-sm';
 const TINTS = ['bg-sky-100 text-sky-900', 'bg-pink-100 text-pink-900', 'bg-teal-100 text-teal-900', 'bg-amber-100 text-amber-900', 'bg-violet-100 text-violet-900'];
 
 const state = {
-  tab: 'tasks', filter: 'mine', placeView: null, personView: null, editPlace: false, chosen: new Set(), detail: null,
+  tab: 'tasks', filter: (() => { try { return localStorage.getItem('tackly-filter') || 'mine'; } catch { return 'mine'; } })(), placeView: null, personView: null, editPlace: false, chosen: new Set(), detail: null,
   // Lists people made. Besides them there is always "Other" (id 'other'): it can't be deleted, and new tasks land there.
   lists: [{ id: 'home', name: 'Household' }, { id: 'shop', name: 'Shopping' }, { id: 'garden', name: 'Garden' }],
   listView: null, // the list you stepped into on Tasks
@@ -211,7 +214,7 @@ function sheet(html) { $('#sheetBody').innerHTML = html; $('#sheet').showModal()
 
 /* A task card: the circle finishes it, the rest opens it.
    When someone else is on it, their picture takes the circle's place and the card is locked. */
-function taskCard(t) {
+function taskCard(t, flat = false) {
   const who = t.on && member(t.on), how = progress(t);
   const mine = who?.me, taken = who && !mine;
   const st = how && PROGRESS[how];
@@ -233,7 +236,9 @@ function taskCard(t) {
     : `<button class="group shrink-0 size-12 -mr-2 grid place-items-center" data-assign="${t.id}" aria-label="Assign ${t.title}">
         <span class="size-8 rounded-full grid place-items-center bg-stone-100 border-2 border-dashed border-white shadow-[0_1px_3px_rgb(41_37_36/.3)] text-stone-500 transition-colors group-hover:text-accent-700">${icon('person_add', '!text-[18px]')}</span>
       </button>`;
-  return `<li class="${CARD} mb-2 max-h-40 overflow-hidden transition-all duration-300 ${mine && how === 'working' ? 'border-l-4 border-accent-700' : ''} ${taken ? '!bg-transparent !shadow-none ring-1 ring-inset ring-stone-200' : ''}" data-card="${t.id}" ${taken ? 'aria-disabled="true"' : ''}>
+  const shell = flat ? 'max-h-40 overflow-hidden transition-all duration-300' : `${CARD} mb-2 max-h-40 overflow-hidden transition-all duration-300`;
+  const lockedLook = flat ? 'bg-stone-50' : '!bg-transparent !shadow-none ring-1 ring-inset ring-stone-200';
+  return `<li class="${shell} ${mine && how === 'working' ? 'border-l-4 border-accent-700' : ''} ${taken ? lockedLook : ''}" data-card="${t.id}" ${taken ? 'aria-disabled="true"' : ''}>
     <div class="flex items-center gap-1 pl-1 pr-3 min-h-16">
       ${lead}
       <button class="flex-1 min-w-0 text-left py-3 flex flex-col gap-0.5 disabled:cursor-default" data-open="${t.id}" ${taken ? 'disabled' : ''}>
@@ -269,60 +274,56 @@ const overviewRow = (data, ic, name, count, sub = '') => `<li><button class="w-f
 /* Tasks overview: the lists to step into, then "Other" shown open, with its tasks right here. */
 function renderLists() {
   const rows = state.lists.map((l) => {
-    const open = visible().filter((t) => t.list === l.id), mine = open.filter((t) => t.on === 'p').length;
-    return overviewRow(`data-open-list="${l.id}"`, 'checklist', l.name, open.length ? `${open.length} open` : '', mine ? `${mine} yours` : '');
+    const n = filtered(visible().filter((t) => t.list === l.id)).length;
+    return overviewRow(`data-open-list="${l.id}"`, 'checklist', l.name, n ? `${n} ${{ mine: 'yours', free: 'unassigned', all: 'open' }[state.filter]}` : '');
   }).join('');
-  const newList = `<button class="${SECONDARY} mt-3" data-new-list>${icon('add', '!text-[18px]')}New list</button>`;
-  const other = visible().filter((t) => t.list === 'other');
-  return `${rows ? `<ul class="${CARD} overflow-hidden mt-1">${rows}</ul>` : ''}${newList}
-    ${heading('Other')}
-    ${other.length ? `<ul>${other.map(taskCard).join('')}</ul>` : `<p class="px-2 py-6 text-stone-600">New tasks land here. Add one below.</p>`}`;
+  const newList = `<div class="mt-3 flex justify-center"><button class="${SECONDARY}" data-new-list>${icon('add', '!text-[18px]')}New list</button></div>`;
+  // "Other" looks like a list, but always open: its tasks sit right inside. Nothing to show, no card.
+  const other = filtered(visible().filter((t) => t.list === 'other'));
+  const otherCard = other.length ? `<section class="${CARD} overflow-hidden mt-4" aria-label="Other">
+      <div class="flex items-center gap-3 px-4 min-h-14">
+        <span class="size-9 shrink-0 rounded-full grid place-items-center bg-stone-100 text-stone-600">${icon('checklist', '!text-[18px]')}</span>
+        <h2 class="flex-1 text-base">Other</h2>
+        <span class="text-sm text-stone-600">${other.length} ${{ mine: 'yours', free: 'unassigned', all: 'open' }[state.filter]}</span>
+        ${icon('expand_less', 'text-stone-500')}
+      </div>
+      <ul class="pb-1">${other.map((t) => taskCard(t, true)).join('')}</ul>
+    </section>` : '';
+  return `${filterBar(visible())}
+    ${rows ? `<ul class="${CARD} overflow-hidden">${rows}</ul>` : ''}${otherCard}${newList}`;
 }
 
-function renderTasks() {
-  if (!state.listView) return renderLists();
-  const all = visible().filter((t) => t.list === state.listView);
-  if (!all.length) return emptyState('celebration', 'All done', 'Nothing left to do. Enjoy it.');
-  const tasks = all.filter(FILTERS[state.filter].keep);
+/* The filter chips (Mine / Unassigned / All) with counts for the tasks on this screen. One setting for the whole app. */
+function filterBar(all) {
   const chips = Object.entries(FILTERS).map(([id, { label, keep }]) => {
     const on = state.filter === id, n = all.filter(keep).length;
     return `<button data-filter="${id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-stone-800 text-stone-50' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${label}<span class="${on ? 'text-stone-300' : 'text-stone-500'} font-normal">${n}</span></button>`;
   }).join('');
-  const head = `<div class="flex gap-2 pt-1 pb-3" role="group" aria-label="Filter">${chips}</div>`;
-  if (tasks.length) return `${head}<ul>${tasks.map(taskCard).join('')}</ul>`;
-  if (state.filter === 'mine') return head + nothingMine();
-  return `${head}<p class="py-16 text-center text-stone-600">Every task has someone on it.</p>`;
+  return `<div class="flex gap-2 pt-1 pb-3" role="group" aria-label="Filter">${chips}</div>`;
+}
+const filtered = (tasks) => tasks.filter(FILTERS[state.filter].keep);
+
+/* Tasks of one list or one place, filtered. */
+function taskList(all, emptyAll) {
+  if (!all.length) return emptyState('celebration', 'All done', emptyAll);
+  const tasks = filtered(all);
+  if (tasks.length) return `${filterBar(all)}<ul>${tasks.map((t) => taskCard(t)).join('')}</ul>`;
+  if (state.filter === 'mine') return `${filterBar(all)}<p class="py-16 text-center text-stone-600">Nothing of yours here.</p>`;
+  return `${filterBar(all)}<p class="py-16 text-center text-stone-600">Every task here has someone on it.</p>`;
 }
 
-/* Nothing of mine: the calm picture fills the screen, and a note asks to help someone. */
-function nothingMine() {
-  const someone = others()[happy % others().length];
-  return `<div id="toAll" class="mt-24 flex flex-col items-center text-center">
-      <p class="font-['Caveat'] text-2xl leading-none text-stone-700">Nothing on your plate.</p>
-      <div id="happy" class="mt-5 flex flex-col items-center gap-2 transition-opacity duration-300">
-        <span class="-rotate-3">${avatar(someone, 'size-12')}</span>
-        <p class="font-['Caveat'] text-[34px] leading-none font-bold text-stone-800">Make ${someone.name} happy</p>
-      </div>
-      <button class="${PRIMARY} mt-5 !h-12 px-6 text-base" data-filter="all">Pick some</button>
-    </div>`;
+function renderTasks() {
+  if (!state.listView) return renderLists();
+  return taskList(visible().filter((t) => t.list === state.listView), 'Nothing left to do. Enjoy it.');
 }
-/* Every few seconds the note names someone else in the family. */
-const others = () => state.members.filter((m) => !m.me);
-let happy = 0;
-setInterval(() => {
-  const el = $('#happy'); if (!el) return;
-  el.classList.add('opacity-0');
-  setTimeout(() => { happy++; const fresh = new DOMParser().parseFromString(nothingMine(), 'text/html').querySelector('#happy'); el.innerHTML = fresh.innerHTML; el.classList.remove('opacity-0'); }, 300);
-}, 4000);
 
 function renderPlaces() {
   if (state.placeView && state.editPlace) return renderPlaceEdit(placeById(state.placeView));
   if (state.placeView) {
     const p = placeById(state.placeView);
-    const tasks = openAt(p);
     const n = p.locations.length;
     return `<button class="flex items-center gap-1.5 px-2 pb-3 text-sm text-stone-600 hover:text-stone-800" data-edit-place>${icon('location_on', '!text-[18px] text-stone-500')}${n} ${n === 1 ? 'location' : 'locations'}</button>
-      ${tasks.length ? `<ul>${tasks.map(taskCard).join('')}</ul>` : `<p class="py-16 text-center text-stone-600">Nothing to get here.</p>`}`;
+      ${taskList(openAt(p), 'Nothing to get here.')}`;
   }
   // Inside a group: its places, the one with the most to get first.
   if (state.groupView) {
@@ -376,7 +377,7 @@ function renderFamily() {
   if (state.personView) {
     const m = member(state.personView);
     const tasks = visible().filter((t) => t.on === m.id);
-    return tasks.length ? `<ul class="pt-1">${tasks.map(taskCard).join('')}</ul>`
+    return tasks.length ? `<ul class="pt-1">${tasks.map((t) => taskCard(t)).join('')}</ul>`
       : `<p class="py-16 text-center text-stone-600">${m.me ? 'You are' : `${m.name} is`} not on any task.</p>`;
   }
   return `<ul class="${CARD} overflow-hidden mt-1">${state.members.map((m) => {
@@ -515,7 +516,6 @@ function render() {
   $('#offline').classList.toggle('hidden', !state.offline); $('#offline').classList.toggle('inline-flex', !!state.offline);
   $('#familyBar').classList.toggle('hidden', state.tab !== 'family' || !!state.personView);
   $('#familyBar').innerHTML = `<button class="${PRIMARY} w-full !h-12 text-base" data-invite>${icon('person_add')}Invite member</button>`;
-  $('#calm').classList.toggle('hidden', !$('#toAll'));
   renderDock(); renderComposer(); renderDetail();
 }
 
@@ -601,7 +601,7 @@ document.addEventListener('click', (e) => {
   else if (b.id === 'editBtn' || 'editPlace' in d) { state.editPlace = true; }
   else if (d.person) { state.personView = d.person; }
   else if ('newList' in d) { nameSheet('list'); return; }
-  else if (d.openList) { state.listView = d.openList; state.filter = 'mine'; }
+  else if (d.openList) { state.listView = d.openList; }
   else if (d.rename) { nameSheet(d.rename, d.id); return; }
   else if ('closeSheet' in d) { $('#sheet').close(); return; }
   else if (d.delete) {
@@ -624,7 +624,7 @@ document.addEventListener('click', (e) => {
     $('#sheet').close();
     toast(m.me ? `You took ${t.title}` : `${t.title} is now ${m.name}’s`, 'Undo', () => { Object.assign(t, { on: null, by: null }); render(); });
   }
-  else if (d.filter) { state.filter = d.filter; }
+  else if (d.filter) { state.filter = d.filter; try { localStorage.setItem('tackly-filter', d.filter); } catch {} }
   else if (d.removeLocation) {
     const p = placeById(state.placeView), [l] = p.locations.splice(+d.removeLocation, 1);
     toast(`Removed ${l.name}`, 'Undo', () => { p.locations.splice(+d.removeLocation, 0, l); render(); });
@@ -654,7 +654,79 @@ document.addEventListener('click', (e) => {
   render();
 });
 
-// ?tab=places, ?tab=places&place=lidl, ?offline=1, ?empty=1, ?typing=text, ?task=6, ?task=6&run=1, ?sheet=invite|avatar, ?toasts=3, ?fan=1
+/* Page backgrounds: soft CSS skies and patterns, and calm nature drawings (inline SVG, no photos). */
+const W = (d, fill, op = 1) => `<path d="${d}" fill="${fill}" opacity="${op}"/>`;
+const pines = (y, h, n, fill, op, seed) => Array.from({ length: n }, (_, i) => {
+  const x = (i + 0.5) * (430 / n) + ((i * seed) % 17) - 8, t = h * (0.75 + ((i * seed) % 5) / 10);
+  return W(`M${x} ${y - t} L${x + t * 0.32} ${y} L${x - t * 0.32} ${y} Z`, fill, op);
+}).join('');
+const svg = (body) => `<svg viewBox="0 0 430 320" preserveAspectRatio="xMidYMax slice" class="size-full">${body}</svg>`;
+const SCENES = {
+  hills: svg(`<circle cx="330" cy="95" r="36" fill="#fde68a" opacity=".85"/>`
+    + W('M0 200 C80 150 160 160 240 190 S380 170 430 150 V320 H0Z', '#ecfccb')
+    + W('M0 240 C90 200 200 210 270 235 S390 225 430 210 V320 H0Z', '#d9f99d', .8)
+    + W('M0 285 C120 255 220 262 300 282 S400 272 430 266 V320 H0Z', '#bef264', .5)),
+  mountains: svg(W('M0 230 L70 140 L120 190 L190 90 L260 180 L310 130 L430 230 V320 H0Z', '#ede9fe')
+    + W('M190 90 L212 118 L200 114 L190 124 L180 113 L170 116Z', '#ffffff', .9)
+    + W('M0 260 L90 190 L160 240 L240 170 L330 245 L380 210 L430 250 V320 H0Z', '#ddd6fe', .85)
+    + W('M0 290 C110 265 220 275 430 280 V320 H0Z', '#c4b5fd', .45)),
+  sea: svg(`<circle cx="300" cy="120" r="34" fill="#fed7aa" opacity=".9"/>`
+    + `<path d="M90 70 q8 -7 16 0 q8 -7 16 0 M140 50 q6 -5 12 0 q6 -5 12 0" fill="none" stroke="#a8a29e" stroke-width="2" stroke-linecap="round"/>`
+    + W('M0 190 C60 180 120 200 180 190 S300 180 430 192 V320 H0Z', '#e0f2fe')
+    + W('M0 230 C70 215 140 240 210 228 S340 215 430 232 V320 H0Z', '#bae6fd', .8)
+    + W('M0 275 C80 260 160 285 240 272 S360 262 430 278 V320 H0Z', '#7dd3fc', .45)),
+  forest: svg(pines(250, 110, 9, '#d1fae5', 1, 7) + pines(285, 95, 11, '#a7f3d0', .8, 5) + pines(320, 80, 13, '#6ee7b7', .45, 3)),
+  dunes: svg(`<circle cx="110" cy="100" r="40" fill="#fde68a" opacity=".8"/>`
+    + W('M0 215 C110 170 200 230 300 200 S400 175 430 185 V320 H0Z', '#ffedd5')
+    + W('M0 255 C90 230 190 270 280 245 S390 230 430 240 V320 H0Z', '#fed7aa', .85)
+    + W('M0 295 C120 275 230 300 330 285 S410 280 430 284 V320 H0Z', '#fdba74', .45)),
+  meadow: svg(W('M0 215 C120 190 300 205 430 190 V320 H0Z', '#ecfccb')
+    + W('M0 255 C140 235 280 250 430 238 V320 H0Z', '#d9f99d', .85)
+    + Array.from({ length: 16 }, (_, i) => { const x = (i * 29) % 420 + 6, y = 250 + (i * 23) % 62; return `<path d="M${x} ${y} l4 -14 M${x + 5} ${y} l0 -17 M${x + 10} ${y} l-3 -13" stroke="#86efac" stroke-width="2" stroke-linecap="round"/>`; }).join('')
+    + Array.from({ length: 18 }, (_, i) => { const x = (i * 47) % 420 + 10, y = 232 + (i * 19) % 80, c = ['#fbcfe8', '#ddd6fe', '#fecaca'][i % 3];
+        return `<g transform="translate(${x} ${y})">${[0, 72, 144, 216, 288].map((r) => `<circle cx="0" cy="-4" r="3" fill="${c}" transform="rotate(${r})"/>`).join('')}<circle r="2" fill="#fde68a"/></g>`; }).join('')),
+  dusk: svg(W('M0 205 L60 160 L110 185 L170 140 L230 180 L290 150 L360 190 L430 165 V215 H0Z', '#ddd6fe', .8)
+    + W('M0 215 H430 V320 H0Z', '#ede9fe')
+    + `<g stroke="#f5d0fe" stroke-width="3" stroke-linecap="round"><path d="M150 240 h120"/><path d="M175 262 h70"/><path d="M195 282 h30"/></g>`),
+  leaves: `<svg viewBox="0 0 430 320" preserveAspectRatio="xMidYMax slice" class="size-full" fill="none" stroke-linecap="round">
+    <g stroke="#a8a29e" stroke-width="1.6"><path d="M-10 330 C60 260 90 210 170 170"/><path d="M440 330 C380 270 360 240 300 215"/></g>
+    <g stroke="#86efac" stroke-width="1.6">${Array.from({ length: 7 }, (_, i) => { const x = 10 + i * 24, y = 312 - i * 22; return `<ellipse cx="${x + 8}" cy="${y - 14}" rx="7" ry="15" transform="rotate(${-40 + i * 4} ${x + 8} ${y - 14})"/><ellipse cx="${x + 22}" cy="${y + 2}" rx="6" ry="13" transform="rotate(${50 - i * 3} ${x + 22} ${y + 2})"/>`; }).join('')}
+    ${Array.from({ length: 5 }, (_, i) => { const x = 420 - i * 24, y = 315 - i * 20; return `<ellipse cx="${x - 10}" cy="${y - 12}" rx="6" ry="13" transform="rotate(${35 - i * 4} ${x - 10} ${y - 12})"/>`; }).join('')}</g></svg>`,
+  clouds: svg(`<g fill="#ffffff" opacity=".95">${[[70, 90, 1], [300, 60, .8], [220, 170, 1.2], [60, 230, .9], [360, 250, 1]].map(([x, y, k]) =>
+    `<g transform="translate(${x} ${y}) scale(${k})"><circle cx="0" cy="0" r="18"/><circle cx="20" cy="-8" r="22"/><circle cx="42" cy="0" r="16"/><rect x="0" y="-2" width="42" height="18" rx="9"/></g>`).join('')}</g>`),
+};
+const BACKGROUNDS = {
+  sea:       { sky: 'bg-linear-to-b from-sky-50 to-orange-50', scene: 'sea' },
+  hills:     { sky: 'bg-linear-to-b from-sky-50 to-lime-50', scene: 'hills' },
+  mountains: { sky: 'bg-linear-to-b from-indigo-50 to-violet-50', scene: 'mountains' },
+  forest:    { sky: 'bg-linear-to-b from-teal-50 to-emerald-50', scene: 'forest' },
+  dunes:     { sky: 'bg-linear-to-b from-amber-50 to-orange-50', scene: 'dunes' },
+  meadow:    { sky: 'bg-linear-to-b from-sky-50 to-lime-50', scene: 'meadow' },
+  dusk:      { sky: 'bg-linear-to-b from-pink-50 to-violet-100', scene: 'dusk' },
+  leaves:    { sky: 'bg-stone-50', scene: 'leaves' },
+  clouds:    { sky: 'bg-linear-to-b from-sky-100 to-sky-50', scene: 'clouds' },
+  aurora:    { sky: 'bg-stone-50 bg-[radial-gradient(at_15%_0%,#fae8ff_0,transparent_55%),radial-gradient(at_95%_10%,#e0f2fe_0,transparent_50%),radial-gradient(at_60%_100%,#fef3c7_0,transparent_55%)]' },
+  dawn:      { sky: 'bg-linear-to-b from-fuchsia-50 to-pink-50' },
+  peach:     { sky: 'bg-stone-50 bg-[radial-gradient(at_100%_0%,#ffedd5_0,transparent_60%),radial-gradient(at_0%_100%,#fce7f3_0,transparent_60%)]' },
+  dots:      { sky: 'bg-stone-50 bg-[radial-gradient(#d6d3d1_1px,transparent_1.2px)] bg-size-[18px_18px]' },
+  paper:     { sky: 'bg-stone-50 bg-[linear-gradient(#e7e5e4_1px,transparent_1px),linear-gradient(90deg,#e7e5e4_1px,transparent_1px)] bg-size-[24px_24px]' },
+  plain:     { sky: 'bg-stone-100' },
+};
+const APP = 'fixed inset-0 mx-auto max-w-[430px] flex flex-col overflow-hidden';
+function setBackground(name) {
+  const bg = BACKGROUNDS[name] ?? BACKGROUNDS.sea;
+  $('#app').className = `${APP} ${bg.sky}`;
+  $('#scene').innerHTML = bg.scene ? SCENES[bg.scene] : '';
+  try { localStorage.setItem('tackly-bg', name); } catch {}
+  $('#bgSwitcher [role=radiogroup]').innerHTML = Object.entries(BACKGROUNDS).map(([n, b]) => `
+    <button role="radio" aria-checked="${n === name}" data-bg="${n}" class="flex flex-col items-center gap-1 text-xs">
+      <span class="relative w-16 h-20 rounded-lg overflow-hidden border ${n === name ? 'ring-2 ring-stone-800 ring-offset-1' : 'border-stone-200'} ${b.sky}">${b.scene ? `<span class="absolute inset-x-0 bottom-0 h-1/2">${SCENES[b.scene]}</span>` : ''}</span>${n}</button>`).join('');
+}
+$('#bgSwitcher').addEventListener('click', (e) => { const b = e.target.closest('[data-bg]'); if (b) setBackground(b.dataset.bg); });
+let savedBg = null; try { savedBg = localStorage.getItem('tackly-bg'); } catch {}
+setBackground(new URLSearchParams(location.search).get('bg') || savedBg || 'sea');
+
+// ?bg=dots, ?tab=places, ?tab=places&place=lidl, ?offline=1, ?empty=1, ?typing=text, ?task=6, ?task=6&run=1, ?sheet=invite|avatar, ?toasts=3, ?fan=1
 const query = new URLSearchParams(location.search);
 if (query.get('tab')) state.tab = query.get('tab');
 if (query.get('group')) state.groupView = query.get('group');
