@@ -218,9 +218,15 @@ function taskCard(t) {
           ${icon('check', '!text-[16px] text-accent-ink')}
         </span>
       </label>`;
-  const line = st && (mine ? st.me : st.other(who.name));
+  // Given to someone by someone else reads as "Assigned to …", not "… picked it".
+  const given = how === 'picked' && t.by && t.by !== t.on;
+  const line = st && (given ? `Assigned to ${mine ? 'you' : who.name}` : mine ? st.me : st.other(who.name));
   // Right: who has it.
-  const assignee = who ? `<span class="shrink-0 pl-2 ${taken ? 'grayscale opacity-60' : ''}">${avatar(who, 'size-8')}</span>` : '';
+  // Nobody on it: a placeholder picture that assigns the task to someone.
+  const assignee = who ? `<span class="shrink-0 pl-2 ${taken ? 'grayscale opacity-60' : ''}">${avatar(who, 'size-8')}</span>`
+    : `<button class="group shrink-0 size-12 -mr-2 grid place-items-center" data-assign="${t.id}" aria-label="Assign ${t.title}">
+        <span class="size-8 rounded-full grid place-items-center border-2 border-dashed border-stone-300 text-stone-500 transition-colors group-hover:border-accent-700 group-hover:text-accent-700">${icon('person_add', '!text-[18px]')}</span>
+      </button>`;
   return `<li class="${CARD} mb-2 max-h-40 overflow-hidden transition-all duration-300 ${mine && how === 'working' ? 'border-l-4 border-accent-700' : ''} ${taken ? '!bg-transparent !shadow-none ring-1 ring-inset ring-stone-200' : ''}" data-card="${t.id}" ${taken ? 'aria-disabled="true"' : ''}>
     <div class="flex items-center gap-1 pl-1 pr-3 min-h-16">
       ${lead}
@@ -514,6 +520,19 @@ document.addEventListener('click', (e) => {
   else if (b.id === 'editBtn' && state.personView) { avatarSheet(); return; }
   else if (b.id === 'editBtn' || 'editPlace' in d) { state.editPlace = true; }
   else if (d.person) { state.personView = d.person; }
+  else if (d.assign) {
+    const t = find(d.assign);
+    const people = [...state.members].sort((a, b) => b.me - a.me);
+    sheet(`<h2 class="text-xl font-semibold">Who does “${t.title}”?</h2>
+      <ul class="mt-4 -mx-2">${people.map((m) => `<li><button class="w-full flex items-center gap-4 px-2 min-h-14 rounded-lg text-left hover:bg-stone-100" data-assign-to="${m.id}" data-task="${t.id}">
+        ${avatar(m)}<span class="text-base">${m.me ? 'Me' : m.name}</span></button></li>`).join('')}</ul>`); return;
+  }
+  else if (d.assignTo) {
+    const t = find(d.task), m = member(d.assignTo);
+    Object.assign(t, { on: m.id, by: 'p', sessions: [] });
+    $('#sheet').close();
+    toast(m.me ? `You took ${t.title}` : `${t.title} is now ${m.name}’s`, 'Undo', () => { Object.assign(t, { on: null, by: null }); render(); });
+  }
   else if (d.filter) { state.filter = d.filter; }
   else if (d.removeLocation) {
     const p = placeById(state.placeView), [l] = p.locations.splice(+d.removeLocation, 1);
@@ -552,6 +571,7 @@ state.offline = query.has('offline');
 if (query.has('empty')) { state.tasks = []; state.places = []; }
 if (query.get('task')) { state.detail = +query.get('task'); if (query.get('run')) { find(state.detail).sessions.push({ from: now() - 7 * MIN }); find(state.detail).on = 'p'; } }
 if (query.get('filter')) state.filter = query.get('filter');
+if (query.has('assign')) { state.filter = 'all'; render(); document.querySelector('[data-assign]').click(); }
 if (query.has('mine')) { const t = find(6); t.on = 'p'; t.sessions.push({ from: now() - 3 * MIN }); }
 render();
 document.fonts.ready.then(drawArrowToAll);
