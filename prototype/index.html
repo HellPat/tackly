@@ -163,8 +163,8 @@ const running = (t) => t.sessions.some((s) => !s.to);
 /* Someone on a task is working now, paused, or has only picked it. */
 const progress = (t) => !t.on ? null : running(t) ? 'working' : t.sessions.length ? 'paused' : 'picked';
 const PROGRESS = {
-  working: { icon: 'play_arrow', left: 'bg-accent-700 text-accent-ink', me: 'You’re working on it', other: (n) => `${n} is working on it` },
-  paused:  { icon: 'pause',      left: 'bg-stone-200 text-stone-700',                  me: 'You paused it',          other: (n) => `${n} paused it` },
+  working: { icon: 'play_arrow', left: 'bg-stone-300 text-stone-700', me: 'You’re working on it', other: (n) => `${n} is working on it` },
+  paused:  { icon: 'pause',      left: 'border-2 border-stone-300 text-stone-600',                me: 'You paused it',          other: (n) => `${n} paused it` },
   picked:  { icon: 'flag',       left: 'border-2 border-dashed border-stone-400 text-stone-600',           me: 'You picked it',          other: (n) => `${n} picked it` },
 };
 const clock = (ms) => { const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return `${h}:${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
@@ -227,8 +227,8 @@ function taskCard(t) {
       </label>`;
   const line = st && (mine ? st.me : st.other(who.name));
   // Right: who has it.
-  const assignee = who ? `<span class="shrink-0 pl-2">${avatar(who, 'size-8')}</span>` : '';
-  return `<li class="${CARD} mb-2 max-h-40 overflow-hidden transition-all duration-300 ${mine && how === 'working' ? 'border-l-4 border-accent-700' : ''} ${taken ? 'bg-stone-50 shadow-none' : ''}" data-card="${t.id}" ${taken ? 'aria-disabled="true"' : ''}>
+  const assignee = who ? `<span class="shrink-0 pl-2 ${taken ? 'grayscale opacity-60' : ''}">${avatar(who, 'size-8')}</span>` : '';
+  return `<li class="${CARD} mb-2 max-h-40 overflow-hidden transition-all duration-300 ${mine && how === 'working' ? 'border-l-4 border-accent-700' : ''} ${taken ? '!bg-transparent !shadow-none ring-1 ring-inset ring-stone-200' : ''}" data-card="${t.id}" ${taken ? 'aria-disabled="true"' : ''}>
     <div class="flex items-center gap-1 pl-1 pr-3 min-h-16">
       ${lead}
       <button class="flex-1 min-w-0 text-left py-3 flex flex-col gap-0.5 disabled:cursor-default" data-open="${t.id}" ${taken ? 'disabled' : ''}>
