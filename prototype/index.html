@@ -225,7 +225,7 @@ function taskCard(t) {
   // Nobody on it: a placeholder picture that assigns the task to someone.
   const assignee = who ? `<span class="shrink-0 pl-2 ${taken ? 'grayscale opacity-60' : ''}">${avatar(who, 'size-8')}</span>`
     : `<button class="group shrink-0 size-12 -mr-2 grid place-items-center" data-assign="${t.id}" aria-label="Assign ${t.title}">
-        <span class="size-8 rounded-full grid place-items-center border-2 border-dashed border-stone-300 text-stone-500 transition-colors group-hover:border-accent-700 group-hover:text-accent-700">${icon('person_add', '!text-[18px]')}</span>
+        <span class="size-8 rounded-full grid place-items-center bg-stone-100 border-2 border-dashed border-white shadow-[0_1px_3px_rgb(41_37_36/.3)] text-stone-500 transition-colors group-hover:text-accent-700">${icon('person_add', '!text-[18px]')}</span>
       </button>`;
   return `<li class="${CARD} mb-2 max-h-40 overflow-hidden transition-all duration-300 ${mine && how === 'working' ? 'border-l-4 border-accent-700' : ''} ${taken ? '!bg-transparent !shadow-none ring-1 ring-inset ring-stone-200' : ''}" data-card="${t.id}" ${taken ? 'aria-disabled="true"' : ''}>
     <div class="flex items-center gap-1 pl-1 pr-3 min-h-16">
