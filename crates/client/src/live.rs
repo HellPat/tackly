@@ -9,6 +9,8 @@ use std::{
     time::Duration,
 };
 
+use futures_util::StreamExt;
+use reqwest_eventsource::Event;
 use tokio::sync::Mutex;
 
 use crate::device::Device;
@@ -43,7 +45,6 @@ async fn sync_loop(
     online: Arc<AtomicBool>,
     on_change: impl Fn() + Send + Sync + 'static,
 ) {
-    let mut delay = Duration::from_millis(500);
     loop {
         let target = {
             let mut device = device.lock().await;
@@ -54,28 +55,36 @@ async fn sync_loop(
             tokio::time::sleep(Duration::from_secs(1)).await;
             continue;
         };
-        let handle = device.clone();
-        let result = api
-            .stream(family, &token, cursor, |page| {
-                let handle = handle.clone();
-                let on_change = &on_change;
-                let online = online.clone();
-                delay = Duration::from_millis(500);
-                async move {
-                    let mut device = handle.lock().await;
-                    device.ingest(page)?;
-                    online.store(true, Ordering::Relaxed);
+        match api.event_source(family, &token, cursor) {
+            Ok(mut source) => {
+                while let Some(event) = source.next().await {
+                    match event {
+                        // Connected, or reconnected after a drop: catch up uploads.
+                        Ok(Event::Open) => {
+                            let _ = device.lock().await.flush().await;
+                            online.store(true, Ordering::Relaxed);
+                        }
+                        Ok(Event::Message(message)) => match serde_json::from_str(&message.data) {
+                            Ok(page) => {
+                                if let Err(error) = device.lock().await.ingest(page) {
+                                    eprintln!("live sync: {error:#}");
+                                }
+                            }
+                            Err(error) => eprintln!("live sync: bad update: {error}"),
+                        },
+                        // The source retries by itself unless it closed.
+                        Err(error) => {
+                            online.store(false, Ordering::Relaxed);
+                            eprintln!("live sync: {error}");
+                        }
+                    }
                     on_change();
-                    Ok(())
                 }
-            })
-            .await;
+            }
+            Err(error) => eprintln!("live sync: {error:#}"),
+        }
         online.store(false, Ordering::Relaxed);
         on_change();
-        if let Err(error) = result {
-            eprintln!("live sync: {error}; retrying");
-        }
-        tokio::time::sleep(delay).await;
-        delay = (delay * 2).min(Duration::from_secs(3));
+        tokio::time::sleep(Duration::from_secs(2)).await;
     }
 }

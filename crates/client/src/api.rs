@@ -1,8 +1,8 @@
 //! Typed HTTP client for the sync relay.
 
-use anyhow::{Context, Result, bail};
-use futures_util::StreamExt;
+use anyhow::{Result, bail};
 use reqwest::{Client, RequestBuilder, Response, StatusCode};
+use reqwest_eventsource::EventSource;
 use serde::{Serialize, de::DeserializeOwned};
 use tackly_protocol::wire::*;
 use uuid::Uuid;
@@ -165,50 +165,16 @@ impl Api {
             .await
     }
 
-    /// Opens the SSE stream and yields one page per `events` message. Ends
-    /// with an error when the connection drops; the caller reconnects from
-    /// its cursor.
-    pub async fn stream<Fut: std::future::Future<Output = Result<()>>>(
-        &self,
-        family: Uuid,
-        token: &str,
-        after: i64,
-        mut on_page: impl FnMut(EventsPage) -> Fut,
-    ) -> Result<()> {
-        let response = self
+    /// A resumable Server-Sent Events subscription. `reqwest-eventsource`
+    /// parses the stream and, after a drop, reconnects with backoff and sends
+    /// the last event ID it saw. A bad status (for example a revoked token)
+    /// ends the stream instead of retrying.
+    pub fn event_source(&self, family: Uuid, token: &str, after: i64) -> Result<EventSource> {
+        let request = self
             .http
             .get(self.url(&format!("/v1/families/{family}/stream")))
             .query(&[("after", after)])
-            .bearer_auth(token)
-            .header("accept", "text/event-stream")
-            .send()
-            .await?;
-        if !response.status().is_success() {
-            let status = response.status();
-            bail!(HttpError(status, String::new()));
-        }
-        let mut bytes = response.bytes_stream();
-        let mut buffer = String::new();
-        while let Some(chunk) = bytes.next().await {
-            buffer.push_str(
-                &String::from_utf8_lossy(&chunk.context("stream interrupted")?)
-                    .replace("\r\n", "\n"),
-            );
-            while let Some(end) = buffer.find("\n\n") {
-                let message: String = buffer.drain(..end + 2).collect();
-                let (mut name, mut data) = (None, String::new());
-                for line in message.lines() {
-                    if let Some(value) = line.strip_prefix("event:") {
-                        name = Some(value.trim().to_owned());
-                    } else if let Some(value) = line.strip_prefix("data:") {
-                        data.push_str(value.strip_prefix(' ').unwrap_or(value));
-                    }
-                }
-                if name.as_deref() == Some(SSE_EVENTS) {
-                    on_page(serde_json::from_str(&data).context("decode event page")?).await?;
-                }
-            }
-        }
-        bail!("event stream closed")
+            .bearer_auth(token);
+        Ok(EventSource::new(request)?)
     }
 }
