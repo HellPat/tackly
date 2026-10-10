@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="light" data-accent="indigo">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -14,13 +14,13 @@
   <style type="text/tailwindcss">
     @theme {
       --font-sans: Roboto, system-ui, sans-serif;
-      /* The accent, used as bg-accent-700 etc. Swapped by the colour switcher (Tailwind's own palettes). */
-      --color-accent-50: #eef2ff;
-      --color-accent-100: #e0e7ff;
-      --color-accent-200: #c7d2fe;
-      --color-accent-700: #4338ca;
-      --color-accent-800: #3730a3;
-      --color-accent-900: #312e81;
+      /* The accent: Tailwind's fuchsia, used as bg-accent-700 etc. */
+      --color-accent-50: #fdf4ff;
+      --color-accent-100: #fae8ff;
+      --color-accent-200: #f5d0fe;
+      --color-accent-700: #a21caf;
+      --color-accent-800: #86198f;
+      --color-accent-900: #701a75;
       --color-accent-ink: #ffffff;    /* text and icons on a filled accent */
       --animate-pop: pop .3s ease-out;
       --animate-breathe: breathe 2.4s ease-in-out infinite;
@@ -30,17 +30,6 @@
   </style>
   <style>
     [data-theme=light] { --color-base-100: #fffdfb; --color-base-content: #292524; }
-    [data-accent=indigo] { --color-accent-ink: #ffffff; --color-accent-50: #eef2ff; --color-accent-100: #e0e7ff; --color-accent-200: #c7d2fe; --color-accent-700: #4338ca; --color-accent-800: #3730a3; --color-accent-900: #312e81; }
-    [data-accent=violet] { --color-accent-ink: #ffffff; --color-accent-50: #f5f3ff; --color-accent-100: #ede9fe; --color-accent-200: #ddd6fe; --color-accent-700: #6d28d9; --color-accent-800: #5b21b6; --color-accent-900: #4c1d95; }
-    [data-accent=blue] { --color-accent-ink: #ffffff; --color-accent-50: #eff6ff; --color-accent-100: #dbeafe; --color-accent-200: #bfdbfe; --color-accent-700: #1d4ed8; --color-accent-800: #1e40af; --color-accent-900: #1e3a8a; }
-    [data-accent=sky] { --color-accent-ink: #ffffff; --color-accent-50: #f0f9ff; --color-accent-100: #e0f2fe; --color-accent-200: #bae6fd; --color-accent-700: #0369a1; --color-accent-800: #075985; --color-accent-900: #0c4a6e; }
-    [data-accent=teal] { --color-accent-ink: #ffffff; --color-accent-50: #f0fdfa; --color-accent-100: #ccfbf1; --color-accent-200: #99f6e4; --color-accent-700: #0f766e; --color-accent-800: #115e59; --color-accent-900: #134e4a; }
-    [data-accent=emerald] { --color-accent-ink: #ffffff; --color-accent-50: #ecfdf5; --color-accent-100: #d1fae5; --color-accent-200: #a7f3d0; --color-accent-700: #047857; --color-accent-800: #065f46; --color-accent-900: #064e3b; }
-    [data-accent=fuchsia] { --color-accent-ink: #ffffff; --color-accent-50: #fdf4ff; --color-accent-100: #fae8ff; --color-accent-200: #f5d0fe; --color-accent-700: #a21caf; --color-accent-800: #86198f; --color-accent-900: #701a75; }
-    [data-accent=lime] { --color-accent-50: #f7fee7; --color-accent-100: #ecfccb; --color-accent-200: #d9f99d; --color-accent-700: #65a30d; --color-accent-800: #4d7c0f; --color-accent-900: #3f6212; --color-accent-ink: #1a2e05; }
-    [data-accent=pink] { --color-accent-ink: #ffffff; --color-accent-50: #fdf2f8; --color-accent-100: #fce7f3; --color-accent-200: #fbcfe8; --color-accent-700: #be185d; --color-accent-800: #9d174d; --color-accent-900: #831843; }
-    [data-accent=rose] { --color-accent-ink: #ffffff; --color-accent-50: #fff1f2; --color-accent-100: #ffe4e6; --color-accent-200: #fecdd3; --color-accent-700: #be123c; --color-accent-800: #9f1239; --color-accent-900: #881337; }
-    [data-accent=orange] { --color-accent-ink: #ffffff; --color-accent-50: #fff7ed; --color-accent-100: #ffedd5; --color-accent-200: #fed7aa; --color-accent-700: #c2410c; --color-accent-800: #9a3412; --color-accent-900: #7c2d12; }
   </style>
 </head>
 <body class="bg-stone-300 text-stone-800 antialiased">
@@ -53,7 +42,7 @@
       <span id="offline" class="hidden mr-2 items-center gap-1 h-8 px-3 rounded-full bg-stone-200 text-sm text-stone-700"><span class="material-symbols-rounded !text-[18px]" aria-hidden="true">cloud_off</span>Offline</span>
     </header>
 
-    <main id="main" class="flex-1 overflow-y-auto px-3 pb-6"></main>
+    <main id="main" class="relative flex-1 overflow-y-auto px-3 pb-6"></main>
 
     <!-- The bar at the bottom: adds a task, or (on Places) a place. -->
     <section id="composer" aria-label="Add" class="shrink-0 px-3 pb-3 pt-2 flex flex-col gap-2">
@@ -87,12 +76,6 @@
     <section id="toasts" class="absolute inset-x-4 bottom-40 z-50 h-0" aria-label="Notifications" aria-live="polite"></section>
   </div>
 
-  <!-- Prototype tool, not part of the app: try accent colours. -->
-  <details id="switcher" class="max-[600px]:hidden fixed top-3 right-3 z-[60] rounded-xl bg-white shadow-lg text-sm text-stone-800 open:p-3 [&:not([open])]:p-0">
-    <summary class="list-none cursor-pointer size-10 grid place-items-center rounded-xl" aria-label="Accent colour"><span class="material-symbols-rounded" aria-hidden="true">palette</span></summary>
-    <div class="mt-2 grid grid-cols-4 gap-2" role="radiogroup" aria-label="Accent colour"></div>
-  </details>
-
 <script>
 const $ = (s) => document.querySelector(s);
 const icon = (name, cls = '') => `<span class="material-symbols-rounded ${cls}" aria-hidden="true">${name}</span>`;
@@ -108,7 +91,7 @@ const CARD = 'bg-[#fffdfb] rounded-2xl shadow-sm';
 const TINTS = ['bg-sky-100 text-sky-900', 'bg-pink-100 text-pink-900', 'bg-teal-100 text-teal-900', 'bg-amber-100 text-amber-900', 'bg-violet-100 text-violet-900'];
 
 const state = {
-  tab: 'tasks', filter: null, placeView: null, personView: null, editPlace: false, chosen: new Set(), detail: null,
+  tab: 'tasks', filter: 'mine', placeView: null, personView: null, editPlace: false, chosen: new Set(), detail: null,
   groups: [{ id: 'g1', name: 'Grocery Store' }, { id: 'g2', name: 'Hardware' }],
   places: [
     { id: 'lidl', group: 'g1', name: 'LIDL', locations: [{ name: 'LIDL Winnenden', address: 'Marbacher Straße 1, Winnenden' }, { name: 'LIDL Backnang', address: 'Stuttgarter Straße 3, Backnang' }] },
@@ -247,21 +230,53 @@ function emptyState(ic, title, line) {
     <span class="text-lg font-semibold">${title}</span><span class="text-stone-600">${line}</span></div>`;
 }
 
-/* Two filters: only mine, or only nobody's. Tap again to see everything. */
-const FILTERS = { mine: { label: 'Mine', keep: (t) => t.on === 'p' }, free: { label: 'Unassigned', keep: (t) => !t.on } };
+/* Three filters, Mine first: what I am on, what nobody is on, everything. Each shows its count. */
+const FILTERS = {
+  mine: { label: 'Mine', keep: (t) => t.on === 'p' },
+  free: { label: 'Unassigned', keep: (t) => !t.on },
+  all:  { label: 'All', keep: () => true },
+};
 function renderTasks() {
   const all = visible();
   if (!all.length) return emptyState('celebration', 'All done', 'Nothing left to do. Enjoy it.');
-  const f = FILTERS[state.filter];
-  const tasks = f ? all.filter(f.keep) : all;
+  const tasks = all.filter(FILTERS[state.filter].keep);
   const chips = Object.entries(FILTERS).map(([id, { label, keep }]) => {
     const on = state.filter === id, n = all.filter(keep).length;
-    return `<button data-filter="${id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-stone-800 text-stone-50' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${label}<span class="${on ? 'text-stone-300' : 'text-stone-500'} font-normal">${n}</span></button>`;
+    return `<button data-filter="${id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-stone-800 text-stone-50' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${label}<span class="${on ? 'text-stone-300' : 'text-stone-500'} font-normal">${n}</span></button>`;
   }).join('');
-  const none = { mine: 'You are not on any task. Pick one below.', free: 'Every task has someone on it.' }[state.filter];
-  return `<div class="flex gap-2 pt-1 pb-3" role="group" aria-label="Filter">${chips}</div>
-    ${tasks.length ? `<ul>${tasks.map(taskCard).join('')}</ul>` : `<p class="py-16 text-center text-stone-600">${none}</p>`}`;
+  const head = `<div class="flex gap-2 pt-1 pb-3" role="group" aria-label="Filter">${chips}</div>`;
+  if (tasks.length) return `${head}<ul>${tasks.map(taskCard).join('')}</ul>`;
+  if (state.filter === 'mine') return head + nothingMine();
+  return `${head}<p class="py-16 text-center text-stone-600">Every task has someone on it.</p>`;
 }
+
+/* Nothing of mine: a calm picture, and an arrow up to "All" where I can pick something. */
+function nothingMine() {
+  return `<div class="pt-4">
+    <button class="block ml-auto mr-2 mt-8 mb-6 text-right" data-filter="all" id="toAll">
+      <span class="block text-lg font-semibold">Nothing on your plate</span>
+      <span class="block text-stone-600">Pick one from All</span>
+    </button>
+    <figure>
+      <img src="https://images.unsplash.com/photo-1767508938873-a2afdfb1b8a3?ixlib=rb-4.1.0&q=80&fm=jpg&crop=entropy&cs=srgb&w=800"
+           alt="Someone lying on a grassy hill above the sea" class="w-full h-60 object-cover rounded-2xl shadow-sm">
+      <figcaption class="mt-2 text-xs text-stone-600 text-right">Photo by <a class="underline" href="https://unsplash.com/@enq_1998">Enq 1998</a> on <a class="underline" href="https://unsplash.com/photos/HHKZVi_E3pw">Unsplash</a></figcaption>
+    </figure>
+  </div>`;
+}
+/* A hand-drawn arrow from the message up to the "All" chip, measured after layout. */
+function drawArrowToAll() {
+  const main = $('#main'), from = $('#toAll'), to = main.querySelector('[data-filter=all]');
+  main.querySelector('#arrow')?.remove();
+  if (!from || !to) return;
+  const m = main.getBoundingClientRect(), a = from.getBoundingClientRect(), c = to.getBoundingClientRect();
+  const x1 = a.left - m.left - 10, y1 = a.top - m.top + 14;           // left of the message
+  const x2 = c.left - m.left + c.width / 2, y2 = c.bottom - m.top + 6;  // just under "All"
+  main.insertAdjacentHTML('beforeend', `<svg id="arrow" class="absolute inset-0 pointer-events-none overflow-visible text-stone-400" width="100%" height="100%" aria-hidden="true">
+    <path d="M ${x1} ${y1} C ${x1 - 40} ${y1 - 10}, ${x2 - 20} ${y2 + 40}, ${x2} ${y2}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <path d="M ${x2 - 7} ${y2 + 9} L ${x2} ${y2} L ${x2 + 8} ${y2 + 7}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`);
+}
+addEventListener('resize', drawArrowToAll);
 
 function renderPlaces() {
   if (state.placeView && state.editPlace) return renderPlaceEdit(placeById(state.placeView));
@@ -425,6 +440,7 @@ function render() {
   $('#familyBar').classList.toggle('hidden', state.tab !== 'family' || !!state.personView);
   $('#familyBar').innerHTML = `<button class="${PRIMARY} w-full !h-12 text-base" data-invite>${icon('person_add')}Invite member</button>`;
   renderDock(); renderComposer(); renderDetail();
+  requestAnimationFrame(drawArrowToAll);
 }
 
 /* ---- Behaviour ----------------------------------------------------------------------------- */
@@ -482,7 +498,7 @@ document.addEventListener('click', (e) => {
   else if (b.id === 'editBtn' && state.personView) { avatarSheet(); return; }
   else if (b.id === 'editBtn' || 'editPlace' in d) { state.editPlace = true; }
   else if (d.person) { state.personView = d.person; }
-  else if (d.filter) { state.filter = state.filter === d.filter ? null : d.filter; }
+  else if (d.filter) { state.filter = d.filter; }
   else if (d.removeLocation) {
     const p = placeById(state.placeView), [l] = p.locations.splice(+d.removeLocation, 1);
     toast(`Removed ${l.name}`, 'Undo', () => { p.locations.splice(+d.removeLocation, 0, l); render(); });
@@ -512,20 +528,7 @@ document.addEventListener('click', (e) => {
   render();
 });
 
-/* Colour switcher: remembers the choice in this browser; ?accent=teal also works. */
-const ACCENTS = { indigo: '#4338ca', violet: '#6d28d9', blue: '#1d4ed8', sky: '#0369a1', teal: '#0f766e', emerald: '#047857', fuchsia: '#a21caf', pink: '#be185d', rose: '#be123c', lime: '#65a30d', orange: '#c2410c' };
-function setAccent(name) {
-  document.documentElement.dataset.accent = name;
-  try { localStorage.setItem('tackly-accent', name); } catch {}
-  $('#switcher [role=radiogroup]').innerHTML = Object.entries(ACCENTS).map(([n, hex]) => `
-    <button role="radio" aria-checked="${n === name}" aria-label="${n}" title="${n}" data-accent-pick="${n}"
-      class="size-8 rounded-full ring-offset-2 ${n === name ? 'ring-2 ring-stone-800' : ''}" style="background:${hex}"></button>`).join('');
-}
-$('#switcher').addEventListener('click', (e) => { const b = e.target.closest('[data-accent-pick]'); if (b) setAccent(b.dataset.accentPick); });
-let savedAccent = null; try { savedAccent = localStorage.getItem('tackly-accent'); } catch {}
-setAccent(new URLSearchParams(location.search).get('accent') || savedAccent || 'indigo');
-
-// ?accent=teal, ?tab=places, ?tab=places&place=lidl, ?offline=1, ?empty=1, ?typing=text, ?task=6, ?task=6&run=1, ?sheet=invite|avatar, ?toasts=3, ?fan=1
+// ?tab=places, ?tab=places&place=lidl, ?offline=1, ?empty=1, ?typing=text, ?task=6, ?task=6&run=1, ?sheet=invite|avatar, ?toasts=3, ?fan=1
 const query = new URLSearchParams(location.search);
 if (query.get('tab')) state.tab = query.get('tab');
 if (query.get('place')) { state.placeView = query.get('place'); state.chosen = new Set([state.placeView]); state.editPlace = query.has('edit'); }
@@ -535,6 +538,7 @@ if (query.get('task')) { state.detail = +query.get('task'); if (query.get('run')
 if (query.get('filter')) state.filter = query.get('filter');
 if (query.has('mine')) { const t = find(6); t.on = 'p'; t.sessions.push({ from: now() - 3 * MIN }); }
 render();
+document.fonts.ready.then(drawArrowToAll);
 if (query.has('typing')) { $('#addInput').value = query.get('typing'); $('#addInput').focus(); $('#addInput').dispatchEvent(new Event('input')); }
 if (query.get('sheet') === 'invite') { state.tab = 'family'; render(); document.querySelector('[data-invite]').click(); }
 if (query.get('sheet') === 'avatar') { state.tab = 'family'; render(); avatarSheet(); }
