@@ -1,8 +1,33 @@
 # Tackly
 
-Shared family tasks that work offline and sync live. Written in Rust: a
-[Dioxus](https://dioxuslabs.com) app with an Android-style (Material) UI, an
-Axum sync relay, SQLite on both sides, and a Nix dev shell.
+ADHD optimized task management. Shared family tasks that work offline and sync live.
+
+## What it does
+
+- **One list for the whole family.** Anyone adds a task; everyone sees it.
+- **Start and finish.** Tap *Start* when you begin, *Finish* when you're done.
+  Tackly records who did it, how long it took, and, if you like, a note and
+  where you were.
+- **Live.** When Mona starts the laundry, Patrick sees it right away.
+- **Works without internet.** Add and finish tasks anywhere. Tackly shares
+  everything as soon as you're back online.
+- **Easy to join.** The head of the family shows a QR code or sends a link
+  (Signal, any messenger). The new member opens it, and both phones show the
+  same six digits for the head to confirm. The invitation works once and
+  expires after five minutes.
+- **No arguments about who did it.** If two people finish the same task while
+  offline and one of them didn't add anything new, Tackly just keeps the
+  better entry. If they really disagree (two different notes), only the two of
+  them can decide which one counts.
+- **Private.** Everything is encrypted on your phone. The server only passes
+  on data it can't read.
+
+Android is the main target; iOS may follow. A lost phone can't be restored:
+leave the family and join again with a new invitation.
+
+---
+
+# Development
 
 ```
 crates/protocol    shared by app and server: the Family aggregate, its commands
@@ -16,7 +41,7 @@ android-e2e        Playwright on an Android emulator (a spike, see below)
 scripts            what the just recipes run
 ```
 
-## Try it
+### Try it
 
 Install [Nix](https://nixos.org/download) (flakes enabled), then:
 
@@ -60,7 +85,7 @@ denied by clippy (tests may use them). `.cargo/config.toml` runs clippy on every
 workspace build, so a stray `unwrap()` fails plain `cargo build`, not only
 `cargo clippy`.
 
-## How it works
+### How it works
 
 - **CQRS / event sourcing** with [`cqrs-es`](https://doc.rust-cqrs.org). The
   family is one aggregate (`crates/protocol/src/aggregate.rs`): commands such as
@@ -81,7 +106,7 @@ workspace build, so a stray `unwrap()` fails plain `cargo build`, not only
   (AES-256-GCM). The server stores ciphertext and routing IDs only. The family
   key travels to a new member sealed under the invitation secret.
 
-## Tests
+### Tests
 
 Two layers, both against a real server with a SQLite file:
 
@@ -124,7 +149,7 @@ android`, done by the recipe).
 
 Server details are in [server/README.md](server/README.md).
 
-## Status
+### Status
 
 Not done, by decision: there is no restore process. A lost phone means
 leaving and rejoining with a new invitation. Also missing: device revocation,
