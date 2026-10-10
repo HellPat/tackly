@@ -1,6 +1,6 @@
-//! Cucumber acceptance tests. Every step is done by clicking and typing in
-//! real Tackly app windows (one process per family member) against a real
-//! sync server; nothing talks to the device core directly.
+//! Cucumber acceptance tests. Every step is done like a person would, with
+//! Playwright-style locators in real Tackly app windows (one process per family
+//! member) against a real sync server; nothing talks to the device core.
 
 mod support;
 
@@ -9,15 +9,20 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::OnceLock,
+    time::Duration,
 };
 
 use cucumber::{World, given, then, when};
 use support::{
-    member::{Member, quote},
+    member::Member,
+    page::{Locator, Page, expect},
     server::Server,
 };
 
 static APP: OnceLock<PathBuf> = OnceLock::new();
+
+/// Delay between key presses when typing key by key.
+const KEY_DELAY: Duration = Duration::from_millis(12);
 
 #[derive(World)]
 #[world(init = Self::new)]
@@ -50,6 +55,16 @@ fn location(name: &str) -> &'static str {
     }
 }
 
+fn card(page: &Page, title: &str) -> Locator {
+    page.locator(".card").filter_has_text(title)
+}
+
+#[derive(Clone, Copy)]
+enum Via {
+    Link,
+    Qr,
+}
+
 impl Tackly {
     fn new() -> Self {
         let dir = std::env::temp_dir().join(format!("tackly-acceptance-{}", uuid::Uuid::new_v4()));
@@ -61,10 +76,12 @@ impl Tackly {
         }
     }
 
-    fn member(&mut self, name: &str) -> &mut Member {
+    fn page(&self, name: &str) -> Page {
         self.members
-            .get_mut(name)
+            .get(name)
             .unwrap_or_else(|| panic!("{name} has not opened Tackly"))
+            .page
+            .clone()
     }
 
     async fn open(&mut self, name: &str) {
@@ -79,103 +96,119 @@ impl Tackly {
         self.members.insert(name.to_owned(), member);
     }
 
-    async fn go(&mut self, name: &str, tab: &str) {
-        self.member(name).click(&format!("button:{tab}")).await;
+    async fn go(&self, name: &str, tab: &str) {
+        self.page(name)
+            .get_by_role_exact("button", tab)
+            .click()
+            .await;
     }
 
-    async fn create_family(&mut self, name: &str, family: &str) {
-        let m = self.member(name);
-        m.click("button:Create a family").await;
-        m.fill("field:Your name", name).await;
-        m.fill("field:Family name", family).await;
-        m.click("button:Create").await;
-        m.wait_for_text(&format!("{family} ·")).await;
+    async fn create_family(&self, name: &str, family: &str) {
+        let p = self.page(name);
+        p.get_by_role_exact("button", "Create a family")
+            .click()
+            .await;
+        p.get_by_label("Your name")
+            .press_sequentially(name, KEY_DELAY)
+            .await;
+        p.get_by_label("Family name")
+            .press_sequentially(family, KEY_DELAY)
+            .await;
+        p.get_by_role_exact("button", "Create").click().await;
+        expect(&p.locator(".sub")).to_contain_text(family).await;
     }
 
-    /// The owner shows an invitation, the other phone asks to join, both
-    /// compare the six digits and the owner lets them in.
-    async fn invite(&mut self, owner: &str, joiner: &str) {
-        let mut o = self
-            .members
-            .remove(owner)
-            .expect("owner has not opened Tackly");
-        let mut j = self
-            .members
-            .remove(joiner)
-            .expect("joiner has not opened Tackly");
-        j.click("button:Join with an invitation").await;
-        o.click("button:Family").await;
-        o.click("button:Invite someone").await;
-        let code = o
-            .read(
-                "the invitation code",
-                "T.has('css:textarea[readonly]') && T.value('css:textarea[readonly]')",
-            )
+    /// The owner shows an invitation; the other phone gets it by scanning the QR
+    /// code or by pasting the copied link, both phones compare the six digits,
+    /// and the owner lets them in.
+    async fn invite(&self, owner: &str, joiner: &str, via: Via) {
+        let (o, j) = (self.page(owner), self.page(joiner));
+        j.get_by_role_exact("button", "Join with an invitation")
+            .click()
             .await;
-        j.fill("field:Your name", joiner).await;
-        j.fill("field:Invitation code", &code).await;
-        j.click("button:Ask to join").await;
-        let digits = j
-            .read(
-                "the confirmation digits",
-                "T.has('css:.code') && T.textOf('css:.code')",
-            )
+        o.get_by_role_exact("button", "Family").click().await;
+        o.get_by_role_exact("button", "Invite someone")
+            .click()
             .await;
-        o.wait_for(
-            "the same digits on the owner's phone",
-            &format!(
-                "T.has('css:.code') && T.textOf('css:.code') === {}",
-                quote(&digits)
-            ),
-        )
-        .await;
-        o.click("button:Yes, let them in").await;
-        j.wait_for("the family home screen", "T.has('button:Tasks')")
+        let shown = o.get_by_label("Invitation link").input_value().await;
+        let link = match via {
+            Via::Qr => {
+                let scanned = o.locator(".qr").decode_qr().await;
+                assert_eq!(
+                    scanned, shown,
+                    "the QR code must carry the same link that is shown"
+                );
+                scanned
+            }
+            Via::Link => {
+                o.get_by_role_exact("button", "Copy link").click().await;
+                expect(&o.locator(".snack"))
+                    .to_contain_text("Link copied")
+                    .await;
+                o.get_by_role_exact("button", "OK").click().await;
+                shown
+            }
+        };
+        j.get_by_label("Your name")
+            .press_sequentially(joiner, KEY_DELAY)
             .await;
-        o.wait_for(
-            "the invitation to close",
-            "!T.has('button:Yes, let them in')",
-        )
-        .await;
-        self.members.insert(owner.to_owned(), o);
-        self.members.insert(joiner.to_owned(), j);
+        j.get_by_label("Invitation link").fill(&link).await;
+        j.get_by_role_exact("button", "Ask to join").click().await;
+        let digits = j.locator(".code").text_content().await;
+        expect(&o.locator(".code")).to_have_text(&digits).await;
+        o.get_by_role_exact("button", "Yes, let them in")
+            .click()
+            .await;
+        expect(&j.get_by_role_exact("button", "Tasks"))
+            .to_be_visible()
+            .await;
+        expect(&o.get_by_role_exact("button", "Yes, let them in"))
+            .to_be_hidden()
+            .await;
     }
 
-    async fn add_task(&mut self, name: &str, title: &str) {
+    async fn add_task(&self, name: &str, title: &str) {
         self.go(name, "Tasks").await;
-        let m = self.member(name);
-        m.click("button:New task").await;
-        m.fill("field:What needs doing?", title).await;
-        m.click("button:Add").await;
-        m.wait_for(
-            &format!("the task {title:?}"),
-            &format!("T.has({})", quote(&format!("card:{title}"))),
-        )
-        .await;
+        let p = self.page(name);
+        p.get_by_role_exact("button", "New task").click().await;
+        p.get_by_label("What needs doing?")
+            .press_sequentially(title, KEY_DELAY)
+            .await;
+        p.get_by_role_exact("button", "Add").click().await;
+        expect(&card(&p, title)).to_be_visible().await;
     }
 
-    async fn start(&mut self, name: &str, title: &str) {
+    async fn start(&self, name: &str, title: &str) {
         self.go(name, "Tasks").await;
-        self.member(name)
-            .click(&format!("card:{title} > button:Start"))
+        card(&self.page(name), title)
+            .get_by_role_exact("button", "Start")
+            .click()
             .await;
     }
 
-    async fn finish(&mut self, name: &str, title: &str, note: Option<&str>) {
+    async fn finish(&self, name: &str, title: &str, note: Option<&str>) {
         self.go(name, "Tasks").await;
-        let m = self.member(name);
-        m.click(&format!("card:{title} > button:Finish")).await;
+        let p = self.page(name);
+        card(&p, title)
+            .get_by_role_exact("button", "Finish")
+            .click()
+            .await;
         if let Some(note) = note {
-            m.fill("field:Note (optional)", note).await;
+            p.get_by_label("Note (optional)")
+                .press_sequentially(note, KEY_DELAY)
+                .await;
         }
-        m.click("button:Done").await;
+        p.get_by_role_exact("button", "Done").click().await;
     }
 
-    async fn see_card(&mut self, who: &[String], title: &str, parts: impl Fn(&str) -> Vec<String>) {
+    async fn see_card(&self, who: &[String], title: &str, parts: impl Fn(&str) -> Vec<String>) {
         for name in who {
-            let expected = parts(name);
             self.go(name, "Tasks").await;
-            self.member(name).wait_for_card(title, &expected).await;
+            let p = self.page(name);
+            for part in parts(name) {
+                expect(&card(&p, title)).to_contain_text(&part).await;
+            }
+            expect(&card(&p, title)).to_be_visible().await;
         }
     }
 }
@@ -204,18 +237,20 @@ async fn opened(world: &mut Tackly, a: String, b: String, c: String) {
 #[given(regex = r#"^(\w+) has created the family "([^"]+)" with (\w+) and (\w+)$"#)]
 async fn family_of_three(world: &mut Tackly, owner: String, family: String, a: String, b: String) {
     world.create_family(&owner, &family).await;
-    world.invite(&owner, &a).await;
-    world.invite(&owner, &b).await;
+    world.invite(&owner, &a, Via::Link).await;
+    world.invite(&owner, &b, Via::Link).await;
 }
 
+#[given(regex = r#"^(\w+) has created the family "([^"]+)"$"#)]
 #[when(regex = r#"^(\w+) creates the family "([^"]+)"$"#)]
 async fn creates_family(world: &mut Tackly, name: String, family: String) {
     world.create_family(&name, &family).await;
 }
 
-#[when(regex = r"^(\w+) invites (\w+)$")]
-async fn invites(world: &mut Tackly, owner: String, joiner: String) {
-    world.invite(&owner, &joiner).await;
+#[when(regex = r"^(\w+) invites (\w+)(?: by (QR code|link))?$")]
+async fn invites(world: &mut Tackly, owner: String, joiner: String, via: String) {
+    let via = if via == "QR code" { Via::Qr } else { Via::Link };
+    world.invite(&owner, &joiner, via).await;
 }
 
 #[given(regex = r#"^(\w+) has added the tasks? ((?:"[^"]+"(?:, | and )?)+)$"#)]
@@ -244,19 +279,65 @@ async fn finishes_with_note(world: &mut Tackly, name: String, title: String, not
 #[when(regex = r#"^(\w+) reopens "([^"]+)"$"#)]
 async fn reopens(world: &mut Tackly, name: String, title: String) {
     world.go(&name, "Tasks").await;
-    world
-        .member(&name)
-        .click(&format!("card:{title} > button:Reopen"))
+    card(&world.page(&name), &title)
+        .get_by_role_exact("button", "Reopen")
+        .click()
         .await;
 }
 
 #[when(regex = r#"^(\w+) keeps (\w+)'s completion of "([^"]+)"$"#)]
 async fn keeps(world: &mut Tackly, name: String, winner: String, title: String) {
     world.go(&name, "Tasks").await;
-    world
-        .member(&name)
-        .click(&format!("card:{title} > button:Keep {winner}'s"))
+    card(&world.page(&name), &title)
+        .get_by_role_exact("button", &format!("Keep {winner}'s"))
+        .click()
         .await;
+}
+
+// ---- keyboard ------------------------------------------------------------------
+
+#[when(regex = r"^(\w+) opens the new task form$")]
+async fn opens_new_task(world: &mut Tackly, name: String) {
+    world.go(&name, "Tasks").await;
+    world
+        .page(&name)
+        .get_by_role_exact("button", "New task")
+        .click()
+        .await;
+}
+
+#[when(regex = r#"^(\w+) types "([^"]*)" into "([^"]+)" key by key$"#)]
+async fn types_key_by_key(world: &mut Tackly, name: String, text: String, label: String) {
+    world
+        .page(&name)
+        .get_by_label(&label)
+        .press_sequentially(&text, KEY_DELAY)
+        .await;
+}
+
+#[when(regex = r#"^(\w+) presses (\w+)(?: (\d+) times)? in "([^"]+)"$"#)]
+async fn presses_key(world: &mut Tackly, name: String, key: String, times: String, label: String) {
+    let field = world.page(&name).get_by_label(&label);
+    for _ in 0..times.parse::<usize>().unwrap_or(1) {
+        field.press(&key).await;
+    }
+}
+
+#[then(regex = r#"^the field "([^"]+)" of (\w+) contains "([^"]*)"$"#)]
+async fn field_contains(world: &mut Tackly, label: String, name: String, value: String) {
+    expect(&world.page(&name).get_by_label(&label))
+        .to_have_value(&value)
+        .await;
+}
+
+#[then(regex = r#"^the "([^"]+)" button of (\w+) is (enabled|disabled)$"#)]
+async fn button_state(world: &mut Tackly, label: String, name: String, state: String) {
+    let button = world.page(&name).get_by_role_exact("button", &label);
+    if state == "enabled" {
+        expect(&button).to_be_enabled().await;
+    } else {
+        expect(&button).to_be_disabled().await;
+    }
 }
 
 // ---- Then --------------------------------------------------------------
@@ -320,15 +401,11 @@ async fn sees_done_with_metadata(
 async fn sees_open(world: &mut Tackly, who: String, title: String) {
     for name in names(&who) {
         world.go(&name, "Tasks").await;
-        let expression = format!(
-            "T.has({}) && !T.cardText({}).includes('Done by')",
-            quote(&format!("card:{title} > button:Start")),
-            quote(&title)
-        );
-        world
-            .member(&name)
-            .wait_for(&format!("{title:?} to be open again"), &expression)
+        let c = card(&world.page(&name), &title);
+        expect(&c.get_by_role_exact("button", "Start"))
+            .to_be_visible()
             .await;
+        expect(&c).not().to_contain_text("Done by").await;
     }
 }
 
@@ -342,49 +419,40 @@ async fn sees_conflict(world: &mut Tackly, who: String, title: String) {
 #[then(regex = r#"^(\w+) can only wait for (\w+) and (\w+) to decide "([^"]+)"$"#)]
 async fn cannot_decide(world: &mut Tackly, name: String, a: String, b: String, title: String) {
     world.go(&name, "Tasks").await;
-    world
-        .member(&name)
-        .wait_for_card(&title, &["Waiting for".into(), a, b, "to decide".into()])
+    let c = card(&world.page(&name), &title);
+    for part in ["Waiting for", &a, &b, "to decide"] {
+        expect(&c).to_contain_text(part).await;
+    }
+    expect(&c.get_by_role("button", "Keep"))
+        .to_have_count(0)
         .await;
-    assert!(
-        !world
-            .member(&name)
-            .has(&format!("card:{title} > button:Keep"))
-            .await,
-        "{name} must not be offered a choice"
-    );
 }
 
 #[then(regex = r"^(.+?) sees? the members (.+) with (\w+) as head of the family$")]
 async fn sees_members(world: &mut Tackly, who: String, members: String, head: String) {
     for name in names(&who) {
         world.go(&name, "Family").await;
+        let p = world.page(&name);
         for member in names(&members) {
-            world.member(&name).wait_for_text(&member).await;
+            expect(&card(&p, &member)).to_be_visible().await;
         }
-        world
-            .member(&name)
-            .wait_for(
-                "the head of the family",
-                &format!("T.text().includes('{head}') && T.text().includes('Head of the family')"),
-            )
+        expect(&card(&p, &head))
+            .to_contain_text("Head of the family")
             .await;
     }
 }
 
 #[then(regex = r"^(\w+)'s app says it is offline$")]
 async fn says_offline(world: &mut Tackly, name: String) {
-    world
-        .member(&name)
-        .wait_for("the offline notice", "T.has('css:.sync.off')")
+    expect(&world.page(&name).locator(".sync.off"))
+        .to_be_visible()
         .await;
 }
 
 #[then(regex = r"^(\w+)'s app says it is live$")]
 async fn says_live(world: &mut Tackly, name: String) {
-    world
-        .member(&name)
-        .wait_for("the live notice", "T.has('css:.sync.on')")
+    expect(&world.page(&name).locator(".sync.on"))
+        .to_be_visible()
         .await;
 }
 

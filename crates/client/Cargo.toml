@@ -14,6 +14,7 @@ cqrs-es = "0.5"
 base64.workspace = true
 chrono.workspace = true
 futures-util.workspace = true
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rand.workspace = true
 reqwest.workspace = true
 rusqlite.workspace = true

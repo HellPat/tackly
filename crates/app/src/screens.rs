@@ -47,6 +47,20 @@ pub fn Snackbar() -> Element {
     }
 }
 
+/// Puts the invitation link on the clipboard.
+fn copy_link(state: AppState, link: &str) {
+    #[cfg(not(target_os = "android"))]
+    match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(link.to_owned())) {
+        Ok(()) => state.say("Link copied"),
+        Err(error) => state.say(format!("Could not copy: {error}")),
+    }
+    #[cfg(target_os = "android")]
+    {
+        let _ = link;
+        state.say("Select the link and copy it");
+    }
+}
+
 // ---------------------------------------------------------------- welcome
 
 #[derive(Clone, Copy, PartialEq)]
@@ -59,11 +73,19 @@ enum Mode {
 #[component]
 pub fn Onboarding() -> Element {
     let state = use_context::<AppState>();
-    let mut mode = use_signal(|| Mode::Choose);
+    // `tackly-app tackly://join?c=...` opens straight on the join form.
+    let launch = platform::launch_link();
+    let mut mode = use_signal(|| {
+        if launch.is_some() {
+            Mode::Join
+        } else {
+            Mode::Choose
+        }
+    });
     let mut server = use_signal(platform::default_server);
     let mut family_name = use_signal(String::new);
     let mut my_name = use_signal(String::new);
-    let mut code = use_signal(String::new);
+    let mut code = use_signal(|| launch.unwrap_or_default());
     let mut request = use_signal(|| None::<JoinRequest>);
     let mut busy = use_signal(|| false);
 
@@ -137,12 +159,12 @@ pub fn Onboarding() -> Element {
                     button { class: "btn tonal", onclick: move |_| mode.set(Mode::Join), "Join with an invitation" }
                 },
                 Mode::Create => rsx! {
-                    div { class: "field", label { "Your name" }
-                        input { value: "{my_name}", oninput: move |e| my_name.set(e.value()) } }
-                    div { class: "field", label { "Family name" }
-                        input { value: "{family_name}", oninput: move |e| family_name.set(e.value()) } }
-                    div { class: "field", label { "Server" }
-                        input { value: "{server}", oninput: move |e| server.set(e.value()) } }
+                    div { class: "field", label { r#for: "create-name", "Your name" }
+                        input { id: "create-name", value: "{my_name}", oninput: move |e| my_name.set(e.value()) } }
+                    div { class: "field", label { r#for: "create-family", "Family name" }
+                        input { id: "create-family", value: "{family_name}", oninput: move |e| family_name.set(e.value()) } }
+                    div { class: "field", label { r#for: "create-server", "Server" }
+                        input { id: "create-server", value: "{server}", oninput: move |e| server.set(e.value()) } }
                     p { class: "meta", "No server right now? Tasks work anyway and sync when it is reachable." }
                     div { class: "row",
                         button { class: "btn text", onclick: move |_| mode.set(Mode::Choose), "Back" }
@@ -157,10 +179,11 @@ pub fn Onboarding() -> Element {
                             button { class: "btn text", onclick: move |_| request.set(None), "Cancel" }
                         }
                     } else {
-                        div { class: "field", label { "Your name" }
-                            input { value: "{my_name}", oninput: move |e| my_name.set(e.value()) } }
-                        div { class: "field", label { "Invitation code" }
-                            textarea { value: "{code}", oninput: move |e| code.set(e.value()) } }
+                        div { class: "field", label { r#for: "join-name", "Your name" }
+                            input { id: "join-name", value: "{my_name}", oninput: move |e| my_name.set(e.value()) } }
+                        div { class: "field", label { r#for: "join-link", "Invitation link" }
+                            textarea { id: "join-link", value: "{code}", oninput: move |e| code.set(e.value()) } }
+                        p { class: "meta", "Paste the link you were sent. Scanning the QR code with the camera comes with the Android build." }
                         div { class: "row",
                             button { class: "btn text", onclick: move |_| mode.set(Mode::Choose), "Back" }
                             button { class: "btn", disabled: busy(), onclick: ask, "Ask to join" }
@@ -201,7 +224,7 @@ pub fn Home() -> Element {
         let class = if tab() == target { "active" } else { "" };
         rsx! {
             button { class: "{class}", onclick: move |_| tab.set(target),
-                div { class: "pill", "{icon}" }
+                div { class: "pill", aria_hidden: "true", "{icon}" }
                 "{label}"
             }
         }
@@ -226,7 +249,7 @@ pub fn Home() -> Element {
             }
         }
         if tab() == Tab::Tasks {
-            button { class: "fab", onclick: move |_| sheet.set(Sheet::AddTask), span { "+" } "New task" }
+            button { class: "fab", onclick: move |_| sheet.set(Sheet::AddTask), span { aria_hidden: "true", "+" } "New task" }
         }
         div { class: "nav",
             {nav(Tab::Tasks, "✓", "Tasks")}
@@ -329,7 +352,7 @@ fn TaskCard(task: Task, open_finish: EventHandler<Uuid>) -> Element {
         || matches!(&task.status, TaskStatus::InProgress { by, .. } if *by != me);
     rsx! {
         div { class: "{class}",
-            div { class: "emoji", "{task.emoji}" }
+            div { class: "emoji", aria_hidden: "true", "{task.emoji}" }
             div { class: "body",
                 div { class: "title", "{task.title}" }
                 {details}
@@ -396,13 +419,33 @@ fn AddTaskSheet(close: EventHandler<()>) -> Element {
     let state = use_context::<AppState>();
     let mut title = use_signal(String::new);
     let mut emoji = use_signal(|| EMOJIS[0].to_owned());
+    // Adds the task; also what Enter does in the title field.
+    let add = {
+        let state = state.clone();
+        move |_: ()| {
+            if title().trim().is_empty() {
+                return;
+            }
+            let s = state.clone();
+            let (t, e) = (title(), emoji());
+            state
+                .clone()
+                .run(async move { s.device.lock().await.add_task(&t, &e).await });
+            close.call(());
+        }
+    };
     rsx! {
         div { class: "scrim", onclick: move |_| close.call(()),
             div { class: "sheet", onclick: move |e| e.stop_propagation(),
                 div { class: "handle" }
                 h2 { "New task" }
-                div { class: "field", label { "What needs doing?" }
-                    input { value: "{title}", autofocus: true, oninput: move |e| title.set(e.value()) } }
+                div { class: "field", label { r#for: "task-title", "What needs doing?" }
+                    input { id: "task-title", value: "{title}", autofocus: true,
+                        oninput: move |e| title.set(e.value()),
+                        onkeydown: {
+                            let add = add.clone();
+                            move |e| if e.key() == Key::Enter { add(()) }
+                        } } }
                 div { class: "emoji-row",
                     for e in EMOJIS {
                         button { key: "{e}", class: if emoji() == e { "sel" } else { "" }, onclick: move |_| emoji.set(e.to_owned()), "{e}" }
@@ -410,12 +453,7 @@ fn AddTaskSheet(close: EventHandler<()>) -> Element {
                 }
                 div { class: "row",
                     button { class: "btn text", onclick: move |_| close.call(()), "Cancel" }
-                    button { class: "btn", disabled: title().trim().is_empty(), onclick: move |_| {
-                        let s = state.clone();
-                        let (t, e) = (title(), emoji());
-                        state.clone().run(async move { s.device.lock().await.add_task(&t, &e).await });
-                        close.call(());
-                    }, "Add" }
+                    button { class: "btn", disabled: title().trim().is_empty(), onclick: move |_| add(()), "Add" }
                 }
             }
         }
@@ -438,8 +476,8 @@ fn FinishSheet(task_id: Uuid, close: EventHandler<()>) -> Element {
             div { class: "sheet", onclick: move |e| e.stop_propagation(),
                 div { class: "handle" }
                 h2 { "Finish “{title}”" }
-                div { class: "field", label { "Note (optional)" }
-                    input { value: "{note}", oninput: move |e| note.set(e.value()) } }
+                div { class: "field", label { r#for: "task-note", "Note (optional)" }
+                    input { id: "task-note", value: "{note}", oninput: move |e| note.set(e.value()) } }
                 if location.is_some() {
                     label { class: "switch",
                         input { r#type: "checkbox", checked: with_location(), onchange: move |e| with_location.set(e.checked()) }
@@ -487,7 +525,7 @@ fn ActivityTab() -> Element {
                 let (icon, text) = describe(activity, family.member_name(activity.by));
                 rsx! {
                     div { key: "{activity.event_id}", class: "card",
-                        div { class: "emoji", "{icon}" }
+                        div { class: "emoji", aria_hidden: "true", "{icon}" }
                         div { class: "body",
                             div { class: "title", style: "font-size:15px", "{text}" }
                             div { class: "meta", "{ago(now, activity.at)}" }
@@ -553,7 +591,7 @@ fn FamilyTab() -> Element {
         div { class: "section", "Members" }
         for member in family.members.values() {
             div { key: "{member.device_id}", class: "card", style: "align-items:center",
-                div { class: "avatar", "{initial(&member.name)}" }
+                div { class: "avatar", aria_hidden: "true", "{initial(&member.name)}" }
                 div { class: "body",
                     div { class: "title", "{member.name}" if member.device_id == me { " (you)" } }
                     div { class: "meta", if member.owner { "Head of the family" } else { "Member" } }
@@ -564,8 +602,17 @@ fn FamilyTab() -> Element {
             div { class: "section", "Invite" }
             if let Some(t) = ticket() {
                 div { class: "card", style: "flex-direction:column",
-                    div { class: "meta", "Send this code to the other phone. It expires in 5 minutes." }
-                    div { class: "field", textarea { readonly: true, value: "{t.code}" } }
+                    div { class: "meta", "Let the other phone scan this code, or copy the link and send it by message. It expires in 5 minutes." }
+                    div { class: "qr", role: "img", aria_label: "Invitation QR code",
+                        dangerous_inner_html: tackly_client::qr::qr_svg(&t.link) }
+                    div { class: "actions",
+                        button { class: "btn tonal", onclick: {
+                            let (state, link) = (state.clone(), t.link.clone());
+                            move |_| copy_link(state.clone(), &link)
+                        }, "Copy link" }
+                    }
+                    div { class: "field", label { r#for: "invite-link", "Invitation link" }
+                        textarea { id: "invite-link", readonly: true, value: "{t.link}" } }
                     match progress() {
                         InviteProgress::Requested { device_id, confirmation } => rsx! {
                             div { class: "meta", "Someone asked to join. Do both phones show this code?" }

@@ -24,9 +24,13 @@ This builds everything, starts the relay and opens **three app windows**
 (Patrick, Mona, Mara; Patrick is the head of the family), each with its own database under `.dev/`.
 
 1. In Patrick's window: *Create a family*.
-2. Patrick: *Family → Invite someone*, copy the code.
-3. Mona: *Join with an invitation*, paste the code, *Ask to join*. Both phones
-   show the same six digits; Patrick confirms. Repeat for Mara.
+2. Patrick: *Family → Invite someone*. A **QR code** and a **link** appear.
+   *Copy link* puts the link on the clipboard so it can be sent by Signal or
+   any messenger. The code expires after five minutes.
+3. Mona: *Join with an invitation*, paste the link, *Ask to join*. Both phones
+   show the same six digits; Patrick confirms. Repeat for Mara. (A phone scans
+   the QR code with its camera; the desktop windows have no scanner, so paste
+   the link there. `tackly-app 'tackly://join?c=…'` opens straight on the form.)
 4. Add tasks, tap *Start* or *Finish* (optional note and location) and watch the
    other windows update live.
 
@@ -62,20 +66,26 @@ Without Nix, install Rust and run `cargo run -p tackly-sync` and
 
 Two layers, both against a real server with a SQLite file:
 
-**`just acceptance`: Cucumber, real clicking.** `crates/acceptance/tests/features/*.feature`
+**`just acceptance`: Cucumber, real windows.** `crates/acceptance/tests/features/*.feature`
 are plain-language scenarios. For each one the suite opens three real app
-windows (Patrick, Mona, Mara) and does everything by clicking and typing in
-them: creating the family, inviting and confirming the six digits, adding,
-starting and finishing tasks, going offline. A click is a hit-tested pointer
-click: if a button is covered, disabled or missing, the step fails the way it
-would for a person. The app exposes this only in a `ui-test` build
-(`crates/app/src/uitest.rs`), never in `just start` or release builds.
-Windows open and close by themselves while it runs; let it finish.
+windows (Patrick, Mona, Mara) and does everything the way a person does:
+typing key by key, clicking, pasting the invitation link, even scanning the QR
+code (the test draws the on-screen SVG and decodes the pixels, like a camera,
+and checks it matches the link shown). The API is Playwright's: lazy, strict
+locators (`get_by_role`, `get_by_label`, `filter`), actions that auto-wait for
+an element to be visible, enabled, stable and not covered, `press_sequentially`,
+`press`, and retrying `expect(...).to_have_text(...)` assertions. The embedded
+web view has no Playwright/CDP protocol, so the engine runs inside the page
+(`tests/support/driver.js`) and is reached through the app's `ui-test` bridge
+(`crates/app/src/uitest.rs`), which exists only in that build, never in
+`just start` or release builds. Windows open and close by themselves while it
+runs; let it finish. CI runs it on macOS.
 
 | Feature | Scenarios |
 | --- | --- |
-| `family.feature` | create a family and connect two members; the task list syncs, others watch a start live, finishing records duration, note and location; someone else finishes a started task and the head reopens it |
+| `family.feature` | create a family and connect two members (one by QR code, one by link); the task list syncs, others watch a start live, finishing records duration, note and location; someone else finishes a started task and the head reopens it |
 | `offline.feature` | the whole flow with no server, shared later; a server outage while three members keep working, then everyone catches up |
+| `typing.feature` | the Add button follows each typed key, Backspace and Enter work |
 | `conflict.feature` | two finish the same task, only they may decide, the winner is shown everywhere |
 
 **`just test`: no windows.** Unit tests plus `crates/client/tests/e2e.rs`,

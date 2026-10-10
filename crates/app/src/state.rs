@@ -58,8 +58,17 @@ impl AppState {
         self.now.set(chrono::Utc::now());
     }
 
+    /// Shows a snackbar for a few seconds.
     pub fn say(mut self, message: impl Into<String>) {
-        self.toast.set(Some(message.into()));
+        let message = message.into();
+        self.toast.set(Some(message.clone()));
+        let mut toast = self.toast;
+        spawn_forever(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            if toast.peek().as_deref() == Some(message.as_str()) {
+                toast.set(None);
+            }
+        });
     }
 
     /// Runs a user action, then refreshes. Errors become a snackbar. The task

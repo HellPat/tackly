@@ -20,3 +20,6 @@ dioxus = { version = "0.7.10", default-features = false, features = ["launch", "
 serde_json = { workspace = true, optional = true }
 tokio.workspace = true
 uuid.workspace = true
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+arboard = { version = "3", default-features = false }

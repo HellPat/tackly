@@ -1,15 +1,15 @@
 Feature: A family of three shares a task list
-  Patrick, Mona and Mara each use their own phone. Everything is done by
-  clicking through the real app; the sync server is real too.
+  Patrick, Mona and Mara each use their own phone. Everything is done the way a
+  person does it, in the real app; the sync server is real too.
 
   Background:
     Given the sync server is running
     And Patrick, Mona and Mara have opened Tackly
 
-  Scenario: Patrick creates a family and connects Mona and Mara
+  Scenario: Patrick creates a family and connects Mona by QR code and Mara by link
     When Patrick creates the family "The Smiths"
-    And Patrick invites Mona
-    And Patrick invites Mara
+    And Patrick invites Mona by QR code
+    And Patrick invites Mara by link
     Then Patrick, Mona and Mara see the members Patrick, Mona and Mara with Patrick as head of the family
 
   Scenario: The task list syncs and the others watch Mona work on it live

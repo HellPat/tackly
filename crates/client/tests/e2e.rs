@@ -165,7 +165,7 @@ async fn pair(owner: &Phone, joiner: &mut Phone, joiner_name: &str) {
         .device
         .lock()
         .await
-        .request_join(&ticket.code)
+        .request_join(&ticket.link)
         .await
         .unwrap();
     let (device_id, confirmation) = loop {

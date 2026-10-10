@@ -5,6 +5,7 @@ pub mod cqrs_store;
 pub mod crypto;
 pub mod device;
 pub mod live;
+pub mod qr;
 pub mod secrets;
 pub mod store;
 

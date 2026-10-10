@@ -29,3 +29,11 @@ pub fn location() -> Option<GeoPoint> {
         accuracy_meters: Some(10.0),
     })
 }
+
+/// An invitation link passed on the command line (a phone gets it from the
+/// system when the person taps the link).
+pub fn launch_link() -> Option<String> {
+    std::env::args()
+        .nth(1)
+        .filter(|arg| arg.starts_with("tackly://"))
+}

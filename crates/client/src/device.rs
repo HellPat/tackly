@@ -46,11 +46,12 @@ impl Membership {
     }
 }
 
-/// What the owner shows the other phone. `code` is pasted or scanned there.
+/// What the owner shows the other phone. `link` is shown as a QR code and can
+/// be copied and sent by any messenger; the other phone scans or pastes it.
 #[derive(Clone, Debug)]
 pub struct InviteTicket {
     pub invite_id: Uuid,
-    pub code: String,
+    pub link: String,
     secret: Vec<u8>,
 }
 
@@ -82,7 +83,21 @@ struct InviteLink {
     secret: String,
 }
 
-const CODE_PREFIX: &str = "tackly1.";
+/// An invitation is the link `tackly://join?c=<payload>`. A bare payload, or
+/// the older `tackly1.<payload>` form, is accepted too, and so is a link that
+/// a messenger wrapped or padded with whitespace.
+const LINK_PREFIX: &str = "tackly://join?c=";
+
+fn invitation_payload(text: &str) -> Option<String> {
+    let compact: String = text.split_whitespace().collect();
+    let payload = compact
+        .strip_prefix(LINK_PREFIX)
+        .or_else(|| compact.strip_prefix("tackly1."))
+        .unwrap_or(&compact);
+    // Drop anything a messenger may have appended after the payload.
+    let payload = payload.split(['&', '#']).next()?;
+    (!payload.is_empty()).then(|| payload.to_owned())
+}
 
 fn confirmation_code(secret: &[u8], device_id: Uuid) -> String {
     let hash = derive("confirmation", &[secret, device_id.as_bytes()]);
@@ -293,8 +308,8 @@ impl Device {
         };
         Ok(InviteTicket {
             invite_id,
-            code: format!(
-                "{CODE_PREFIX}{}",
+            link: format!(
+                "{LINK_PREFIX}{}",
                 crypto::encode(&serde_json::to_vec(&link)?)
             ),
             secret,
@@ -352,14 +367,11 @@ impl Device {
     }
 
     /// Joining phone, step 1: ask the owner to let this phone in.
-    pub async fn request_join(&mut self, code: &str) -> Result<JoinRequest> {
+    pub async fn request_join(&mut self, link: &str) -> Result<JoinRequest> {
         ensure!(self.membership.is_none(), "already in a family");
-        let encoded = code
-            .trim()
-            .strip_prefix(CODE_PREFIX)
-            .context("not a Tackly invitation code")?;
-        let link: InviteLink = serde_json::from_slice(&crypto::decode(encoded)?)
-            .context("invitation code is damaged")?;
+        let encoded = invitation_payload(link).context("not a Tackly invitation link")?;
+        let link: InviteLink = serde_json::from_slice(&crypto::decode(&encoded)?)
+            .context("the invitation link is damaged")?;
         let secret = crypto::decode(&link.secret)?;
         Api::new(&link.server)?
             .request_join(
@@ -586,5 +598,30 @@ impl Device {
             membership.device_token.clone(),
             self.store().cursor().ok()?,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invitation_links_are_read_leniently() {
+        let payload = "eyJzZXJ2ZXIiOiJodHRwOi8veCJ9";
+        for text in [
+            format!("tackly://join?c={payload}"),
+            format!("  tackly://join?c={payload}\n"),
+            format!("tackly://join?c=eyJzZXJ2\n  ZXIiOiJodHRwOi8veCJ9"),
+            format!("tackly1.{payload}"),
+            payload.to_owned(),
+            format!("tackly://join?c={payload}&utm=x"),
+        ] {
+            assert_eq!(
+                invitation_payload(&text).as_deref(),
+                Some(payload),
+                "{text:?}"
+            );
+        }
+        assert_eq!(invitation_payload("  "), None);
     }
 }
