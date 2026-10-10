@@ -45,6 +45,9 @@
       </form>
     </section>
 
+    <!-- Family: the one main action, right above the navigation. -->
+    <section id="familyBar" class="hidden shrink-0 px-3 pb-3 pt-2" aria-label="Invite"></section>
+
     <nav id="dock" class="shrink-0 h-20 grid grid-cols-3 bg-[#fffdfb] shadow-[0_-1px_0_var(--color-stone-200)]" aria-label="Main"></nav>
 
     <!-- A task in focus: full screen, no navigation. -->
@@ -235,8 +238,7 @@ function renderFamily() {
   return `<ul class="${CARD} overflow-hidden mt-1">${state.members.map((m) => `<li>
       ${m.me ? `<button class="w-full flex items-center gap-4 px-4 min-h-16 text-left hover:bg-stone-50" data-avatar aria-label="Change your picture">${avatar(m)}<span class="flex-1 text-base">${m.name}</span>${icon('edit', '!text-[18px] text-stone-500')}</button>`
              : `<div class="flex items-center gap-4 px-4 min-h-16">${avatar(m)}<span class="flex-1 text-base">${m.name}</span></div>`}
-    </li>`).join('')}</ul>
-    <button class="${SECONDARY} mt-4" data-invite>${icon('person_add', '!text-[18px]')}Invite someone</button>`;
+    </li>`).join('')}</ul>`;
 }
 
 /* The picture: an icon on a tint, or a photo. Always round. */
@@ -335,6 +337,8 @@ function render() {
   $('#backBtn').classList.toggle('hidden', !inPlace); $('#backBtn').classList.toggle('grid', !!inPlace);
   $('#main').innerHTML = { tasks: renderTasks, places: renderPlaces, family: renderFamily }[state.tab]();
   $('#offline').classList.toggle('hidden', !state.offline); $('#offline').classList.toggle('inline-flex', !!state.offline);
+  $('#familyBar').classList.toggle('hidden', state.tab !== 'family');
+  $('#familyBar').innerHTML = `<button class="${PRIMARY} w-full !h-12 text-base" data-invite>${icon('person_add')}Invite someone</button>`;
   renderDock(); renderComposer(); renderDetail();
 }
 
