@@ -140,8 +140,9 @@ const pill = (p) => `<span class="${PILL}">${p.name}</span>`;
 const heading = (text) => `<h2 class="px-2 pt-6 pb-2 text-sm font-semibold text-stone-600">${text}</h2>`;
 /* What the bottom bar adds here: a task, a place, or a location of the place being edited. */
 const barMode = () => state.tab === 'places' && state.editPlace ? 'location' : state.tab === 'places' && !state.placeView ? 'place' : 'task';
-/* A person's picture: an icon on a soft tint, or a photo; round, with an inner ring so photos never bleed. */
-const avatar = (m, size = 'size-10') => `<span class="relative ${size} shrink-0 rounded-full overflow-hidden grid place-items-center ${TINTS[m.avatar.tint]} after:absolute after:inset-0 after:rounded-full after:ring-1 after:ring-inset after:ring-black/10">
+/* A person's picture: an icon on a soft tint, or a photo. Round, with a white border and a small shadow,
+   so any photo (too light, too busy, badly cropped) still sits cleanly on the page. */
+const avatar = (m, size = 'size-10') => `<span class="relative ${size} shrink-0 rounded-full overflow-hidden grid place-items-center ${TINTS[m.avatar.tint]} ${{ 'size-24': 'border-4', 'size-10': 'border-[3px]' }[size] ?? 'border-2'} border-white shadow-[0_1px_3px_rgb(41_37_36/.3)]">
   ${m.avatar.photo ? `<img src="${m.avatar.photo}" alt="" class="size-full object-cover">` : icon(m.avatar.icon, size === 'size-24' ? '!text-[40px]' : size === 'size-8' ? '!text-[18px]' : '')}</span>`;
 
 /* Time worked: today, and in total since the task was (re)opened. */
@@ -264,7 +265,7 @@ function nothingMine() {
   const someone = state.members.find((m) => !m.me);
   // A handwritten note, to go with the hand-drawn arrow.
   return `<button id="toAll" data-filter="all" class="block ml-auto mr-4 mt-12 text-right font-['Caveat'] text-stone-800 -rotate-2">
-      <span class="flex items-center justify-end gap-2 text-[34px] leading-none font-bold">Make <span class="rotate-2">${avatar(someone, 'size-9')}</span>${someone.name} happy</span>
+      <span class="flex items-center justify-end gap-2 text-[34px] leading-none font-bold">Make ${someone.name} <span class="rotate-2">${avatar(someone, 'size-9')}</span> happy</span>
       <span class="block mt-1 text-2xl leading-none font-medium text-stone-700">pick some</span>
     </button>`;
 }
