@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en" data-theme="tackly">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tackly prototype</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5.7.47/daisyui.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.3"></script>
+  <style>
+    /* Material-green theme for daisyUI */
+    [data-theme="tackly"] {
+      color-scheme: light;
+      --color-base-100: #fdfdf6; --color-base-200: #f0f2e8; --color-base-300: #e4e9dd; --color-base-content: #1b1c18;
+      --color-primary: #2e7d32; --color-primary-content: #ffffff;
+      --color-secondary: #c8e6c9; --color-secondary-content: #0b3d10;
+      --color-accent: #ffe0b2; --color-accent-content: #4a2800;
+      --color-neutral: #31312d; --color-neutral-content: #f3f1ea;
+      --color-info: #1976d2; --color-success: #43a047; --color-warning: #ef6c00; --color-error: #b3261e;
+      --color-info-content: #fff; --color-success-content: #fff; --color-warning-content: #fff; --color-error-content: #fff;
+      --radius-selector: 1rem; --radius-field: 0.75rem; --radius-box: 1rem; --size-selector: 0.25rem; --size-field: 0.25rem;
+      --border: 1px; --depth: 0; --noise: 0;
+    }
+    body { background: #1b1c18; font-family: Roboto, system-ui, sans-serif; }
+    .scroll-hide { scrollbar-width: none; } .scroll-hide::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+  <!-- The phone -->
+  <div id="phone" class="relative w-[390px] h-[800px] max-h-[95vh] bg-base-100 rounded-[2rem] overflow-hidden flex flex-col shadow-2xl">
+    <header class="navbar bg-base-100 px-4 min-h-16">
+      <div class="flex-1">
+        <h1 class="text-xl font-medium">Tackly 🌱</h1>
+        <div class="text-xs opacity-70">The Smiths · 3 members</div>
+      </div>
+      <span class="badge badge-secondary gap-2"><span class="status status-success"></span>Live</span>
+    </header>
+
+    <main id="main" class="flex-1 overflow-y-auto scroll-hide px-4 pb-52 flex flex-col gap-3"></main>
+
+    <!-- Add a task: docked above the navigation -->
+    <section id="composer" class="absolute left-0 right-0 bottom-20 bg-base-300 rounded-t-2xl px-3 pt-2 pb-3 flex flex-col gap-2 z-10">
+      <div id="placeChips" class="flex gap-2 overflow-x-auto scroll-hide"></div>
+      <div id="suggestions" class="flex gap-2 overflow-x-auto scroll-hide"></div>
+      <form id="addForm" class="flex items-center gap-3 px-1">
+        <span class="size-5 rounded-full border-2 border-base-content/40 shrink-0"></span>
+        <input id="addInput" aria-label="Add a task" placeholder="Add a task" autocomplete="off"
+               class="input input-ghost flex-1 px-0 focus:outline-none focus:bg-transparent text-base">
+        <button id="addBtn" aria-label="Add" class="btn btn-primary btn-sm btn-square" disabled>↑</button>
+      </form>
+    </section>
+
+    <!-- Bottom navigation -->
+    <nav class="dock dock-md !absolute bg-base-200 h-20 z-20" id="dock"></nav>
+
+    <!-- Finish sheet -->
+    <dialog id="finishSheet" class="modal modal-bottom">
+      <div class="modal-box rounded-t-[1.75rem]">
+        <h2 class="text-xl font-medium mb-3">Finish “<span id="finishTitle"></span>”</h2>
+        <label class="floating-label mb-3 w-full">
+          <span>Note (optional)</span>
+          <input id="finishNote" class="input input-bordered w-full" placeholder="Note (optional)">
+        </label>
+        <label class="label cursor-pointer justify-start gap-3 mb-2">
+          <input type="checkbox" class="toggle toggle-primary" checked> Add where I am
+        </label>
+        <div class="modal-action">
+          <form method="dialog"><button class="btn btn-ghost text-primary">Cancel</button></form>
+          <button id="finishDone" class="btn btn-primary">Done</button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+
+    <!-- Toast -->
+    <div id="toast" class="toast toast-center !absolute bottom-44 z-30 hidden"><div class="alert alert-neutral py-2"><span id="toastText"></span></div></div>
+  </div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const state = {
+  tab: 'tasks', placeView: null, chosen: new Set(),
+  groups: [{ id: 'g1', name: 'Grocery Store', emoji: '🛒' }, { id: 'g2', name: 'Hardware', emoji: '🔨' }],
+  places: [
+    { id: 'lidl', group: 'g1', name: 'LIDL', emoji: '🏪', loc: 'Marbacher Straße 1, 71364 Winnenden', more: 1 },
+    { id: 'aldi', group: 'g1', name: 'Aldi', emoji: '🏬', loc: 'Aldi Waiblingen', more: 0 },
+    { id: 'bauhaus', group: 'g2', name: 'Bauhaus', emoji: '🔧', loc: 'Stuttgarter Straße 9, 71522 Backnang', more: 0 },
+  ],
+  tasks: [
+    { id: 1, title: 'Milk', emoji: '🥛', places: ['lidl', 'aldi'], status: 'open' },
+    { id: 2, title: 'Bread', emoji: '🍞', places: ['lidl'], status: 'open' },
+    { id: 3, title: 'Light bulbs', emoji: '💡', places: ['bauhaus'], status: 'open' },
+    { id: 4, title: 'Water the plants', emoji: '🪴', places: [], status: 'doing', by: 'Mona' },
+    { id: 5, title: 'Altglas leeren', emoji: '🗑', places: [], status: 'done', by: 'Mara', note: 'Both containers', took: '12 min' },
+  ],
+  conflict: { title: 'Feed the cat', emoji: '🐱', a: { by: 'Mona', note: 'Mona fed her' }, b: { by: 'Mara', note: 'Mara fed her' } },
+};
+const placeById = (id) => state.places.find((p) => p.id === id);
+const open = (p) => state.tasks.filter((t) => t.status !== 'done' && t.places.includes(p.id)).length;
+
+function toast(text) { $('#toastText').textContent = text; $('#toast').classList.remove('hidden'); setTimeout(() => $('#toast').classList.add('hidden'), 2200); }
+
+function taskCard(t) {
+  const chips = t.places.map((id) => `<span class="badge badge-secondary badge-sm">${placeById(id).emoji} ${placeById(id).name}</span>`).join('');
+  const cls = t.status === 'done' ? 'bg-base-300' : t.status === 'doing' ? 'bg-secondary' : 'bg-white border border-base-300';
+  return `<div class="card ${cls} rounded-2xl"><div class="card-body p-4 flex-row gap-3 items-start">
+    <div class="size-11 rounded-full bg-secondary grid place-items-center text-2xl shrink-0">${t.emoji}</div>
+    <div class="flex-1 min-w-0 flex flex-col gap-1">
+      <div class="font-medium text-base ${t.status === 'done' ? 'line-through opacity-60' : ''}">${t.title}</div>
+      ${t.status === 'doing' ? `<div class="text-xs opacity-70">${t.by} is on it · started 4 min ago</div>` : ''}
+      ${t.status === 'done' ? `<div class="text-xs opacity-70">Done by ${t.by} · 2 h ago</div><div class="flex flex-wrap gap-1"><span class="badge badge-success badge-sm">⏱ ${t.took}</span><span class="badge badge-outline badge-sm">💬 ${t.note}</span></div>` : ''}
+      ${chips ? `<div class="flex flex-wrap gap-1">${chips}</div>` : ''}
+      ${t.status !== 'done' ? `<div class="flex gap-2 mt-1 flex-wrap">
+        ${t.status === 'open' ? `<button class="btn btn-sm btn-secondary rounded-full" data-start="${t.id}">Start</button>` : ''}
+        <button class="btn btn-sm btn-primary rounded-full" data-finish="${t.id}">Finish</button>
+        <button class="btn btn-sm btn-ghost text-primary" data-edit="${t.id}">Edit places</button></div>` : `<div class="mt-1"><button class="btn btn-sm btn-ghost text-primary" data-reopen="${t.id}">Reopen</button></div>`}
+    </div></div></div>`;
+}
+
+function renderTasks() {
+  const todo = state.tasks.filter((t) => t.status !== 'done').sort((a, b) => (b.status === 'doing') - (a.status === 'doing'));
+  const done = state.tasks.filter((t) => t.status === 'done');
+  const c = state.conflict;
+  return `
+    <div class="card bg-error/10 border border-error/30 rounded-2xl"><div class="card-body p-4 gap-2">
+      <div class="font-medium">${c.emoji} ${c.title} <span class="badge badge-error badge-sm ml-1">finished twice</span></div>
+      <div class="text-xs opacity-70">Only Mona and Mara can decide which one counts.</div>
+      <div class="flex gap-2 flex-wrap"><button class="btn btn-sm btn-outline rounded-full" data-keep>Keep Mona’s: “${c.a.note}”</button><button class="btn btn-sm btn-outline rounded-full" data-keep>Keep Mara’s: “${c.b.note}”</button></div>
+    </div></div>
+    <div class="text-xs font-medium text-primary tracking-wide uppercase mt-2">To do</div>
+    ${todo.map(taskCard).join('')}
+    <div class="text-xs font-medium text-primary tracking-wide uppercase mt-2">Done</div>
+    ${done.map(taskCard).join('')}`;
+}
+
+function renderPlaces() {
+  if (state.placeView) {
+    const p = placeById(state.placeView);
+    const tasks = state.tasks.filter((t) => t.status !== 'done' && t.places.includes(p.id));
+    return `<div class="flex items-center gap-1"><button class="btn btn-ghost btn-square" data-back aria-label="Back">←</button><h2 class="text-xl font-medium">${p.emoji} ${p.name}</h2></div>
+      <div class="text-xs opacity-70">📍 ${p.loc}${p.more ? ` · +${p.more} more` : ''}</div>
+      <div><button class="btn btn-sm btn-ghost text-primary">Add location</button></div>
+      ${tasks.length ? tasks.map(taskCard).join('') : '<p class="text-center opacity-60 py-10">Nothing to get here.</p>'}`;
+  }
+  return state.groups.map((g) => {
+    const places = state.places.filter((p) => p.group === g.id).sort((a, b) => open(b) - open(a));
+    return `<div class="flex items-center justify-between mt-2"><span class="text-xs font-medium text-primary tracking-wide uppercase">${g.emoji} ${g.name}</span><button class="btn btn-sm btn-ghost text-primary">Add place</button></div>
+      ${places.map((p) => `<button class="card bg-white border border-base-300 rounded-2xl text-left" data-place="${p.id}"><div class="card-body p-4 flex-row items-center gap-3">
+        <div class="size-11 rounded-full bg-secondary grid place-items-center text-2xl shrink-0">${p.emoji}</div>
+        <div class="flex-1 min-w-0"><div class="font-medium text-base">${p.name}</div><div class="text-xs opacity-70 truncate">${p.loc}${p.more ? ` · +${p.more} more` : ''}</div></div>
+        <span class="badge badge-primary badge-lg" aria-label="${open(p)} to get">${open(p)}</span></div></button>`).join('')}`;
+  }).join('') + `<div><button class="btn btn-secondary rounded-full mt-2">New group</button></div>`;
+}
+
+function renderActivity() {
+  const rows = [['✅', 'Mara finished “Altglas leeren”', '2 h ago'], ['▶️', 'Mona started “Water the plants”', '4 min ago'], ['➕', 'You added “Milk”', '1 h ago'], ['👋', 'Mara joined the family', 'yesterday'], ['🌱', 'You created The Smiths', 'yesterday']];
+  return `<ul class="list bg-base-100">${rows.map(([i, t, a]) => `<li class="list-row"><div class="text-2xl">${i}</div><div><div>${t}</div><div class="text-xs opacity-60">${a}</div></div></li>`).join('')}</ul>`;
+}
+
+function renderFamily() {
+  const qr = Array.from({ length: 21 * 21 }, (_, i) => (((i * 7919) ^ (i >> 3)) % 3 === 0 || [0,1,2,3,4,5,6].includes(i % 21) && i < 147 || [0,1,2,3,4,5,6].includes(Math.floor(i/21)) && i % 21 < 7) ? 1 : 0);
+  return `<div class="font-medium">The Smiths</div>
+    <ul class="list"><li class="list-row"><div class="avatar avatar-placeholder"><div class="bg-primary text-primary-content w-10 rounded-full">P</div></div><div><div>Patrick (you)</div><div class="text-xs opacity-60">Head of the family</div></div></li>
+    <li class="list-row"><div class="avatar avatar-placeholder"><div class="bg-primary text-primary-content w-10 rounded-full">M</div></div><div>Mona</div></li>
+    <li class="list-row"><div class="avatar avatar-placeholder"><div class="bg-primary text-primary-content w-10 rounded-full">M</div></div><div>Mara</div></li></ul>
+    <div class="card bg-base-200 rounded-2xl"><div class="card-body p-4 items-center gap-3">
+      <div class="text-xs opacity-70 text-center">Let the other phone scan this code, or copy the link and send it by message. It expires in 5 minutes.</div>
+      <div class="bg-white p-2 rounded-xl" role="img" aria-label="Invitation QR code"><div class="grid" style="grid-template-columns:repeat(21,8px)">${qr.map((b) => `<i class="size-2 ${b ? 'bg-black' : 'bg-white'}"></i>`).join('')}</div></div>
+      <button class="btn btn-secondary rounded-full" data-copy>Copy link</button>
+    </div></div>`;
+}
+
+function renderDock() {
+  const items = [['tasks', '✓', 'Tasks'], ['places', '📍', 'Places'], ['activity', '🕘', 'Activity'], ['family', '👪', 'Family']];
+  $('#dock').innerHTML = items.map(([id, icon, label]) => `<button data-tab="${id}" class="${state.tab === id ? 'dock-active text-primary' : ''}"><span class="text-xl">${icon}</span><span class="dock-label">${label}</span></button>`).join('');
+}
+
+function renderComposer() {
+  const show = state.tab === 'tasks' || (state.tab === 'places' && state.placeView);
+  $('#composer').classList.toggle('hidden', !show);
+  $('#placeChips').innerHTML = state.places.map((p) => `<button type="button" data-chip="${p.id}" aria-pressed="${state.chosen.has(p.id)}" class="btn btn-xs rounded-full shrink-0 ${state.chosen.has(p.id) ? 'btn-secondary border-primary' : 'btn-outline'}">${p.emoji} ${p.name}</button>`).join('');
+  const sug = state.tasks.filter((t) => t.status === 'done').map((t) => t.title).slice(0, 6);
+  $('#suggestions').innerHTML = sug.map((s) => `<button type="button" data-suggest="${s}" class="btn btn-sm bg-white border-base-content/30 rounded-full shrink-0"><span class="text-primary text-lg leading-none">+</span>${s}</button>`).join('');
+}
+
+function render() {
+  $('#main').innerHTML = { tasks: renderTasks, places: renderPlaces, activity: renderActivity, family: renderFamily }[state.tab]();
+  renderDock(); renderComposer();
+}
+
+function addTask(title, places) {
+  state.tasks.push({ id: Date.now(), title, emoji: '✅', places: [...places], status: 'open' });
+  state.chosen = new Set(state.placeView ? [state.placeView] : []);
+  render();
+}
+
+let finishing = null;
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('button'); if (!t) return;
+  const d = t.dataset;
+  if (d.tab) { state.tab = d.tab; state.placeView = null; state.chosen = new Set(); }
+  else if (d.place) { state.placeView = d.place; state.chosen = new Set([d.place]); }
+  else if ('back' in d) { state.placeView = null; state.chosen = new Set(); }
+  else if (d.chip) { state.chosen.has(d.chip) ? state.chosen.delete(d.chip) : state.chosen.add(d.chip); }
+  else if (d.suggest) { addTask(d.suggest, state.chosen); return; }
+  else if (d.start) { const k = state.tasks.find((x) => x.id == d.start); k.status = 'doing'; k.by = 'You'; }
+  else if (d.finish) { finishing = state.tasks.find((x) => x.id == d.finish); $('#finishTitle').textContent = finishing.title; $('#finishSheet').showModal(); return; }
+  else if (d.reopen) { state.tasks.find((x) => x.id == d.reopen).status = 'open'; }
+  else if ('copy' in d) { toast('Link copied'); return; }
+  else if ('keep' in d) { state.conflict = null; toast('Settled'); }
+  else return;
+  render();
+});
+$('#finishDone').addEventListener('click', () => { finishing.status = 'done'; finishing.by = 'You'; finishing.note = $('#finishNote').value || 'Done'; finishing.took = '3 min'; $('#finishSheet').close(); render(); });
+$('#addInput').addEventListener('input', (e) => { $('#addBtn').disabled = !e.target.value.trim(); });
+$('#addForm').addEventListener('submit', (e) => { e.preventDefault(); const v = $('#addInput').value.trim(); if (!v) return; addTask(v, state.chosen); $('#addInput').value = ''; $('#addBtn').disabled = true; $('#addInput').focus(); });
+// ?tab=places  or  ?tab=places&place=lidl  opens that screen directly
+const query = new URLSearchParams(location.search);
+if (query.get('tab')) state.tab = query.get('tab');
+if (query.get('place')) { state.placeView = query.get('place'); state.chosen = new Set([state.placeView]); }
+render();
+</script>
+</body>
+</html>
