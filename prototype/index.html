@@ -313,12 +313,31 @@ function renderPlaces() {
 }
 
 /* Editing a place: its name, and its locations as a plain list. New locations come from the bottom bar. */
+/* A place's group: pick one, none, or type a new one. Groups without places simply disappear. */
+const CHIP = 'shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors';
+function groupPicker(p) {
+  const chip = (id, label) => {
+    const on = (p.group ?? null) === id;
+    return `<button data-group="${id ?? ''}" aria-pressed="${on}" class="${CHIP} ${on ? 'bg-stone-800 text-stone-50' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${label}</button>`;
+  };
+  return `<div class="px-1 pt-5">
+    <span class="block text-sm font-semibold text-stone-600" id="groupLabel">Group</span>
+    <div class="mt-2 flex flex-wrap gap-2" role="group" aria-labelledby="groupLabel">
+      ${state.groups.map((g) => chip(g.id, g.name)).join('')}${chip(null, 'None')}
+      ${state.newGroup
+        ? `<form id="newGroupForm" class="inline-flex"><input id="newGroup" aria-label="New group" placeholder="Group name" class="h-9 w-40 px-3.5 rounded-full bg-[#fffdfb] text-sm shadow-sm ring-2 ring-accent-700 outline-none"></form>`
+        : `<button data-new-group class="${CHIP} border border-dashed border-stone-400 text-stone-700">${icon('add', '!text-[18px]')}New group</button>`}
+    </div>
+  </div>`;
+}
+
 function renderPlaceEdit(p) {
   const only = p.locations.length === 1;
   return `<label class="block px-1 pt-1">
       <span class="text-sm font-semibold text-stone-600">Name</span>
       <input id="placeName" value="${p.name}" class="mt-1.5 w-full h-12 px-4 rounded-md bg-[#fffdfb] border border-stone-300 shadow-sm text-base outline-none focus:ring-2 focus:ring-accent-700">
     </label>
+    ${groupPicker(p)}
     ${heading('Locations')}
     <ul class="${CARD} overflow-hidden">${p.locations.map((l, i) => `<li class="flex items-center gap-3 pl-4 pr-1 min-h-16">
       ${icon('location_on', 'text-stone-500')}
@@ -499,6 +518,13 @@ function finish(t, card) {
 }
 
 document.addEventListener('input', (e) => { if (e.target.id === 'placeName') { placeById(state.placeView).name = e.target.value; } });
+document.addEventListener('submit', (e) => {
+  if (e.target.id !== 'newGroupForm') return;
+  e.preventDefault();
+  const name = $('#newGroup').value.trim();
+  if (name) { const g = { id: `g${now()}`, name }; state.groups.push(g); placeById(state.placeView).group = g.id; }
+  state.newGroup = false; render();
+});
 document.addEventListener('change', (e) => {
   const id = e.target.dataset.check; if (!id) return;
   finish(find(id), e.target.closest('[data-card]'));
@@ -506,10 +532,13 @@ document.addEventListener('change', (e) => {
 document.addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b || b.closest('#toasts')) return;
   const d = b.dataset;
+  if (b.id === 'backBtn') { state.newGroup = false; }
   if (b.id === 'backBtn') { if (state.personView) state.personView = null; else if (state.editPlace) state.editPlace = false; else { state.placeView = null; state.chosen = new Set(); } }
   else if (b.id === 'editBtn' && state.personView) { avatarSheet(); return; }
   else if (b.id === 'editBtn' || 'editPlace' in d) { state.editPlace = true; }
   else if (d.person) { state.personView = d.person; }
+  else if ('group' in d && state.editPlace) { placeById(state.placeView).group = d.group || null; }
+  else if ('newGroup' in d) { state.newGroup = true; render(); $('#newGroup').focus(); return; }
   else if (d.assign) {
     const t = find(d.assign);
     const people = [...state.members].sort((a, b) => b.me - a.me);
