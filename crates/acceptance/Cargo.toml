@@ -16,6 +16,7 @@ workspace = true
 [dev-dependencies]
 tackly-testkit = { path = "../testkit" }
 anyhow.workspace = true
+arboard = { version = "3", default-features = false }
 base64.workspace = true
 cucumber = "0.23"
 rqrr = "0.11"

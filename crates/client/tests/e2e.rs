@@ -12,7 +12,7 @@ use std::{
 
 use anyhow::{Context, Result, bail, ensure};
 use tackly_client::{Device, InviteProgress, SharedDevice, api::Api, run_live};
-use tackly_protocol::{Family, GeoPoint, TaskStatus};
+use tackly_protocol::{Family, GeoPoint, PlaceLocation, TaskStatus};
 use tackly_testkit::Relay;
 use tokio::{sync::Mutex, task::JoinHandle};
 use uuid::Uuid;
@@ -73,7 +73,7 @@ impl Phone {
     // device's upload trigger syncs it as soon as the relay is reachable.
 
     async fn add_task(&self, title: &str, emoji: &str) -> Result<Uuid> {
-        self.device.lock().await.add_task(title, emoji).await
+        self.device.lock().await.add_task(title, emoji, &[]).await
     }
 
     async fn start(&self, task: Uuid) -> Result<()> {
@@ -167,7 +167,7 @@ async fn pair(owner: &Phone, joiner: &mut Phone, joiner_name: &str) -> Result<()
 }
 
 fn scratch_dir(name: &str) -> Result<PathBuf> {
-    let dir = std::env::temp_dir().join(format!("tackly-e2e-{name}-{}", Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("tackly-e2e-{name}-{}", Uuid::now_v7()));
     std::fs::create_dir_all(&dir).context("create a scratch directory")?;
     Ok(dir)
 }
@@ -404,6 +404,66 @@ async fn a_double_completion_that_agrees_settles_itself() -> Result<()> {
 }
 
 #[tokio::test]
+async fn places_and_their_tasks_sync_to_everyone() -> Result<()> {
+    let dir = scratch_dir("places")?;
+    let mut relay = Relay::reserve(&dir)?;
+    relay.start().await?;
+    let (patrick, mona, mara) = family_of_three(&dir, &relay).await?;
+
+    // Patrick sets up Grocery Store > LIDL (two branches) and Aldi.
+    let (lidl, aldi, milk) = {
+        let mut device = patrick.device.lock().await;
+        let group = device.create_place_group("Grocery Store", "🛒").await?;
+        let lidl = device
+            .create_place(group, "LIDL", "🏪", PlaceLocation::named("LIDL Winnenden"))
+            .await?;
+        device
+            .add_place_location(lidl, PlaceLocation::named("LIDL Backnang"))
+            .await?;
+        let aldi = device
+            .create_place(group, "Aldi", "🏬", PlaceLocation::named("Aldi Waiblingen"))
+            .await?;
+        let milk = device.add_task("Milk", "🥛", &[lidl, aldi]).await?;
+        device.add_task("Bread", "🍞", &[lidl]).await?;
+        (lidl, aldi, milk)
+    };
+
+    for phone in [&mona, &mara] {
+        eventually("places and tasks synced", || async {
+            let state = phone.state().await?;
+            Ok(state.open_tasks_at(lidl).count() == 2
+                && state.open_tasks_at(aldi).count() == 1
+                && state
+                    .places
+                    .get(&lidl)
+                    .is_some_and(|place| place.locations.len() == 2))
+        })
+        .await?;
+    }
+
+    // Mona buys the milk at Aldi: it is gone from LIDL's list as well.
+    mona.complete(milk, None, None).await?;
+    eventually("milk is off both lists", || async {
+        let state = patrick.state().await?;
+        Ok(state.open_tasks_at(lidl).count() == 1 && state.open_tasks_at(aldi).count() == 0)
+    })
+    .await?;
+
+    // Mara moves the bread to Aldi.
+    let bread = patrick.task_id("Bread").await?;
+    {
+        let mut device = mara.device.lock().await;
+        device.add_task_to_place(bread, aldi).await?;
+        device.remove_task_from_place(bread, lidl).await?;
+    }
+    eventually("bread moved", || async {
+        let state = patrick.state().await?;
+        Ok(state.open_tasks_at(lidl).count() == 0 && state.open_tasks_at(aldi).count() == 1)
+    })
+    .await
+}
+
+#[tokio::test]
 async fn everything_works_without_a_server_and_syncs_later() -> Result<()> {
     let dir = scratch_dir("offline")?;
     let mut relay = Relay::reserve(&dir)?; // not started: the relay is down
@@ -514,7 +574,7 @@ async fn registering_a_family_again_is_safe_only_with_the_same_token() -> Result
     let mut relay = Relay::reserve(&dir)?;
     relay.start().await?;
     let api = Api::new(&relay.url())?;
-    let (family, device) = (Uuid::new_v4(), Uuid::new_v4());
+    let (family, device) = (Uuid::now_v7(), Uuid::now_v7());
 
     api.create_family(family, device, "token-one").await?;
     api.create_family(family, device, "token-one").await?;
@@ -524,7 +584,7 @@ async fn registering_a_family_again_is_safe_only_with_the_same_token() -> Result
             .is_err()
     );
     assert!(
-        api.create_family(family, Uuid::new_v4(), "token-one")
+        api.create_family(family, Uuid::now_v7(), "token-one")
             .await
             .is_err()
     );

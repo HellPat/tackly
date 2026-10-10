@@ -17,13 +17,14 @@ impl Device {
             .context("the family has no list yet")
     }
 
-    pub async fn add_task(&mut self, title: &str, emoji: &str) -> Result<Uuid> {
-        let task_id = Uuid::new_v4();
+    pub async fn add_task(&mut self, title: &str, emoji: &str, place_ids: &[Uuid]) -> Result<Uuid> {
+        let task_id = Uuid::now_v7();
         self.run(FamilyCommand::AddTask {
             task_id,
             list_id: self.default_list()?,
             title: title.to_owned(),
             emoji: emoji.to_owned(),
+            place_ids: place_ids.to_vec(),
         })
         .await?;
         Ok(task_id)

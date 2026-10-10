@@ -3,6 +3,7 @@
 
 use dioxus::prelude::*;
 use tackly_protocol::{Family, TaskStatus};
+use uuid::Uuid;
 
 use crate::state::AppState;
 
@@ -14,24 +15,56 @@ const MAX_SUGGESTIONS: usize = 6;
 struct Suggestion {
     title: String,
     emoji: String,
+    place_ids: Vec<Uuid>,
 }
 
+/// `preselected` places start ticked (the place whose page this bar is on);
+/// more can be ticked before adding. Give the bar a key per place so it
+/// starts over when the place changes.
 #[component]
-pub fn Composer() -> Element {
+pub fn Composer(preselected: Vec<Uuid>) -> Element {
     let state = use_context::<AppState>();
     let mut title = use_signal(String::new);
-    let suggestions = suggestions(&(state.family)());
+    let preselected = use_signal(move || preselected);
+    let mut chosen = use_signal(|| preselected.peek().clone());
+    let family = (state.family)();
+    let suggestions = suggestions(&family);
     // Adds the typed task. It is also what Enter does in the field.
     let mut add = move || {
         let text = title().trim().to_owned();
         if text.is_empty() {
             return;
         }
-        state.add_task(text, DEFAULT_EMOJI.to_owned());
+        state.add_task(text, DEFAULT_EMOJI.to_owned(), chosen());
         title.set(String::new());
+        chosen.set(preselected());
     };
     rsx! {
         div { class: "composer",
+            if !family.places.is_empty() {
+                div { class: "suggestions",
+                    for place in family.places.values() {
+                        button {
+                            key: "{place.id}",
+                            class: "place-chip",
+                            aria_pressed: "{chosen().contains(&place.id)}",
+                            onclick: {
+                                let id = place.id;
+                                move |_| {
+                                    let mut now = chosen();
+                                    if now.contains(&id) {
+                                        now.retain(|chosen| *chosen != id);
+                                    } else {
+                                        now.push(id);
+                                    }
+                                    chosen.set(now);
+                                }
+                            },
+                            "{place.emoji} {place.name}"
+                        }
+                    }
+                }
+            }
             if !suggestions.is_empty() {
                 div { class: "suggestions",
                     for suggestion in suggestions {
@@ -40,7 +73,16 @@ pub fn Composer() -> Element {
                             class: "suggestion",
                             onclick: {
                                 let suggestion = suggestion.clone();
-                                move |_| state.add_task(suggestion.title.clone(), suggestion.emoji.clone())
+                                move |_| {
+                                    // Its own places, plus the ones ticked now.
+                                    let mut places = suggestion.place_ids.clone();
+                                    for id in chosen() {
+                                        if !places.contains(&id) {
+                                            places.push(id);
+                                        }
+                                    }
+                                    state.add_task(suggestion.title.clone(), suggestion.emoji.clone(), places);
+                                }
                             },
                             span { aria_hidden: "true", "+" }
                             "{suggestion.title}"
@@ -104,6 +146,12 @@ fn suggestions(family: &Family) -> Vec<Suggestion> {
         result.push(Suggestion {
             title: task.title.clone(),
             emoji: task.emoji.clone(),
+            place_ids: task
+                .place_ids
+                .iter()
+                .filter(|id| family.places.contains_key(id))
+                .copied()
+                .collect(),
         });
         if result.len() == MAX_SUGGESTIONS {
             break;

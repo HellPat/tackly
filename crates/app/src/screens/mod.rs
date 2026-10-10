@@ -2,7 +2,8 @@
 //!
 //! - [`onboarding`]: creating a family or joining one
 //! - [`home`]: the frame around a family: app bar, tabs, add-a-task bar
-//! - [`tasks`], [`activity`], [`family`]: the three tabs
+//! - [`tasks`], [`places`], [`activity`], [`family`]: the four tabs
+//! - [`place_sheets`]: forms for places and their locations
 //! - [`composer`]: typing a new task, with one-tap suggestions
 //! - [`sheets`]: the form for finishing a task
 
@@ -12,6 +13,8 @@ mod family;
 mod format;
 mod home;
 mod onboarding;
+mod place_sheets;
+mod places;
 mod sheets;
 mod tasks;
 

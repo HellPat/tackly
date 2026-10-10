@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::events::{CompletionMetadata, DomainEvent, FamilyEvent};
+use crate::events::{CompletionMetadata, DomainEvent, FamilyEvent, PlaceLocation};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Member {
@@ -21,6 +21,25 @@ pub struct TaskList {
     pub id: Uuid,
     pub name: String,
     pub emoji: String,
+}
+
+/// A set of places that belong together, e.g. "Grocery Store".
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PlaceGroup {
+    pub id: Uuid,
+    pub name: String,
+    pub emoji: String,
+}
+
+/// Somewhere tasks get done, e.g. "LIDL".
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Place {
+    pub id: Uuid,
+    pub group_id: Uuid,
+    pub name: String,
+    pub emoji: String,
+    /// Where it is. Never empty.
+    pub locations: Vec<PlaceLocation>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -56,6 +75,8 @@ pub struct Task {
     pub emoji: String,
     pub created_by: Uuid,
     pub status: TaskStatus,
+    /// Where it can be done. Empty means anywhere.
+    pub place_ids: Vec<Uuid>,
     /// Competing completions, first-in-server-order first. Empty unless two
     /// members both finished the task. Any member who wrote one of them may
     /// settle it with `task.conflict_resolved`.
@@ -127,6 +148,8 @@ pub struct Family {
     pub name: Option<String>,
     pub members: BTreeMap<Uuid, Member>,
     pub lists: BTreeMap<Uuid, TaskList>,
+    pub place_groups: BTreeMap<Uuid, PlaceGroup>,
+    pub places: BTreeMap<Uuid, Place>,
     pub tasks: BTreeMap<Uuid, Task>,
     pub activity: Vec<Activity>,
 }
@@ -151,6 +174,13 @@ impl Family {
         self.tasks
             .values()
             .filter(move |task| task.list_id == list_id)
+    }
+
+    /// Tasks still to do at a place.
+    pub fn open_tasks_at(&self, place_id: Uuid) -> impl Iterator<Item = &Task> {
+        self.tasks
+            .values()
+            .filter(move |task| !task.is_done() && task.place_ids.contains(&place_id))
     }
 
     pub fn task_by_title(&self, title: &str) -> Option<&Task> {
@@ -208,10 +238,58 @@ impl Family {
                     emoji: emoji.clone(),
                 });
             }
+            DomainEvent::PlaceGroupCreated { name, emoji } => {
+                self.place_groups
+                    .entry(envelope.subject_id)
+                    .or_insert(PlaceGroup {
+                        id: envelope.subject_id,
+                        name: name.clone(),
+                        emoji: emoji.clone(),
+                    });
+            }
+            DomainEvent::PlaceCreated {
+                group_id,
+                name,
+                emoji,
+                location,
+            } => {
+                if self.place_groups.contains_key(group_id) {
+                    self.places.entry(envelope.subject_id).or_insert(Place {
+                        id: envelope.subject_id,
+                        group_id: *group_id,
+                        name: name.clone(),
+                        emoji: emoji.clone(),
+                        locations: vec![location.clone()],
+                    });
+                }
+            }
+            DomainEvent::PlaceLocationAdded { location } => {
+                if let Some(place) = self.places.get_mut(&envelope.subject_id)
+                    && !place.locations.iter().any(|known| known.id == location.id)
+                {
+                    place.locations.push(location.clone());
+                }
+            }
+            DomainEvent::TaskPlaceAdded { place_id } => {
+                if !self.places.contains_key(place_id) {
+                    return;
+                }
+                if let Some(task) = self.tasks.get_mut(&envelope.subject_id)
+                    && !task.place_ids.contains(place_id)
+                {
+                    task.place_ids.push(*place_id);
+                }
+            }
+            DomainEvent::TaskPlaceRemoved { place_id } => {
+                if let Some(task) = self.tasks.get_mut(&envelope.subject_id) {
+                    task.place_ids.retain(|id| id != place_id);
+                }
+            }
             DomainEvent::TaskCreated {
                 list_id,
                 title,
                 emoji,
+                place_ids,
             } => {
                 if self.tasks.contains_key(&envelope.subject_id) {
                     return;
@@ -225,6 +303,11 @@ impl Family {
                         emoji: emoji.clone(),
                         created_by: by,
                         status: TaskStatus::Open,
+                        place_ids: place_ids
+                            .iter()
+                            .filter(|id| self.places.contains_key(id))
+                            .copied()
+                            .collect(),
                         claims: Vec::new(),
                     },
                 );
@@ -331,7 +414,7 @@ mod tests {
 
     fn event(subject_id: Uuid, by: Uuid, event: DomainEvent) -> FamilyEvent {
         FamilyEvent {
-            id: Uuid::new_v4(),
+            id: Uuid::now_v7(),
             subject_id,
             origin_device_id: by,
             occurred_at: Utc::now(),
@@ -341,8 +424,8 @@ mod tests {
 
     #[test]
     fn first_completion_wins_and_reopen_needs_the_current_completion() {
-        let (family, list, task) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
-        let (owner, member) = (Uuid::new_v4(), Uuid::new_v4());
+        let (family, list, task) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let (owner, member) = (Uuid::now_v7(), Uuid::now_v7());
         let first = event(task, member, DomainEvent::TaskCompleted(Default::default()));
         let events = vec![
             event(
@@ -373,6 +456,7 @@ mod tests {
                     list_id: list,
                     title: "Dishes".into(),
                     emoji: "🍽".into(),
+                    place_ids: Vec::new(),
                 },
             ),
             event(task, owner, DomainEvent::TaskStarted),
@@ -382,7 +466,7 @@ mod tests {
                 task,
                 owner,
                 DomainEvent::TaskReopened {
-                    completion_event_id: Uuid::new_v4(),
+                    completion_event_id: Uuid::now_v7(),
                 },
             ),
         ];
@@ -413,8 +497,8 @@ mod tests {
 
     #[test]
     fn only_participants_resolve_a_conflict() {
-        let (list, task) = (Uuid::new_v4(), Uuid::new_v4());
-        let (a, b, c) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        let (list, task) = (Uuid::now_v7(), Uuid::now_v7());
+        let (a, b, c) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
         let done_a = event(task, a, DomainEvent::TaskCompleted(note("A did it")));
         let done_b = event(task, b, DomainEvent::TaskCompleted(note("B did it")));
         let mut state = Family::replay(&[
@@ -425,6 +509,7 @@ mod tests {
                     list_id: list,
                     title: "Trash".into(),
                     emoji: "🗑".into(),
+                    place_ids: Vec::new(),
                 },
             ),
             done_a.clone(),
@@ -452,8 +537,8 @@ mod tests {
     }
 
     fn two_completions(first: CompletionMetadata, second: CompletionMetadata) -> Task {
-        let (list, task) = (Uuid::new_v4(), Uuid::new_v4());
-        let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+        let (list, task) = (Uuid::now_v7(), Uuid::now_v7());
+        let (a, b) = (Uuid::now_v7(), Uuid::now_v7());
         let state = Family::replay(&[
             event(
                 task,
@@ -462,6 +547,7 @@ mod tests {
                     list_id: list,
                     title: "Trash".into(),
                     emoji: "🗑".into(),
+                    place_ids: Vec::new(),
                 },
             ),
             event(task, a, DomainEvent::TaskCompleted(first)),
@@ -507,5 +593,90 @@ mod tests {
     fn contradicting_completions_still_need_a_person() {
         let task = two_completions(note("Mona fed her"), note("Mara fed her"));
         assert!(task.has_conflict());
+    }
+
+    #[test]
+    fn places_collect_the_open_tasks_assigned_to_them() {
+        let (list, group, lidl, aldi) = (
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+        );
+        let (milk, bread) = (Uuid::now_v7(), Uuid::now_v7());
+        let me = Uuid::now_v7();
+        let created = |id, title: &str, place_ids| {
+            event(
+                id,
+                me,
+                DomainEvent::TaskCreated {
+                    list_id: list,
+                    title: title.into(),
+                    emoji: "🛒".into(),
+                    place_ids,
+                },
+            )
+        };
+        let place = |id, name: &str| {
+            event(
+                id,
+                me,
+                DomainEvent::PlaceCreated {
+                    group_id: group,
+                    name: name.into(),
+                    emoji: "🏪".into(),
+                    location: PlaceLocation::named(name),
+                },
+            )
+        };
+        let mut state = Family::replay(&[
+            event(
+                list,
+                me,
+                DomainEvent::ListCreated {
+                    name: "Home".into(),
+                    emoji: "🏠".into(),
+                },
+            ),
+            event(
+                group,
+                me,
+                DomainEvent::PlaceGroupCreated {
+                    name: "Grocery Store".into(),
+                    emoji: "🛒".into(),
+                },
+            ),
+            place(lidl, "LIDL"),
+            place(aldi, "Aldi"),
+            created(milk, "Milk", vec![lidl, aldi]),
+            created(bread, "Bread", vec![lidl]),
+        ]);
+        assert_eq!(state.open_tasks_at(lidl).count(), 2);
+        assert_eq!(state.open_tasks_at(aldi).count(), 1);
+
+        state.apply_event(&event(
+            milk,
+            me,
+            DomainEvent::TaskPlaceRemoved { place_id: lidl },
+        ));
+        assert_eq!(state.open_tasks_at(lidl).count(), 1);
+
+        // Buying it anywhere takes it off every list.
+        state.apply_event(&event(
+            milk,
+            me,
+            DomainEvent::TaskCompleted(Default::default()),
+        ));
+        assert_eq!(state.open_tasks_at(aldi).count(), 0);
+
+        // A place that does not exist is ignored.
+        state.apply_event(&event(
+            bread,
+            me,
+            DomainEvent::TaskPlaceAdded {
+                place_id: Uuid::now_v7(),
+            },
+        ));
+        assert_eq!(state.tasks[&bread].place_ids, vec![lidl]);
     }
 }

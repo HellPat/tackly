@@ -84,10 +84,6 @@ fn InvitePanel() -> Element {
                     "Copy link"
                 }
             }
-            div { class: "field",
-                label { r#for: "invite-link", "Invitation link" }
-                textarea { id: "invite-link", readonly: true, value: "{shown.link}" }
-            }
             match progress() {
                 InviteProgress::Requested { device_id, confirmation } => rsx! {
                     div { class: "meta", "Someone asked to join. Do both phones show this code?" }
@@ -163,11 +159,33 @@ fn copy_link(state: AppState, link: &str) {
         Ok(()) => state.say("Link copied"),
         Err(error) => state.say(format!("Could not copy: {error}")),
     }
+    // Android has no desktop clipboard library: the web view copies.
     #[cfg(target_os = "android")]
-    {
-        let _ = link;
-        state.say("Select the link and copy it");
-    }
+    spawn({
+        let link_owned = link.to_owned();
+        async move {
+            // The link is only URL-safe characters, so it needs no escaping.
+            let text = format!("'{link_owned}'");
+            let script = format!(
+                "const text = {text}; \
+             try {{ await navigator.clipboard.writeText(text); dioxus.send(true); }} \
+             catch (_) {{ \
+               const field = document.createElement('textarea'); field.value = text; \
+               document.body.appendChild(field); field.select(); \
+               dioxus.send(document.execCommand('copy')); field.remove(); \
+             }}"
+            );
+            let copied = document::eval(&script)
+                .recv::<bool>()
+                .await
+                .unwrap_or(false);
+            state.say(if copied {
+                "Link copied"
+            } else {
+                "Could not copy the link"
+            });
+        }
+    });
 }
 
 #[component]

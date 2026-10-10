@@ -33,6 +33,7 @@ impl Member {
         dir: &Path,
         server_url: &str,
         location: &str,
+        geocoder_url: &str,
     ) -> Outcome<Self> {
         let port = std::net::TcpListener::bind("127.0.0.1:0")?
             .local_addr()?
@@ -44,6 +45,7 @@ impl Member {
                 .env("TACKLY_DATA_DIR", dir.join(name))
                 .env("TACKLY_SERVER_URL", server_url)
                 .env("TACKLY_LOCATION", location)
+                .env("TACKLY_GEOCODER", geocoder_url)
                 .env("TACKLY_UI_TEST_PORT", port.to_string())
                 .stdout(Stdio::from(log.try_clone()?))
                 .stderr(Stdio::from(log))

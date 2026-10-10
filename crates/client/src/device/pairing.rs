@@ -99,7 +99,7 @@ impl Device {
         let membership = self.joined()?.clone();
         ensure!(membership.owner, "only the head of the family can invite");
         let secret = random_bytes::<32>().to_vec();
-        let invite_id = Uuid::new_v4();
+        let invite_id = Uuid::now_v7();
         self.api()?
             .create_invite(
                 membership.family_id,
@@ -277,10 +277,10 @@ mod tests {
 
     #[test]
     fn both_phones_derive_the_same_digits() {
-        let (secret, device) = (b"secret".as_slice(), Uuid::new_v4());
+        let (secret, device) = (b"secret".as_slice(), Uuid::now_v7());
         let digits = confirmation_code(secret, device);
         assert_eq!(digits.len(), 6);
         assert_eq!(digits, confirmation_code(secret, device));
-        assert_ne!(digits, confirmation_code(secret, Uuid::new_v4()));
+        assert_ne!(digits, confirmation_code(secret, Uuid::now_v7()));
     }
 }

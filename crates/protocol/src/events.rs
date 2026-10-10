@@ -38,7 +38,29 @@ pub enum DomainEvent {
         list_id: Uuid,
         title: String,
         emoji: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        place_ids: Vec<Uuid>,
     },
+    /// A group of places, such as "Grocery Store".
+    #[serde(rename = "place_group.created")]
+    PlaceGroupCreated { name: String, emoji: String },
+    /// A place inside a group, such as "LIDL".
+    #[serde(rename = "place.created")]
+    PlaceCreated {
+        group_id: Uuid,
+        name: String,
+        emoji: String,
+        /// Every place starts with one location.
+        location: PlaceLocation,
+    },
+    /// Another branch of the place. Aggregate: the place.
+    #[serde(rename = "place.location_added")]
+    PlaceLocationAdded { location: PlaceLocation },
+    /// The task can be done at this place. A task can have several.
+    #[serde(rename = "task.place_added")]
+    TaskPlaceAdded { place_id: Uuid },
+    #[serde(rename = "task.place_removed")]
+    TaskPlaceRemoved { place_id: Uuid },
     /// Someone began working on the task. Shown live to other members.
     #[serde(rename = "task.started")]
     TaskStarted,
@@ -88,6 +110,30 @@ impl CompletionMetadata {
     }
 }
 
+/// One physical spot of a place, such as the LIDL in Winnenden. Looked up by
+/// the app when online; without coordinates it is just a name.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PlaceLocation {
+    pub id: Uuid,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub point: Option<GeoPoint>,
+}
+
+impl PlaceLocation {
+    /// A location known only by its name (no address, no coordinates).
+    pub fn named(name: impl Into<String>) -> Self {
+        Self {
+            id: Uuid::now_v7(),
+            name: name.into(),
+            address: None,
+            point: None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GeoPoint {
     pub latitude: f64,
@@ -112,6 +158,11 @@ impl DomainEvent {
             Self::MemberJoined { .. } => "member.joined",
             Self::ListCreated { .. } => "list.created",
             Self::TaskCreated { .. } => "task.created",
+            Self::PlaceGroupCreated { .. } => "place_group.created",
+            Self::PlaceCreated { .. } => "place.created",
+            Self::PlaceLocationAdded { .. } => "place.location_added",
+            Self::TaskPlaceAdded { .. } => "task.place_added",
+            Self::TaskPlaceRemoved { .. } => "task.place_removed",
             Self::TaskStarted => "task.started",
             Self::TaskCompleted(_) => "task.completed",
             Self::TaskReopened { .. } => "task.reopened",
@@ -128,12 +179,12 @@ mod tests {
     #[test]
     fn completion_round_trips_with_metadata() {
         let envelope = FamilyEvent {
-            id: Uuid::new_v4(),
-            subject_id: Uuid::new_v4(),
-            origin_device_id: Uuid::new_v4(),
+            id: Uuid::now_v7(),
+            subject_id: Uuid::now_v7(),
+            origin_device_id: Uuid::now_v7(),
             occurred_at: Utc::now(),
             event: DomainEvent::TaskCompleted(CompletionMetadata {
-                started_event_id: Some(Uuid::new_v4()),
+                started_event_id: Some(Uuid::now_v7()),
                 duration_seconds: Some(90),
                 note: Some("Used the blue bin".into()),
                 location: Some(GeoPoint {
@@ -153,9 +204,9 @@ mod tests {
     #[test]
     fn unknown_event_types_do_not_break_replay() {
         let json = serde_json::json!({
-            "id": Uuid::new_v4(),
-            "subject_id": Uuid::new_v4(),
-            "origin_device_id": Uuid::new_v4(),
+            "id": Uuid::now_v7(),
+            "subject_id": Uuid::now_v7(),
+            "origin_device_id": Uuid::now_v7(),
             "occurred_at": Utc::now(),
             "type": "task.photographed",
             "photo": "…",

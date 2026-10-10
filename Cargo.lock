@@ -5831,6 +5831,7 @@ name = "tackly-acceptance"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "arboard",
  "base64 0.22.1",
  "cucumber",
  "rqrr",
@@ -5917,6 +5918,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "axum",
+ "serde_json",
  "tackly-sync",
  "tokio",
 ]

@@ -13,4 +13,5 @@ workspace = true
 tackly-sync = { path = "../../server" }
 anyhow.workspace = true
 axum = "0.8"
+serde_json.workspace = true
 tokio.workspace = true

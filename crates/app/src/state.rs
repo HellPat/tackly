@@ -9,8 +9,8 @@ use std::sync::atomic::Ordering;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use dioxus::{core::spawn_forever, prelude::*};
-use tackly_client::{Device, InviteTicket, Membership, SharedDevice, run_live};
-use tackly_protocol::{Family, GeoPoint};
+use tackly_client::{Device, Geocoder, InviteTicket, Membership, SharedDevice, run_live};
+use tackly_protocol::{Family, GeoPoint, PlaceLocation};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -25,6 +25,7 @@ const REFRESH_SECONDS: u64 = 20;
 #[derive(Clone, Copy, PartialEq)]
 pub struct AppState {
     device: Signal<SharedDevice>,
+    pub geocoder: Signal<Geocoder>,
     pub family: Signal<Family>,
     pub membership: Signal<Option<Membership>>,
     /// This phone's own ID, to tell "you" from the others.
@@ -45,6 +46,7 @@ impl AppState {
             membership: Signal::new(device.membership().cloned()),
             my_id: Signal::new(device.device_id()),
             device: Signal::new(std::sync::Arc::new(Mutex::new(device))),
+            geocoder: Signal::new(Geocoder::from_env()?),
             online: Signal::new(false),
             snackbar: Signal::new(None),
             now: Signal::new(Utc::now()),
@@ -111,10 +113,64 @@ impl AppState {
 
     // ---- what a person can do -------------------------------------------------
 
-    pub fn add_task(self, title: String, emoji: String) {
+    pub fn add_task(self, title: String, emoji: String, place_ids: Vec<Uuid>) {
         self.act(move |device| async move {
-            device.lock().await.add_task(&title, &emoji).await?;
+            device
+                .lock()
+                .await
+                .add_task(&title, &emoji, &place_ids)
+                .await?;
             Ok(())
+        });
+    }
+
+    pub fn create_place_group(self, name: String, emoji: String) {
+        self.act(move |device| async move {
+            device
+                .lock()
+                .await
+                .create_place_group(&name, &emoji)
+                .await?;
+            Ok(())
+        });
+    }
+
+    pub fn create_place(
+        self,
+        group_id: Uuid,
+        name: String,
+        emoji: String,
+        location: PlaceLocation,
+    ) {
+        self.act(move |device| async move {
+            device
+                .lock()
+                .await
+                .create_place(group_id, &name, &emoji, location)
+                .await?;
+            Ok(())
+        });
+    }
+
+    pub fn add_place_location(self, place_id: Uuid, location: PlaceLocation) {
+        self.act(move |device| async move {
+            device
+                .lock()
+                .await
+                .add_place_location(place_id, location)
+                .await
+        });
+    }
+
+    /// Puts the task at the place, or takes it away again.
+    pub fn set_task_at_place(self, task: Uuid, place: Uuid, here: bool) {
+        self.act(move |device| async move {
+            let mut device = device.lock().await;
+            if here {
+                device.add_task_to_place(task, place).await
+            } else {
+                device.remove_task_from_place(task, place).await
+            }
         });
     }
 

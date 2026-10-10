@@ -21,7 +21,7 @@ use support::{
     member::Member,
     page::{Locator, Page, expect},
 };
-use tackly_testkit::Relay;
+use tackly_testkit::{FakeGeocoder, Relay};
 
 /// The app binary built with the `ui-test` feature, set once in `main`.
 static APP: OnceLock<PathBuf> = OnceLock::new();
@@ -34,6 +34,7 @@ const KEY_DELAY: Duration = Duration::from_millis(12);
 struct Tackly {
     dir: PathBuf,
     relay: Relay,
+    geocoder: FakeGeocoder,
     members: HashMap<String, Member>,
 }
 
@@ -76,10 +77,11 @@ enum Via {
 
 impl Tackly {
     fn new() -> Outcome<Self> {
-        let dir = std::env::temp_dir().join(format!("tackly-acceptance-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("tackly-acceptance-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(&dir)?;
         Ok(Self {
             relay: Relay::reserve(&dir)?,
+            geocoder: FakeGeocoder::start()?,
             dir,
             members: HashMap::new(),
         })
@@ -94,8 +96,15 @@ impl Tackly {
 
     async fn open(&mut self, name: &str) -> Outcome<()> {
         let binary = APP.get().ok_or("the app was not built")?;
-        let member =
-            Member::open(name, binary, &self.dir, &self.relay.url(), location(name)).await?;
+        let member = Member::open(
+            name,
+            binary,
+            &self.dir,
+            &self.relay.url(),
+            location(name),
+            &self.geocoder.url(),
+        )
+        .await?;
         self.members.insert(name.to_owned(), member);
         Ok(())
     }
@@ -139,18 +148,10 @@ impl Tackly {
             .get_by_role_exact("button", "Invite someone")
             .click()
             .await?;
-        let shown = head_page
-            .get_by_label("Invitation link")
-            .input_value()
-            .await?;
+        // The link itself is not shown, only the QR code and the Copy button.
+        let scanned = head_page.locator(".qr").decode_qr().await?;
         let link = match via {
-            Via::Qr => {
-                let scanned = head_page.locator(".qr").decode_qr().await?;
-                if scanned != shown {
-                    return Err("the QR code must carry the same link that is shown".into());
-                }
-                scanned
-            }
+            Via::Qr => scanned,
             Via::Link => {
                 head_page
                     .get_by_role_exact("button", "Copy link")
@@ -160,7 +161,13 @@ impl Tackly {
                     .to_contain_text("Link copied")
                     .await?;
                 head_page.get_by_role_exact("button", "OK").click().await?;
-                shown
+                let copied = arboard::Clipboard::new()
+                    .and_then(|mut clipboard| clipboard.get_text())
+                    .map_err(|error| Failure(format!("read the clipboard: {error}")))?;
+                if copied != scanned {
+                    return Err("the copied link must be the one in the QR code".into());
+                }
+                copied
             }
         };
         new_page
@@ -191,6 +198,77 @@ impl Tackly {
     async fn add_task(&self, name: &str, title: &str) -> Outcome<()> {
         self.go(name, "Tasks").await?;
         let page = self.page(name)?;
+        page.get_by_label("Add a task")
+            .press_sequentially(title, KEY_DELAY)
+            .await?;
+        page.get_by_role_exact("button", "Add").click().await?;
+        expect(&card(&page, title)).to_be_visible().await
+    }
+
+    async fn create_group(&self, name: &str, group: &str) -> Outcome<()> {
+        self.go(name, "Places").await?;
+        let page = self.page(name)?;
+        page.get_by_role_exact("button", "New group")
+            .click()
+            .await?;
+        page.get_by_label("Group name, e.g. Grocery Store")
+            .press_sequentially(group, KEY_DELAY)
+            .await?;
+        page.get_by_role_exact("button", "Create group")
+            .click()
+            .await?;
+        expect(&page.locator(".group-head").filter_has_text(group))
+            .to_be_visible()
+            .await
+    }
+
+    /// Adds a place by typing its first location. With `pick`, chooses the
+    /// address suggestion containing that text; without, keeps the typed name.
+    async fn create_place(
+        &self,
+        name: &str,
+        place: &str,
+        group: &str,
+        location: &str,
+        pick: Option<&str>,
+    ) -> Outcome<()> {
+        self.go(name, "Places").await?;
+        let page = self.page(name)?;
+        page.locator(".group-head")
+            .filter_has_text(group)
+            .get_by_role_exact("button", "Add place")
+            .click()
+            .await?;
+        page.get_by_label("Place name, e.g. LIDL")
+            .press_sequentially(place, KEY_DELAY)
+            .await?;
+        page.get_by_label("Location, e.g. LIDL Winnenden")
+            .press_sequentially(location, KEY_DELAY)
+            .await?;
+        if let Some(pick) = pick {
+            page.locator(".suggest-item")
+                .filter_has_text(pick)
+                .click()
+                .await?;
+        }
+        page.get_by_role_exact("button", "Create place")
+            .click()
+            .await?;
+        expect(&page.locator(".place-card").filter_has_text(place))
+            .to_be_visible()
+            .await
+    }
+
+    /// Adds a task from the Tasks tab, ticking the given places first.
+    async fn add_task_at(&self, name: &str, title: &str, places: &[&str]) -> Outcome<()> {
+        self.go(name, "Tasks").await?;
+        let page = self.page(name)?;
+        for place in places {
+            page.locator(".place-chip")
+                .filter_has_text(place)
+                .click()
+                .await?;
+        }
         page.get_by_label("Add a task")
             .press_sequentially(title, KEY_DELAY)
             .await?;
@@ -332,6 +410,112 @@ async fn keeps(world: &mut Tackly, name: String, winner: String, title: String) 
             .click()
             .await,
     );
+}
+
+// ---- places ----------------------------------------------------------------------
+
+#[when(regex = r#"^(\w+) creates the group "([^"]+)"$"#)]
+async fn creates_group(world: &mut Tackly, name: String, group: String) {
+    check(world.create_group(&name, &group).await);
+}
+
+#[when(regex = r#"^(\w+) adds the place "([^"]+)" to "([^"]+)" at "([^"]+)"$"#)]
+async fn adds_place(world: &mut Tackly, name: String, place: String, group: String, at: String) {
+    check(world.create_place(&name, &place, &group, &at, None).await);
+}
+
+#[when(
+    regex = r#"^(\w+) adds the place "([^"]+)" to "([^"]+)" at "([^"]+)" and picks the suggestion "([^"]+)"$"#
+)]
+async fn adds_place_picking(
+    world: &mut Tackly,
+    name: String,
+    place: String,
+    group: String,
+    at: String,
+    pick: String,
+) {
+    check(
+        world
+            .create_place(&name, &place, &group, &at, Some(&pick))
+            .await,
+    );
+}
+
+#[when(regex = r#"^(\w+) adds the task "([^"]+)" at ((?:"[^"]+"(?:, | and )?)+)$"#)]
+async fn adds_task_at(world: &mut Tackly, name: String, title: String, places: String) {
+    let places: Vec<&str> = quoted_titles(&places).collect();
+    check(world.add_task_at(&name, &title, &places).await);
+}
+
+#[when(regex = r#"^(\w+) opens the place "([^"]+)"$"#)]
+async fn opens_place(world: &mut Tackly, name: String, place: String) {
+    check(world.go(&name, "Places").await);
+    let page = check(world.page(&name));
+    check(
+        page.locator(".place-card")
+            .filter_has_text(&place)
+            .click()
+            .await,
+    );
+}
+
+#[when(regex = r#"^(\w+) adds the task "([^"]+)" here$"#)]
+async fn adds_task_here(world: &mut Tackly, name: String, title: String) {
+    let page = check(world.page(&name));
+    check(
+        page.get_by_label("Add a task")
+            .press_sequentially(&title, KEY_DELAY)
+            .await,
+    );
+    check(page.get_by_role_exact("button", "Add").click().await);
+}
+
+#[then(regex = r#"^(\w+) sees the place "([^"]+)" at "([^"]+)"$"#)]
+async fn sees_place_at(world: &mut Tackly, name: String, place: String, at: String) {
+    check(world.go(&name, "Places").await);
+    let page = check(world.page(&name));
+    check(
+        expect(&page.locator(".place-card").filter_has_text(&place))
+            .to_contain_text(&at)
+            .await,
+    );
+}
+
+#[then(regex = r#"^(\w+) sees "([^"]+)" with (\d+) to get$"#)]
+async fn sees_count(world: &mut Tackly, name: String, place: String, count: String) {
+    check(world.go(&name, "Places").await);
+    let page = check(world.page(&name));
+    check(
+        expect(
+            &page
+                .locator(".place-card")
+                .filter_has_text(&place)
+                .locator(".count"),
+        )
+        .to_have_text(&count)
+        .await,
+    );
+}
+
+#[then(regex = r#"^(\w+) sees "([^"]+)" ticked in the add bar$"#)]
+async fn sees_ticked(world: &mut Tackly, name: String, place: String) {
+    let page = check(world.page(&name));
+    check(
+        expect(
+            &page
+                .locator(".place-chip[aria-pressed=\"true\"]")
+                .filter_has_text(&place),
+        )
+        .to_be_visible()
+        .await,
+    );
+}
+
+#[then(regex = r#"^(\w+) sees the task "([^"]+)" in this place$"#)]
+async fn sees_task_here(world: &mut Tackly, name: String, title: String) {
+    let page = check(world.page(&name));
+    check(expect(&card(&page, &title)).to_be_visible().await);
 }
 
 // ---- keyboard --------------------------------------------------------------------

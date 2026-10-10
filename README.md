@@ -6,6 +6,9 @@ ADHD optimized task management. Shared family tasks that work offline and sync l
 
 - One task list for the whole family.
 - Tap *Start*, tap *Finish*. Tackly keeps who, how long, a note and the place.
+- Places: group shops (Grocery Store > LIDL, Aldi), give each a location, and
+  see how much there is to get at each one. Add a task from inside a place and
+  it is already assigned there.
 - Others see changes live.
 - Works offline. Syncs when back online.
 - Join with a QR code or a link. Both phones show six digits; the head confirms.
@@ -115,6 +118,13 @@ All run against a real server with a SQLite file.
   needs Playwright's driver APK (the recipe installs it).
 
 Server details are in [server/README.md](server/README.md).
+
+### Places and address search
+
+Location autocomplete asks a [Photon](https://photon.komoot.io) server (OpenStreetMap
+data); the typed text is sent there and nothing else. Offline, or with no match,
+the typed text is kept as the location's name. `TACKLY_GEOCODER` points at
+another server; tests use a fake one. IDs are UUIDv7.
 
 ### Status
 

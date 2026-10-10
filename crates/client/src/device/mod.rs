@@ -3,11 +3,13 @@
 //!
 //! The work is split by what it is about:
 //! - [`tasks`]: commands a person gives (add, start, finish, …)
+//! - [`places`]: groups of places, places, and which task belongs where
 //! - [`pairing`]: inviting someone, and joining
 //! - [`sync`]: uploading local events and downloading the others'
 
 mod membership;
 mod pairing;
+mod places;
 mod sync;
 mod tasks;
 
@@ -141,7 +143,7 @@ impl Device {
             "names are required"
         );
         let api = Api::new(server_url)?;
-        let family_id = Uuid::new_v4();
+        let family_id = Uuid::now_v7();
         let device_token = crypto::encode(&random_bytes::<32>());
         let registered = match api
             .create_family(family_id, self.device_id(), &device_token)
@@ -162,7 +164,7 @@ impl Device {
         })?;
         self.run(FamilyCommand::CreateFamily {
             family_id,
-            list_id: Uuid::new_v4(),
+            list_id: Uuid::now_v7(),
             name: family_name.to_owned(),
             owner_name: my_name.to_owned(),
         })

@@ -8,7 +8,7 @@ use crate::{platform, state::AppState};
 /// A sheet over a dimmed screen: tapping outside closes it, tapping inside
 /// does not.
 #[component]
-fn Sheet(close: EventHandler<()>, children: Element) -> Element {
+pub(super) fn Sheet(close: EventHandler<()>, children: Element) -> Element {
     rsx! {
         div { class: "scrim", onclick: move |_| close.call(()),
             div { class: "sheet", onclick: move |event| event.stop_propagation(),

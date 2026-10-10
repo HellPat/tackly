@@ -8,7 +8,8 @@ pub mod projection;
 pub mod wire;
 
 pub use aggregate::{FamilyCommand, FamilyError, Services};
-pub use events::{CompletionMetadata, DomainEvent, FamilyEvent, GeoPoint};
+pub use events::{CompletionMetadata, DomainEvent, FamilyEvent, GeoPoint, PlaceLocation};
 pub use projection::{
-    Activity, ActivityKind, CompletionClaim, Family, Member, Task, TaskList, TaskStatus,
+    Activity, ActivityKind, CompletionClaim, Family, Member, Place, PlaceGroup, Task, TaskList,
+    TaskStatus,
 };

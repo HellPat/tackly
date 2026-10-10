@@ -89,3 +89,16 @@ button { font: inherit; cursor: pointer; border: 0; }
 
 .qr { background: #fff; padding: 8px; border-radius: 12px; align-self: center; line-height: 0; }
 .qr svg { width: 220px; height: 220px; display: block; }
+
+.place-chip { flex: none; padding: 6px 12px; border-radius: 16px; background: transparent; color: var(--on-surface-variant); border: 1px solid var(--outline); font-size: 13px; }
+.place-chip[aria-pressed="true"] { background: var(--primary-container); color: var(--on-primary-container); border-color: transparent; }
+.chip.place { background: var(--primary-container); border-color: transparent; color: var(--on-primary-container); }
+.group-head { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+.place-card { width: 100%; text-align: left; align-items: center; color: inherit; font: inherit; }
+.count { min-width: 32px; height: 32px; padding: 0 10px; border-radius: 16px; background: var(--primary); color: var(--on-primary); display: flex; align-items: center; justify-content: center; font-weight: 500; flex: none; }
+.place-head { display: flex; align-items: center; gap: 4px; }
+.place-head h2 { font-size: 20px; font-weight: 500; }
+.suggest-list { display: flex; flex-direction: column; border: 1px solid var(--surface-variant); border-radius: 12px; overflow: hidden; }
+.suggest-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 14px; background: #fff; text-align: left; border-bottom: 1px solid var(--surface-variant); color: inherit; }
+.suggest-name { font-weight: 500; }
+.suggest-address { font-size: 12px; color: var(--on-surface-variant); }

@@ -10,7 +10,7 @@ use super::format::{ago, duration};
 use crate::state::AppState;
 
 #[component]
-pub fn TasksTab(open_finish: EventHandler<Uuid>) -> Element {
+pub fn TasksTab(open_finish: EventHandler<Uuid>, edit_places: EventHandler<Uuid>) -> Element {
     let state = use_context::<AppState>();
     let family = (state.family)();
     if family.tasks.is_empty() {
@@ -53,21 +53,26 @@ pub fn TasksTab(open_finish: EventHandler<Uuid>) -> Element {
             div { class: "section", "To do" }
         }
         for task in todo {
-            TaskCard { key: "{task.id}", task: task.clone(), open_finish }
+            TaskCard { key: "{task.id}", task: task.clone(), open_finish, edit_places }
         }
         if !done.is_empty() {
             div { class: "section", "Done" }
         }
         for task in done {
-            TaskCard { key: "{task.id}", task: task.clone(), open_finish }
+            TaskCard { key: "{task.id}", task: task.clone(), open_finish, edit_places }
         }
     }
 }
 
 #[component]
-fn TaskCard(task: Task, open_finish: EventHandler<Uuid>) -> Element {
+pub fn TaskCard(
+    task: Task,
+    open_finish: EventHandler<Uuid>,
+    edit_places: EventHandler<Uuid>,
+) -> Element {
     let state = use_context::<AppState>();
     let me = (state.my_id)();
+    let family = (state.family)();
     let id = task.id;
     let class = match task.status {
         TaskStatus::Open => "card",
@@ -86,7 +91,17 @@ fn TaskCard(task: Task, open_finish: EventHandler<Uuid>) -> Element {
             div { class: "body",
                 div { class: "title", "{task.title}" }
                 TaskDetails { status: task.status.clone() }
+                if !task.place_ids.is_empty() {
+                    div { class: "chips",
+                        for place in task.place_ids.iter().filter_map(|id| family.places.get(id)) {
+                            span { key: "{place.id}", class: "chip place", "{place.emoji} {place.name}" }
+                        }
+                    }
+                }
                 div { class: "actions",
+                    if !task.is_done() && !family.places.is_empty() {
+                        button { class: "btn text", onclick: move |_| edit_places.call(id), "Edit places" }
+                    }
                     if can_start {
                         button { class: "btn tonal", onclick: move |_| state.start_task(id), "Start" }
                     }

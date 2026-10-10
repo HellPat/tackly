@@ -6,7 +6,9 @@ use chrono::Utc;
 use cqrs_es::{Aggregate, event_sink::EventSink};
 use uuid::Uuid;
 
-use crate::{CompletionMetadata, DomainEvent, Family, FamilyEvent, GeoPoint, TaskStatus};
+use crate::{
+    CompletionMetadata, DomainEvent, Family, FamilyEvent, GeoPoint, PlaceLocation, TaskStatus,
+};
 
 #[derive(Clone, Debug)]
 pub enum FamilyCommand {
@@ -24,6 +26,31 @@ pub enum FamilyCommand {
         list_id: Uuid,
         title: String,
         emoji: String,
+        place_ids: Vec<Uuid>,
+    },
+    CreatePlaceGroup {
+        group_id: Uuid,
+        name: String,
+        emoji: String,
+    },
+    CreatePlace {
+        place_id: Uuid,
+        group_id: Uuid,
+        name: String,
+        emoji: String,
+        location: PlaceLocation,
+    },
+    AddPlaceLocation {
+        place_id: Uuid,
+        location: PlaceLocation,
+    },
+    AddTaskToPlace {
+        task_id: Uuid,
+        place_id: Uuid,
+    },
+    RemoveTaskFromPlace {
+        task_id: Uuid,
+        place_id: Uuid,
     },
     StartTask {
         task_id: Uuid,
@@ -51,6 +78,10 @@ pub enum FamilyError {
     Empty,
     #[error("unknown list")]
     UnknownList,
+    #[error("unknown place group")]
+    UnknownGroup,
+    #[error("unknown place")]
+    UnknownPlace,
     #[error("unknown task")]
     UnknownTask,
     #[error("the task is already done")]
@@ -71,6 +102,14 @@ pub struct Services {
     pub device_id: Uuid,
 }
 
+fn clean_location(mut location: PlaceLocation) -> Result<PlaceLocation, FamilyError> {
+    location.name = location.name.trim().to_owned();
+    if location.name.is_empty() {
+        return Err(FamilyError::Empty);
+    }
+    Ok(location)
+}
+
 impl Aggregate for Family {
     const TYPE: &'static str = "family";
     type Command = FamilyCommand;
@@ -85,7 +124,7 @@ impl Aggregate for Family {
         sink: &EventSink<Self>,
     ) -> Result<(), FamilyError> {
         let event = |subject_id, event| FamilyEvent {
-            id: Uuid::new_v4(),
+            id: Uuid::now_v7(),
             subject_id,
             origin_device_id: services.device_id,
             occurred_at: Utc::now(),
@@ -138,9 +177,13 @@ impl Aggregate for Family {
                 list_id,
                 title,
                 emoji,
+                place_ids,
             } => {
                 if !self.lists.contains_key(&list_id) {
                     return Err(FamilyError::UnknownList);
+                }
+                if place_ids.iter().any(|id| !self.places.contains_key(id)) {
+                    return Err(FamilyError::UnknownPlace);
                 }
                 let title = not_empty(&title)?;
                 let emoji = if emoji.is_empty() {
@@ -155,11 +198,84 @@ impl Aggregate for Family {
                             list_id,
                             title,
                             emoji,
+                            place_ids,
                         },
                     ),
                     self,
                 )
                 .await;
+            }
+            FamilyCommand::CreatePlaceGroup {
+                group_id,
+                name,
+                emoji,
+            } => {
+                let name = not_empty(&name)?;
+                sink.write(
+                    event(group_id, DomainEvent::PlaceGroupCreated { name, emoji }),
+                    self,
+                )
+                .await;
+            }
+            FamilyCommand::CreatePlace {
+                place_id,
+                group_id,
+                name,
+                emoji,
+                location,
+            } => {
+                if !self.place_groups.contains_key(&group_id) {
+                    return Err(FamilyError::UnknownGroup);
+                }
+                let name = not_empty(&name)?;
+                let location = clean_location(location)?;
+                sink.write(
+                    event(
+                        place_id,
+                        DomainEvent::PlaceCreated {
+                            group_id,
+                            name,
+                            emoji,
+                            location,
+                        },
+                    ),
+                    self,
+                )
+                .await;
+            }
+            FamilyCommand::AddPlaceLocation { place_id, location } => {
+                if !self.places.contains_key(&place_id) {
+                    return Err(FamilyError::UnknownPlace);
+                }
+                let location = clean_location(location)?;
+                sink.write(
+                    event(place_id, DomainEvent::PlaceLocationAdded { location }),
+                    self,
+                )
+                .await;
+            }
+            FamilyCommand::AddTaskToPlace { task_id, place_id } => {
+                let task = self.tasks.get(&task_id).ok_or(FamilyError::UnknownTask)?;
+                if !self.places.contains_key(&place_id) {
+                    return Err(FamilyError::UnknownPlace);
+                }
+                if !task.place_ids.contains(&place_id) {
+                    sink.write(
+                        event(task_id, DomainEvent::TaskPlaceAdded { place_id }),
+                        self,
+                    )
+                    .await;
+                }
+            }
+            FamilyCommand::RemoveTaskFromPlace { task_id, place_id } => {
+                let task = self.tasks.get(&task_id).ok_or(FamilyError::UnknownTask)?;
+                if task.place_ids.contains(&place_id) {
+                    sink.write(
+                        event(task_id, DomainEvent::TaskPlaceRemoved { place_id }),
+                        self,
+                    )
+                    .await;
+                }
             }
             FamilyCommand::StartTask { task_id } => {
                 let task = self.tasks.get(&task_id).ok_or(FamilyError::UnknownTask)?;
@@ -274,10 +390,10 @@ mod tests {
     #[tokio::test]
     async fn commands_are_checked_and_events_replayed() {
         let services = Services {
-            device_id: Uuid::new_v4(),
+            device_id: Uuid::now_v7(),
         };
         let cqrs = CqrsFramework::new(MemStore::<Family>::default(), vec![], services);
-        let (family, list, task) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        let (family, list, task) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
         let id = family.to_string();
         cqrs.execute(
             &id,
@@ -297,6 +413,7 @@ mod tests {
                 list_id: list,
                 title: "Dishes".into(),
                 emoji: "🍽".into(),
+                place_ids: vec![],
             },
         )
         .await
@@ -328,5 +445,60 @@ mod tests {
             again,
             Err(cqrs_es::AggregateError::UserError(FamilyError::AlreadyDone))
         ));
+    }
+
+    #[tokio::test]
+    async fn tasks_are_assigned_to_places_that_exist() {
+        let services = Services {
+            device_id: Uuid::now_v7(),
+        };
+        let cqrs = CqrsFramework::new(MemStore::<Family>::default(), vec![], services);
+        let (family, list, group, place, task) = (
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+        );
+        let id = family.to_string();
+        let run = |command| cqrs.execute(&id, command);
+        run(FamilyCommand::CreateFamily {
+            family_id: family,
+            list_id: list,
+            name: "Home".into(),
+            owner_name: "A".into(),
+        })
+        .await
+        .unwrap();
+        let add = |place_ids| FamilyCommand::AddTask {
+            task_id: task,
+            list_id: list,
+            title: "Milk".into(),
+            emoji: "🥛".into(),
+            place_ids,
+        };
+        assert!(matches!(
+            run(add(vec![place])).await,
+            Err(cqrs_es::AggregateError::UserError(
+                FamilyError::UnknownPlace
+            ))
+        ));
+        run(FamilyCommand::CreatePlaceGroup {
+            group_id: group,
+            name: "Grocery Store".into(),
+            emoji: "🛒".into(),
+        })
+        .await
+        .unwrap();
+        run(FamilyCommand::CreatePlace {
+            place_id: place,
+            group_id: group,
+            name: "LIDL".into(),
+            emoji: "🏪".into(),
+            location: PlaceLocation::named("LIDL Winnenden"),
+        })
+        .await
+        .unwrap();
+        run(add(vec![place])).await.unwrap();
     }
 }
