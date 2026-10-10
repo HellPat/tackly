@@ -1,19 +1,18 @@
-//! The app's screens, one file each.
+//! The app's screens.
 //!
 //! - [`onboarding`]: creating a family or joining one
-//! - [`home`]: the frame around a family: app bar, tabs, add-a-task bar
-//! - [`tasks`], [`places`], [`activity`], [`family`]: the four tabs
-//! - [`place_sheets`]: forms for places and their locations
-//! - [`composer`]: typing a new task, with one-tap suggestions
-//! - [`sheets`]: the form for finishing a task
+//! - [`home`]: the frame around a family: color scheme, top bar, bottom bar,
+//!   navigation, toasts and sheets, and where you are ([`home::Nav`])
+//! - [`tasks`], [`places`], [`family`]: the three tabs
+//! - [`detail`]: one task in focus, full screen
+//! - [`addbar`]: the bar at the bottom that adds a task, group, place or location
+//! - [`sheets`]: small dialogs (a name, who does a task, the invitation)
 
-mod activity;
-mod composer;
+mod addbar;
+mod detail;
 mod family;
-mod format;
 mod home;
 mod onboarding;
-mod place_sheets;
 mod places;
 mod sheets;
 mod tasks;
@@ -23,33 +22,14 @@ use dioxus::prelude::*;
 pub use home::Home;
 pub use onboarding::Onboarding;
 
-use crate::state::AppState;
-
-/// The short message at the bottom, e.g. after copying the link or a failure.
-#[component]
-pub fn Snackbar() -> Element {
-    let state = use_context::<AppState>();
-    let mut snackbar = state.snackbar;
-    let Some(message) = snackbar() else {
-        return rsx! {};
-    };
-    rsx! {
-        div { class: "snack",
-            span { "{message}" }
-            button { onclick: move |_| snackbar.set(None), "OK" }
-        }
-    }
-}
-
 /// Shown instead of the app when its data cannot be opened.
 #[component]
 pub fn StartupFailed(message: String) -> Element {
     rsx! {
-        div { class: "welcome",
-            div { class: "logo", "🌱" }
-            h1 { "Tackly cannot start" }
-            p { "Its data could not be opened:" }
-            p { class: "meta", "{message}" }
+        div { class: "h-full flex flex-col items-center justify-center gap-3 p-8 text-center bg-stone-100",
+            h1 { class: "text-2xl font-semibold", "Tackly can’t start" }
+            p { class: "text-stone-600", "Its data could not be opened:" }
+            p { class: "text-sm text-stone-600", "{message}" }
         }
     }
 }

@@ -146,7 +146,10 @@ window.pw = (() => {
     if (focusable) focusable.focus({ preventScroll: true });
     hit.dispatchEvent(new MouseEvent("pointerup", init));
     hit.dispatchEvent(new MouseEvent("mouseup", init));
-    hit.click();
+    // SVG elements (a drawing inside a button) have no click(); a click event
+    // still bubbles to the button like a real tap.
+    if (typeof hit.click === "function") hit.click();
+    else hit.dispatchEvent(new MouseEvent("click", init));
   };
 
   const ops = {

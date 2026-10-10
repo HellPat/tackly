@@ -4,16 +4,16 @@ ADHD optimized task management. Shared family tasks that work offline and sync l
 
 ## What it does
 
-- One task list for the whole family.
-- Tap *Start*, tap *Finish*. Tackly keeps who, how long, a note and the place.
-- Places: group shops (Grocery Store > LIDL, Aldi), give each a location, and
-  see how much there is to get at each one. Add a task from inside a place and
-  it is already assigned there.
-- Others see changes live.
-- Works offline. Syncs when back online.
+- Tasks for the whole family. New ones land in *Other*; make lists when you want them.
+- Tick a task off and it is gone. Changed your mind? *Undo*.
+- *Mine*, *Unassigned*, *All*: see only what is yours, or pick something free.
+- Take a task, or give it to someone. Tasks others have are greyed out.
+- Open a task to focus: a big clock, *Start*, *Pause*, *Finish*.
+- Places: shops in groups (Grocery Store > LIDL, Aldi), each with its
+  locations, and how much there is to get at each one.
+- Others see changes live. Works offline; syncs when back online.
 - Join with a QR code or a link. Both phones show six digits; the head confirms.
-- Two people finish the same task? Tackly keeps the better entry. If they
-  disagree, only those two decide.
+- Your name, your picture, your color scheme.
 - Encrypted on the phone. The server cannot read your tasks.
 
 Android first, iOS maybe later. No restore: lost phone means join again.
@@ -26,7 +26,7 @@ Android first, iOS maybe later. No restore: lost phone means join again.
 crates/protocol    shared by app and server: the Family aggregate, its commands
                    and events (cqrs-es), and the HTTP/SSE wire types
 crates/client      the device core: encrypted SQLite event log, pairing, sync
-crates/app         the Dioxus app (desktop windows and Android)
+crates/app         the Dioxus app (desktop windows and Android), styled with Tailwind
 server             the relay: stores encrypted events, pushes them over SSE
 crates/testkit     a stoppable real relay, shared by the test suites
 crates/acceptance  Cucumber scenarios clicked through real app windows
@@ -46,15 +46,15 @@ This builds everything, starts the relay and opens **three app windows**
 (Patrick, Mona, Mara; Patrick is the head of the family), each with its own database under `.dev/`.
 
 1. In Patrick's window: *Create a family*.
-2. Patrick: *Family → Invite someone*. A **QR code** and a **link** appear.
+2. Patrick: *Family → Invite member*. A **QR code** and a **link** appear.
    *Copy link* puts the link on the clipboard so it can be sent by Signal or
    any messenger. The code expires after five minutes.
 3. Mona: *Join with an invitation*, paste the link, *Ask to join*. Both phones
    show the same six digits; Patrick confirms. Repeat for Mara. (A phone scans
    the QR code with its camera; the desktop windows have no scanner, so paste
    the link there. `tackly-app 'tackly://join?c=…'` opens straight on the form.)
-4. Add tasks, tap *Start* or *Finish* (optional note and location) and watch the
-   other windows update live.
+4. Add tasks, open one and tap *Start*, tick them off, and watch the other
+   windows update live.
 
 `just start 1` opens one window; `just reset` forgets all test data;
 `just server` runs only the relay. The desktop build fakes the GPS with
@@ -65,6 +65,7 @@ This builds everything, starts the relay and opens **three app windows**
 | `just test` | unit tests and the device-level end-to-end suite |
 | `just acceptance` | the Cucumber suite in real windows |
 | `just lint` | clippy on everything |
+| `just css` | compile the styles (Tailwind) after changing class names; CI checks they are up to date |
 | `just android-build` | debug APK (Android SDK and NDK needed; the Nix shell has the rest) |
 | `just android` | build, install and start it on the emulator or device, booting the first AVD if none runs |
 | `just android-test` | the Playwright-on-Android suite |
@@ -78,23 +79,30 @@ denied by clippy (tests may use them). `.cargo/config.toml` runs clippy on every
 workspace build, so a stray `unwrap()` fails plain `cargo build`, not only
 `cargo clippy`.
 
+**Styles.** The screens use Tailwind classes only (`crates/app/src`), plus
+`crates/app/tailwind.css` for the few things Tailwind can't say (the accent color,
+three animations, the icon font class). `just css` compiles both into
+`crates/app/src/style.css`, which is committed, so a plain `cargo build` and
+Android need no Tailwind. Roboto and the Material Symbols icons the app uses are
+in `crates/app/fonts/` and compiled into the app: nothing is loaded from the
+network. The prototype the screens were built from is `prototype/index.html`.
+
 ### How it works
 
 - **CQRS / event sourcing** with [`cqrs-es`](https://doc.rust-cqrs.org). The
   family is one aggregate (`crates/protocol/src/aggregate.rs`): commands such as
-  `StartTask` or `CompleteTask` are validated against the replayed state and
-  produce `FamilyEvent`s. Completion events carry metadata: who, when, how
-  long since the start, an optional note and location.
+  `AssignTask`, `StartTask` or `CompleteTask` are checked against the replayed
+  state and produce `FamilyEvent`s. Time worked is the sum of start/pause
+  sessions since the task was (re)opened. A finish records where the phone was
+  (not shown in the app). Who acts, the clock and new event IDs come from a
+  `CommandContext`, so tests can fix them.
 - **Offline first.** Every command commits to the phone's SQLite log first.
   A family can be created and used with no server; the phone registers and
   uploads later. Pairing needs the server.
 - **Live updates.** The app keeps an SSE connection
   (`GET /v1/families/{id}/stream`) and reconnects from its cursor with backoff.
-- **Conflicts.** If two members finish the same task while apart and one
-  completion already contains everything the other recorded (identical, or the
-  other has no note, duration or location), it simply wins and nobody is asked.
-  If they disagree, both are kept and shown; either of them can pick the
-  winner, others cannot.
+- **Finished twice.** Two members finishing the same task while apart is simply
+  done; the first finish the relay received counts. Nobody is asked.
 - **Encrypted.** Events are encrypted on the phone with a family key
   (AES-256-GCM). The server stores ciphertext and routing IDs only. The family
   key travels to a new member sealed under the invitation secret.
@@ -103,8 +111,13 @@ workspace build, so a stray `unwrap()` fails plain `cargo build`, not only
 
 All run against a real server with a SQLite file.
 
-- `just test`: unit tests and device-level end-to-end tests. No windows. CI runs
-  it on Linux.
+- `just test`: no windows. CI runs it on Linux.
+  - `crates/protocol/tests/aggregate.rs`: given these events, when someone does
+    this, then these events (or this error), with cqrs-es's test framework.
+  - `crates/protocol/tests/projection.rs`: given these events, then the family
+    every phone shows.
+  - `crates/client/tests/e2e.rs`: a real relay and three real phones (live
+    sync, server outage, offline start, lists, places, giving tasks away).
 - `just acceptance`: Cucumber scenarios in
   `crates/acceptance/tests/features/`. Three real app windows (Patrick, Mona,
   Mara); typing key by key, clicking, pasting the link, decoding the on-screen
@@ -124,15 +137,16 @@ Server details are in [server/README.md](server/README.md).
 Location autocomplete asks a [Photon](https://photon.komoot.io) server (OpenStreetMap
 data); the typed text is sent there and nothing else. Offline, or with no match,
 the typed text is kept as the location's name. `TACKLY_GEOCODER` points at
-another server; tests use a fake one. Tasks, places and other IDs inside encrypted events are UUIDv7. The four IDs the
-server sees (family, device, event, invitation) are random UUIDv4, because a
-v7 ID would reveal when something happened.
+another server; tests use a fake one. Tasks, places and other IDs inside
+encrypted events are UUIDv7. The four IDs the server sees (family, device,
+event, invitation) are random UUIDv4, because a v7 ID would reveal when
+something happened.
 
 ### Status
 
 Not done, by decision: there is no restore process. A lost phone means
 leaving and rejoining with a new invitation. Also missing: device revocation,
-key rotation, real GPS on Android, scanning the QR code with the camera, and
+key rotation, real GPS on Android (finishes record no location there yet), uploading a photo as your picture, scanning the QR code with the camera, and
 keeping secrets in the Android Keystore (they sit in the app-private storage
 for now). The Android app builds and runs in the emulator, and its Playwright
 spike passes.

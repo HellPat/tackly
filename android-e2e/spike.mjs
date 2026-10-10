@@ -62,6 +62,9 @@ try {
   const origin = { x: Number(bounds[1]), y: Number(bounds[2]) };
   const scale = await page.evaluate(() => window.devicePixelRatio);
   const tap = async (locator) => {
+    // Like a person: close the on-screen keyboard first, it may cover the target.
+    await device.shell("input keyevent 111");
+    await locator.scrollIntoViewIfNeeded();
     const box = await locator.boundingBox();
     if (!box) throw new Error("nothing to tap");
     await device.input.tap({
@@ -79,26 +82,27 @@ try {
     await device.input.type("thesmiths");
     await page.getByLabel("Server").fill(`http://10.0.2.2:${PORT}`);
     await tap(page.getByRole("button", { name: "Create", exact: true }));
-    await expect(page.locator(".sub")).toContainText("thesmiths");
-    await expect(page.locator(".sync.on")).toBeVisible();
+    await expect(page.locator("nav[aria-label=Main]")).toBeVisible();
+    // Connected to the relay: no "Offline" in the top bar.
+    await expect(page.locator("header").getByText("Offline")).toBeHidden();
   });
 
   await step("add a task with the keyboard and Enter", async () => {
     await page.getByLabel("Add a task").focus();
     await device.input.type("waterplants");
     await device.input.press("Enter");
-    await expect(page.locator(".card").filter({ hasText: "waterplants" })).toBeVisible();
+    await tap(page.locator("[aria-label=Filter]").getByRole("button", { name: "All" }));
+    await expect(page.locator("main li").filter({ hasText: "waterplants" })).toBeVisible();
   });
 
-  await step("start and finish it (Playwright locators)", async () => {
-    const card = page.locator(".card").filter({ hasText: "waterplants" });
-    await card.getByRole("button", { name: "Start", exact: true }).click();
-    await expect(card).toContainText("You are on it");
-    await card.getByRole("button", { name: "Finish", exact: true }).click();
-    await page.getByLabel("Note (optional)").pressSequentially("done");
-    await page.getByRole("button", { name: "Done", exact: true }).click();
-    await expect(card).toContainText("Done by You");
-    await expect(card).toContainText("💬 done");
+  await step("start it in the focus view, then finish it", async () => {
+    await tap(page.locator("main li").filter({ hasText: "waterplants" }).getByRole("button", { name: /^waterplants$/i }));
+    const focus = page.locator("section[aria-label=Task]");
+    await tap(focus.getByRole("button", { name: "Start", exact: true }));
+    await expect(focus.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+    await tap(focus.getByRole("button", { name: "Finish", exact: true }));
+    await expect(page.locator("main li").filter({ hasText: "waterplants" })).toBeHidden();
+    await expect(page.locator("[role=status]").filter({ hasText: "waterplants done" })).toBeVisible();
   });
 
   const shot = join(tmpdir(), "tackly-android-final.png");

@@ -30,6 +30,11 @@ test:
 acceptance:
     {{shell}} cargo test --locked -p tackly-acceptance --test acceptance
 
+# Compile the app's styles (Tailwind) into crates/app/src/style.css. Run after
+# changing class names; CI checks the result is up to date.
+css:
+    {{shell}} tailwindcss --input crates/app/tailwind.css --output crates/app/src/style.css --minify
+
 # Clippy on everything. Unwrap and expect are denied (see Cargo.toml).
 lint:
     {{shell}} cargo clippy --workspace --all-targets --locked -- -D warnings

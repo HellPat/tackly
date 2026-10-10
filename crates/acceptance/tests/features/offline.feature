@@ -1,34 +1,31 @@
 Feature: Tackly works without the server and syncs later
-  Basic functionality never waits for the network. What happened offline is
-  uploaded when the server is reachable, and everyone catches up.
-
-  Background:
-    Given Patrick, Mona and Mara have opened Tackly
 
   Scenario: Patrick uses Tackly before any server exists, then shares it
     Given the sync server is stopped
+    And Patrick, Mona and Mara have opened Tackly
     When Patrick creates the family "The Smiths"
-    And Patrick adds the task "Pack the bags"
-    And Patrick starts "Pack the bags"
-    And Patrick finishes "Pack the bags" with the note "Done offline"
-    Then Patrick sees "Pack the bags" done by Patrick
-    And Patrick's app says it is offline
-    When the sync server is started
-    And Patrick invites Mona
-    Then Mona sees "Pack the bags" done by Patrick with a duration, the note "Done offline" and a location
+    Then Patrick's app says it is offline
+    When Patrick adds the task "Pack the bags"
+    And the sync server is started
+    Then Patrick's app says it is live
+    When Patrick invites Mona
+    And Mona shows All
+    Then Mona sees the task "Pack the bags"
 
   Scenario: A server outage does not stop anyone, and all three catch up
     Given the sync server is running
+    And Patrick, Mona and Mara have opened Tackly
     And Patrick has created the family "The Smiths" with Mona and Mara
     And Patrick has added the tasks "Laundry" and "Groceries"
+    And Mona shows All
+    And Mara shows All
     And Mona and Mara see the tasks "Laundry" and "Groceries"
     When the sync server is stopped
-    And Mona starts "Laundry"
-    And Mara finishes "Groceries"
-    And Patrick adds the task "Vacuum"
     Then Mona's app says it is offline
-    When the sync server is started
-    Then Patrick, Mona and Mara see "Laundry" in progress by Mona
-    And Patrick, Mona and Mara see "Groceries" done by Mara
-    And Patrick, Mona and Mara see the task "Vacuum"
-    And Mona's app says it is live
+    When Mona starts "Laundry"
+    And Mara ticks "Groceries" off
+    And Patrick adds the task "Vacuum"
+    And the sync server is started
+    Then Mona and Mara see the task "Vacuum"
+    And Patrick no longer sees "Groceries"
+    And Mara sees that Mona is working on "Laundry"

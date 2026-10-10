@@ -53,10 +53,18 @@ pub fn location() -> Option<GeoPoint> {
     })
 }
 
-/// An invitation link passed on the command line (a phone gets it from the
-/// system when the person taps the link).
+/// An invitation link passed on the command line (desktop). A phone gets it
+/// from the system when the person taps the link; that is not wired up yet.
+#[cfg(not(target_os = "android"))]
 pub fn launch_link() -> Option<String> {
     std::env::args()
         .nth(1)
         .filter(|arg| arg.starts_with("tackly://"))
+}
+
+/// On Android the app is a library inside the Java process: there is no
+/// command line, and `std::env::args()` panics ("capacity overflow").
+#[cfg(target_os = "android")]
+pub fn launch_link() -> Option<String> {
+    None
 }

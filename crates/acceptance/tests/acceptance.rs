@@ -63,9 +63,14 @@ fn location(name: &str) -> &'static str {
     }
 }
 
-/// The task cards whose text contains `title`.
-fn card(page: &Page, title: &str) -> Locator {
-    page.locator(".card").filter_has_text(title)
+/// The task with this title, wherever it is shown (a list, "Other", a place).
+fn task(page: &Page, title: &str) -> Locator {
+    page.locator("main li").filter_has_text(title)
+}
+
+/// The newest toast that says `text`.
+fn toast(page: &Page, text: &str) -> Locator {
+    page.locator("[role=status]").filter_has_text(text).last()
 }
 
 /// How an invitation reaches the other phone.
@@ -109,11 +114,32 @@ impl Tackly {
         Ok(())
     }
 
+    /// Opens a tab from the navigation at the bottom (back on its overview).
     async fn go(&self, name: &str, tab: &str) -> Outcome<()> {
         self.page(name)?
+            .locator("nav[aria-label=Main]")
             .get_by_role_exact("button", tab)
             .click()
             .await
+    }
+
+    /// Steps into a list, group, place or person from an overview.
+    async fn open_row(&self, name: &str, row: &str) -> Outcome<()> {
+        self.page(name)?
+            .locator("main")
+            .get_by_role("button", row)
+            .first()
+            .click()
+            .await
+    }
+
+    /// Types into the bar at the bottom key by key and presses Enter.
+    async fn add_with_bar(&self, name: &str, bar: &str, text: &str) -> Outcome<()> {
+        let page = self.page(name)?;
+        let field = page.get_by_label(bar);
+        field.press_sequentially(text, KEY_DELAY).await?;
+        field.press("Enter").await?;
+        expect(&page.get_by_label(bar)).to_have_value("").await
     }
 
     async fn create_family(&self, name: &str, family: &str) -> Outcome<()> {
@@ -128,7 +154,9 @@ impl Tackly {
             .press_sequentially(family, KEY_DELAY)
             .await?;
         page.get_by_role_exact("button", "Create").click().await?;
-        expect(&page.locator(".sub")).to_contain_text(family).await
+        expect(&page.locator("nav[aria-label=Main]"))
+            .to_be_visible()
+            .await
     }
 
     /// The head of the family shows an invitation; the other phone gets it by
@@ -140,16 +168,16 @@ impl Tackly {
             .get_by_role_exact("button", "Join with an invitation")
             .click()
             .await?;
+        self.go(head, "Family").await?;
         head_page
-            .get_by_role_exact("button", "Family")
-            .click()
-            .await?;
-        head_page
-            .get_by_role_exact("button", "Invite someone")
+            .get_by_role_exact("button", "Invite member")
             .click()
             .await?;
         // The link itself is not shown, only the QR code and the Copy button.
-        let scanned = head_page.locator(".qr").decode_qr().await?;
+        let scanned = head_page
+            .locator("[aria-label='Invitation QR code']")
+            .decode_qr()
+            .await?;
         let link = match via {
             Via::Qr => scanned,
             Via::Link => {
@@ -157,10 +185,9 @@ impl Tackly {
                     .get_by_role_exact("button", "Copy link")
                     .click()
                     .await?;
-                expect(&head_page.locator(".snack"))
-                    .to_contain_text("Link copied")
+                expect(&toast(&head_page, "Link copied"))
+                    .to_be_visible()
                     .await?;
-                head_page.get_by_role_exact("button", "OK").click().await?;
                 let copied = arboard::Clipboard::new()
                     .and_then(|mut clipboard| clipboard.get_text())
                     .map_err(|error| Failure(format!("read the clipboard: {error}")))?;
@@ -179,143 +206,97 @@ impl Tackly {
             .get_by_role_exact("button", "Ask to join")
             .click()
             .await?;
-        let digits = new_page.locator(".code").text_content().await?;
-        expect(&head_page.locator(".code"))
+        let digits = new_page
+            .get_by_label("Confirmation code")
+            .text_content()
+            .await?;
+        expect(&head_page.get_by_label("Confirmation code"))
             .to_have_text(&digits)
             .await?;
         head_page
             .get_by_role_exact("button", "Yes, let them in")
             .click()
             .await?;
-        expect(&new_page.get_by_role_exact("button", "Tasks"))
+        expect(&new_page.locator("nav[aria-label=Main]"))
             .to_be_visible()
             .await?;
         expect(&head_page.get_by_role_exact("button", "Yes, let them in"))
             .to_be_hidden()
-            .await
+            .await?;
+        // Back where tasks are added, like a person would go.
+        self.go(head, "Tasks").await
     }
 
     async fn add_task(&self, name: &str, title: &str) -> Outcome<()> {
-        self.go(name, "Tasks").await?;
-        let page = self.page(name)?;
-        page.get_by_label("Add a task")
-            .press_sequentially(title, KEY_DELAY)
-            .await?;
-        page.get_by_role_exact("button", "Add").click().await?;
-        expect(&card(&page, title)).to_be_visible().await
-    }
-
-    async fn create_group(&self, name: &str, group: &str) -> Outcome<()> {
-        self.go(name, "Places").await?;
-        let page = self.page(name)?;
-        page.get_by_role_exact("button", "New group")
-            .click()
-            .await?;
-        page.get_by_label("Group name, e.g. Grocery Store")
-            .press_sequentially(group, KEY_DELAY)
-            .await?;
-        page.get_by_role_exact("button", "Create group")
-            .click()
-            .await?;
-        expect(&page.locator(".group-head").filter_has_text(group))
+        self.add_with_bar(name, "Add a task", title).await?;
+        // The card may be hidden by the filter; the toast says it was added.
+        expect(&toast(&self.page(name)?, &format!("Added {title}")))
             .to_be_visible()
             .await
     }
 
-    /// Adds a place by typing its first location. With `pick`, chooses the
-    /// address suggestion containing that text; without, keeps the typed name.
-    async fn create_place(
-        &self,
-        name: &str,
-        place: &str,
-        group: &str,
-        location: &str,
-        pick: Option<&str>,
-    ) -> Outcome<()> {
-        self.go(name, "Places").await?;
+    /// Opens a task in focus; there `Start`, `Pause` or `Finish`.
+    async fn in_focus(&self, name: &str, title: &str, button: &str) -> Outcome<()> {
         let page = self.page(name)?;
-        page.locator(".group-head")
-            .filter_has_text(group)
-            .get_by_role_exact("button", "Add place")
+        task(&page, title)
+            .get_by_role("button", title)
+            .first()
             .click()
             .await?;
-        page.get_by_label("Place name, e.g. LIDL")
-            .press_sequentially(place, KEY_DELAY)
+        page.locator("section[aria-label=Task]")
+            .get_by_role_exact("button", button)
+            .click()
             .await?;
-        page.get_by_label("Location, e.g. LIDL Winnenden")
-            .press_sequentially(location, KEY_DELAY)
-            .await?;
-        if let Some(pick) = pick {
-            page.locator(".suggest-item")
-                .filter_has_text(pick)
+        if button != "Finish" {
+            page.locator("section[aria-label=Task]")
+                .get_by_role_exact("button", "Back")
                 .click()
                 .await?;
-        }
-        page.get_by_role_exact("button", "Create place")
-            .click()
-            .await?;
-        expect(&page.locator(".place-card").filter_has_text(place))
-            .to_be_visible()
-            .await
-    }
-
-    /// Adds a task from the Tasks tab, ticking the given places first.
-    async fn add_task_at(&self, name: &str, title: &str, places: &[&str]) -> Outcome<()> {
-        self.go(name, "Tasks").await?;
-        let page = self.page(name)?;
-        for place in places {
-            page.locator(".place-chip")
-                .filter_has_text(place)
-                .click()
-                .await?;
-        }
-        page.get_by_label("Add a task")
-            .press_sequentially(title, KEY_DELAY)
-            .await?;
-        page.get_by_role_exact("button", "Add").click().await?;
-        expect(&card(&page, title)).to_be_visible().await
-    }
-
-    async fn start(&self, name: &str, title: &str) -> Outcome<()> {
-        self.go(name, "Tasks").await?;
-        let page = self.page(name)?;
-        card(&page, title)
-            .get_by_role_exact("button", "Start")
-            .click()
-            .await
-    }
-
-    async fn finish(&self, name: &str, title: &str, note: Option<&str>) -> Outcome<()> {
-        self.go(name, "Tasks").await?;
-        let page = self.page(name)?;
-        card(&page, title)
-            .get_by_role_exact("button", "Finish")
-            .click()
-            .await?;
-        if let Some(note) = note {
-            page.get_by_label("Note (optional)")
-                .press_sequentially(note, KEY_DELAY)
-                .await?;
-        }
-        page.get_by_role_exact("button", "Done").click().await
-    }
-
-    /// Each of `who` sees the card of `title` showing every text `parts` asks for.
-    async fn see_card(
-        &self,
-        who: &[String],
-        title: &str,
-        parts: impl Fn(&str) -> Vec<String>,
-    ) -> Outcome<()> {
-        for name in who {
-            self.go(name, "Tasks").await?;
-            let page = self.page(name)?;
-            for part in parts(name) {
-                expect(&card(&page, title)).to_contain_text(&part).await?;
-            }
-            expect(&card(&page, title)).to_be_visible().await?;
         }
         Ok(())
+    }
+
+    /// Ticks the circle: done, the card slides away.
+    async fn tick(&self, name: &str, title: &str) -> Outcome<()> {
+        let page = self.page(name)?;
+        page.get_by_role_exact("checkbox", &format!("Done: {title}"))
+            .click()
+            .await?;
+        expect(&task(&page, title)).to_be_hidden().await
+    }
+
+    async fn assign(&self, name: &str, title: &str, to: &str) -> Outcome<()> {
+        let page = self.page(name)?;
+        page.get_by_role_exact("button", &format!("Assign {title}"))
+            .click()
+            .await?;
+        let who = if to == name { "Me" } else { to };
+        page.locator("[role=dialog]")
+            .get_by_role_exact("button", who)
+            .click()
+            .await?;
+        expect(&page.locator("[role=dialog]")).to_be_hidden().await
+    }
+
+    async fn filter(&self, name: &str, filter: &str) -> Outcome<()> {
+        self.page(name)?
+            .locator("[aria-label=Filter]")
+            .get_by_role("button", filter)
+            .click()
+            .await
+    }
+
+    async fn new_list(&self, name: &str, list: &str) -> Outcome<()> {
+        let page = self.page(name)?;
+        self.go(name, "Tasks").await?;
+        page.get_by_role_exact("button", "New list").click().await?;
+        page.get_by_label("List name")
+            .press_sequentially(list, KEY_DELAY)
+            .await?;
+        page.get_by_role_exact("button", "Create").click().await?;
+        expect(&page.locator("main").get_by_role("button", list))
+            .to_be_visible()
+            .await
     }
 }
 
@@ -359,193 +340,176 @@ async fn invites(world: &mut Tackly, head: String, joiner: String, via: String) 
     check(world.invite(&head, &joiner, via).await);
 }
 
-/// The titles in `"A" and "B"` or `"A", "B" and "C"`.
-fn quoted_titles(list: &str) -> impl Iterator<Item = &str> {
+fn quoted(list: &str) -> impl Iterator<Item = &str> {
     list.split('"').skip(1).step_by(2)
 }
 
 #[given(regex = r#"^(\w+) has added the tasks? ((?:"[^"]+"(?:, | and )?)+)$"#)]
 #[when(regex = r#"^(\w+) adds the tasks? ((?:"[^"]+"(?:, | and )?)+)$"#)]
 async fn adds_tasks(world: &mut Tackly, name: String, titles: String) {
-    for title in quoted_titles(&titles) {
+    for title in quoted(&titles) {
         check(world.add_task(&name, title).await);
     }
 }
 
-#[when(regex = r#"^(\w+) starts "([^"]+)"$"#)]
-async fn starts(world: &mut Tackly, name: String, title: String) {
-    check(world.start(&name, &title).await);
+#[when(regex = r#"^(\w+) opens the tab "([^"]+)"$"#)]
+async fn opens_tab(world: &mut Tackly, name: String, tab: String) {
+    check(world.go(&name, &tab).await);
 }
 
-#[when(regex = r#"^(\w+) finishes "([^"]+)"$"#)]
-async fn finishes(world: &mut Tackly, name: String, title: String) {
-    check(world.finish(&name, &title, None).await);
+#[when(regex = r#"^(\w+) opens "([^"]+)"$"#)]
+async fn opens_row(world: &mut Tackly, name: String, row: String) {
+    check(world.open_row(&name, &row).await);
 }
 
-#[when(regex = r#"^(\w+) finishes "([^"]+)" with the note "([^"]+)"$"#)]
-async fn finishes_with_note(world: &mut Tackly, name: String, title: String, note: String) {
-    check(world.finish(&name, &title, Some(&note)).await);
-}
-
-#[when(regex = r#"^(\w+) reopens "([^"]+)"$"#)]
-async fn reopens(world: &mut Tackly, name: String, title: String) {
-    check(world.go(&name, "Tasks").await);
-    let page = check(world.page(&name));
+#[when(regex = r"^(\w+) goes back$")]
+async fn goes_back(world: &mut Tackly, name: String) {
     check(
-        card(&page, &title)
-            .get_by_role_exact("button", "Reopen")
+        check(world.page(&name))
+            .get_by_role_exact("button", "Back")
+            .first()
             .click()
             .await,
     );
 }
 
-#[when(regex = r#"^(\w+) keeps (\w+)'s completion of "([^"]+)"$"#)]
-async fn keeps(world: &mut Tackly, name: String, winner: String, title: String) {
-    check(world.go(&name, "Tasks").await);
+#[when(regex = r#"^(\w+) (starts|pauses|finishes) "([^"]+)"$"#)]
+async fn works_on(world: &mut Tackly, name: String, action: String, title: String) {
+    let button = match action.as_str() {
+        "starts" => "Start",
+        "pauses" => "Pause",
+        _ => "Finish",
+    };
+    check(world.in_focus(&name, &title, button).await);
+}
+
+#[when(regex = r#"^(\w+) ticks "([^"]+)" off$"#)]
+async fn ticks(world: &mut Tackly, name: String, title: String) {
+    check(world.tick(&name, &title).await);
+}
+
+#[when(regex = r#"^(\w+) undoes "([^"]+)"$"#)]
+async fn undoes(world: &mut Tackly, name: String, toast_text: String) {
     let page = check(world.page(&name));
-    let button = format!("Keep {winner}'s");
     check(
-        card(&page, &title)
-            .get_by_role_exact("button", &button)
+        toast(&page, &toast_text)
+            .get_by_role_exact("button", "Undo")
             .click()
             .await,
     );
 }
 
-// ---- places ----------------------------------------------------------------------
-
-#[when(regex = r#"^(\w+) creates the group "([^"]+)"$"#)]
-async fn creates_group(world: &mut Tackly, name: String, group: String) {
-    check(world.create_group(&name, &group).await);
+#[when(regex = r#"^(\w+) gives "([^"]+)" to (\w+)$"#)]
+async fn gives(world: &mut Tackly, name: String, title: String, to: String) {
+    check(world.assign(&name, &title, &to).await);
 }
 
-#[when(regex = r#"^(\w+) adds the place "([^"]+)" to "([^"]+)" at "([^"]+)"$"#)]
-async fn adds_place(world: &mut Tackly, name: String, place: String, group: String, at: String) {
-    check(world.create_place(&name, &place, &group, &at, None).await);
+#[given(regex = r#"^(\w+) shows (Mine|Unassigned|All)$"#)]
+#[when(regex = r#"^(\w+) shows (Mine|Unassigned|All)$"#)]
+async fn shows(world: &mut Tackly, name: String, filter: String) {
+    check(world.filter(&name, &filter).await);
 }
 
-#[when(
-    regex = r#"^(\w+) adds the place "([^"]+)" to "([^"]+)" at "([^"]+)" and picks the suggestion "([^"]+)"$"#
-)]
-async fn adds_place_picking(
-    world: &mut Tackly,
-    name: String,
-    place: String,
-    group: String,
-    at: String,
-    pick: String,
-) {
-    check(
-        world
-            .create_place(&name, &place, &group, &at, Some(&pick))
-            .await,
-    );
+#[when(regex = r#"^(\w+) creates the list "([^"]+)"$"#)]
+async fn creates_list(world: &mut Tackly, name: String, list: String) {
+    check(world.new_list(&name, &list).await);
 }
 
-#[when(regex = r#"^(\w+) adds the task "([^"]+)" at ((?:"[^"]+"(?:, | and )?)+)$"#)]
-async fn adds_task_at(world: &mut Tackly, name: String, title: String, places: String) {
-    let places: Vec<&str> = quoted_titles(&places).collect();
-    check(world.add_task_at(&name, &title, &places).await);
-}
-
-#[when(regex = r#"^(\w+) opens the place "([^"]+)"$"#)]
-async fn opens_place(world: &mut Tackly, name: String, place: String) {
-    check(world.go(&name, "Places").await);
+#[when(regex = r#"^(\w+) renames the list to "([^"]+)"$"#)]
+async fn renames_list(world: &mut Tackly, name: String, list: String) {
     let page = check(world.page(&name));
+    check(page.get_by_role_exact("button", "Edit").click().await);
+    check(page.get_by_label("List name").fill(&list).await);
+    check(page.get_by_role_exact("button", "Save").click().await);
+}
+
+#[when(regex = r#"^(\w+) deletes the list$"#)]
+async fn deletes_list(world: &mut Tackly, name: String) {
+    let page = check(world.page(&name));
+    check(page.get_by_role_exact("button", "Edit").click().await);
     check(
-        page.locator(".place-card")
-            .filter_has_text(&place)
+        page.get_by_role_exact("button", "Delete list")
             .click()
             .await,
     );
 }
 
-#[when(regex = r#"^(\w+) adds the task "([^"]+)" here$"#)]
-async fn adds_task_here(world: &mut Tackly, name: String, title: String) {
+#[when(regex = r#"^(\w+) adds the group "([^"]+)"$"#)]
+async fn adds_group(world: &mut Tackly, name: String, group: String) {
+    check(world.go(&name, "Places").await);
+    check(world.add_with_bar(&name, "Add a group", &group).await);
+}
+
+#[when(regex = r#"^(\w+) adds the place "([^"]+)" by picking the address "([^"]+)"$"#)]
+async fn adds_place_picking(world: &mut Tackly, name: String, typed: String, address: String) {
     let page = check(world.page(&name));
     check(
-        page.get_by_label("Add a task")
-            .press_sequentially(&title, KEY_DELAY)
+        page.get_by_label("Add a place")
+            .press_sequentially(&typed, KEY_DELAY)
             .await,
     );
-    check(page.get_by_role_exact("button", "Add").click().await);
-}
-
-#[then(regex = r#"^(\w+) sees the place "([^"]+)" at "([^"]+)"$"#)]
-async fn sees_place_at(world: &mut Tackly, name: String, place: String, at: String) {
-    check(world.go(&name, "Places").await);
-    let page = check(world.page(&name));
     check(
-        expect(&page.locator(".place-card").filter_has_text(&place))
-            .to_contain_text(&at)
+        page.locator("[aria-label=Addresses]")
+            .get_by_role("button", &address)
+            .click()
             .await,
     );
 }
 
-#[then(regex = r#"^(\w+) sees "([^"]+)" with (\d+) to get$"#)]
-async fn sees_count(world: &mut Tackly, name: String, place: String, count: String) {
-    check(world.go(&name, "Places").await);
-    let page = check(world.page(&name));
+#[when(regex = r#"^(\w+) adds the place "([^"]+)"$"#)]
+async fn adds_place(world: &mut Tackly, name: String, place: String) {
+    check(world.add_with_bar(&name, "Add a place", &place).await);
+}
+
+#[when(regex = r#"^(\w+) adds the location "([^"]+)"$"#)]
+async fn adds_location(world: &mut Tackly, name: String, location: String) {
+    check(world.add_with_bar(&name, "Add a location", &location).await);
+}
+
+#[when(regex = r#"^(\w+) edits the place$"#)]
+async fn edits_place(world: &mut Tackly, name: String) {
     check(
-        expect(
-            &page
-                .locator(".place-card")
-                .filter_has_text(&place)
-                .locator(".count"),
-        )
-        .to_have_text(&count)
-        .await,
+        check(world.page(&name))
+            .get_by_role_exact("button", "Edit")
+            .click()
+            .await,
     );
 }
 
-#[then(regex = r#"^(\w+) sees "([^"]+)" ticked in the add bar$"#)]
-async fn sees_ticked(world: &mut Tackly, name: String, place: String) {
-    let page = check(world.page(&name));
+#[when(regex = r#"^(\w+) opens (?:her|his|their) settings$"#)]
+async fn opens_settings(world: &mut Tackly, name: String) {
+    check(world.go(&name, "Family").await);
+    check(world.open_row(&name, &name).await);
+}
+
+#[when(regex = r#"^(\w+) changes (?:her|his|their) name to "([^"]+)"$"#)]
+async fn changes_name(world: &mut Tackly, name: String, new_name: String) {
+    let field = check(world.page(&name)).get_by_label("Your name");
+    check(field.fill(&new_name).await);
+    check(field.press("Enter").await);
+}
+
+#[when(regex = r#"^(\w+) picks the picture "([^"]+)"$"#)]
+async fn picks_picture(world: &mut Tackly, name: String, picture: String) {
     check(
-        expect(
-            &page
-                .locator(".place-chip[aria-pressed=\"true\"]")
-                .filter_has_text(&place),
-        )
-        .to_be_visible()
-        .await,
+        check(world.page(&name))
+            .get_by_role_exact("radio", &picture)
+            .click()
+            .await,
     );
 }
 
-#[then(regex = r#"^(\w+) sees the task "([^"]+)" in this place$"#)]
-async fn sees_task_here(world: &mut Tackly, name: String, title: String) {
-    let page = check(world.page(&name));
-    check(expect(&card(&page, &title)).to_be_visible().await);
+#[when(regex = r#"^(\w+) picks the color scheme "([^"]+)"$"#)]
+async fn picks_scheme(world: &mut Tackly, name: String, scheme: String) {
+    check(
+        check(world.page(&name))
+            .get_by_role_exact("radio", &scheme)
+            .click()
+            .await,
+    );
 }
 
 // ---- keyboard --------------------------------------------------------------------
-
-#[when(regex = r"^(\w+) opens the task list$")]
-async fn opens_task_list(world: &mut Tackly, name: String) {
-    check(world.go(&name, "Tasks").await);
-}
-
-#[when(regex = r#"^(\w+) taps the suggestion "([^"]+)"$"#)]
-async fn taps_suggestion(world: &mut Tackly, name: String, title: String) {
-    let page = check(world.page(&name));
-    check(
-        page.locator(".suggestion")
-            .filter_has_text(&title)
-            .click()
-            .await,
-    );
-}
-
-#[then(regex = r#"^(\w+) (sees|does not see) the suggestion "([^"]+)"$"#)]
-async fn sees_suggestion(world: &mut Tackly, name: String, seen: String, title: String) {
-    let page = check(world.page(&name));
-    let suggestion = page.locator(".suggestion").filter_has_text(&title);
-    if seen == "sees" {
-        check(expect(&suggestion).to_be_visible().await);
-    } else {
-        check(expect(&suggestion).to_be_hidden().await);
-    }
-}
 
 #[when(regex = r#"^(\w+) types "([^"]*)" into "([^"]+)" key by key$"#)]
 async fn types_key_by_key(world: &mut Tackly, name: String, text: String, label: String) {
@@ -571,138 +535,172 @@ async fn field_contains(world: &mut Tackly, label: String, name: String, value: 
     check(expect(&field).to_have_value(&value).await);
 }
 
-#[then(regex = r#"^the "([^"]+)" button of (\w+) is (enabled|disabled)$"#)]
-async fn button_state(world: &mut Tackly, label: String, name: String, state: String) {
+#[then(regex = r#"^(\w+) (sees|does not see) the "([^"]+)" button$"#)]
+async fn sees_button(world: &mut Tackly, name: String, seen: String, label: String) {
     let button = check(world.page(&name)).get_by_role_exact("button", &label);
-    if state == "enabled" {
-        check(expect(&button).to_be_enabled().await);
+    check(if seen == "sees" {
+        expect(&button).to_be_visible().await
     } else {
-        check(expect(&button).to_be_disabled().await);
-    }
+        expect(&button).to_be_hidden().await
+    });
 }
 
-// ---- Then --------------------------------------------------------------------------
+// ---- Then ------------------------------------------------------------------------
 
-#[given(regex = r#"^(.+?) sees? the tasks? ((?:"[^"]+"(?:, | and )?)+)$"#)]
-#[then(regex = r#"^(.+?) sees? the tasks? ((?:"[^"]+"(?:, | and )?)+)$"#)]
+#[given(regex = r#"^(\w+(?:, \w+)*(?: and \w+)?) sees? the tasks? ((?:"[^"]+"(?:, | and )?)+)$"#)]
+#[then(regex = r#"^(\w+(?:, \w+)*(?: and \w+)?) sees? the tasks? ((?:"[^"]+"(?:, | and )?)+)$"#)]
 async fn sees_tasks(world: &mut Tackly, who: String, titles: String) {
-    for title in quoted_titles(&titles) {
-        check(world.see_card(&names(&who), title, |_| vec![]).await);
+    for name in names(&who) {
+        let page = check(world.page(&name));
+        for title in quoted(&titles) {
+            check(expect(&task(&page, title)).to_be_visible().await);
+        }
     }
 }
 
-#[then(regex = r#"^(.+?) sees? "([^"]+)" in progress by (\w+)$"#)]
-async fn sees_in_progress(world: &mut Tackly, who: String, title: String, by: String) {
-    let outcome = world
-        .see_card(&names(&who), &title, |viewer| {
-            vec![if viewer == by {
-                "You are on it".into()
-            } else {
-                format!("{by} is on it")
-            }]
-        })
-        .await;
-    check(outcome);
-}
-
-#[then(regex = r#"^(.+?) sees? "([^"]+)" done by (\w+)$"#)]
-async fn sees_done(world: &mut Tackly, who: String, title: String, by: String) {
-    let outcome = world
-        .see_card(&names(&who), &title, |viewer| {
-            vec![format!(
-                "Done by {}",
-                if viewer == by { "You" } else { &by }
-            )]
-        })
-        .await;
-    check(outcome);
+#[then(regex = r#"^(\w+(?:, \w+)*(?: and \w+)?) (?:does not|do not|no longer) sees? "([^"]+)"$"#)]
+async fn does_not_see(world: &mut Tackly, who: String, title: String) {
+    for name in names(&who) {
+        check(
+            expect(&task(&check(world.page(&name)), &title))
+                .to_be_hidden()
+                .await,
+        );
+    }
 }
 
 #[then(
-    regex = r#"^(.+?) sees? "([^"]+)" done by (\w+) with a duration, the note "([^"]+)" and a location$"#
+    regex = r#"^(\w+(?:, \w+)*(?: and \w+)?) sees? that (\w+) (is working on|paused|picked|has) "([^"]+)"$"#
 )]
-async fn sees_done_with_metadata(
-    world: &mut Tackly,
-    who: String,
-    title: String,
-    by: String,
-    note: String,
-) {
-    let outcome = world
-        .see_card(&names(&who), &title, |viewer| {
-            vec![
-                format!("Done by {}", if viewer == by { "You" } else { &by }),
-                "⏱".into(),
-                format!("💬 {note}"),
-                "📍 52.".into(),
-            ]
-        })
-        .await;
-    check(outcome);
-}
-
-#[then(regex = r#"^(.+?) sees? "([^"]+)" open again$"#)]
-async fn sees_open(world: &mut Tackly, who: String, title: String) {
+async fn sees_someone_on(world: &mut Tackly, who: String, by: String, how: String, title: String) {
     for name in names(&who) {
-        check(world.go(&name, "Tasks").await);
-        let task = card(&check(world.page(&name)), &title);
-        check(
-            expect(&task.get_by_role_exact("button", "Start"))
-                .to_be_visible()
-                .await,
-        );
-        check(expect(&task).not().to_contain_text("Done by").await);
+        let page = check(world.page(&name));
+        let words = match how.as_str() {
+            "is working on" if by == name => "You’re working on it".to_owned(),
+            "is working on" => format!("{by} is working on it"),
+            "paused" => format!("{by} paused it"),
+            "picked" => format!("{by} picked it"),
+            _ if by == name => "Assigned to you".to_owned(),
+            _ => format!("Assigned to {by}"),
+        };
+        check(expect(&task(&page, &title)).to_contain_text(&words).await);
     }
 }
 
-#[then(regex = r#"^(.+?) sees? "([^"]+)" finished twice$"#)]
-async fn sees_conflict(world: &mut Tackly, who: String, title: String) {
-    let outcome = world
-        .see_card(&names(&who), &title, |_| vec!["finished twice".into()])
-        .await;
-    check(outcome);
-}
-
-#[then(regex = r#"^(\w+) can only wait for (\w+) and (\w+) to decide "([^"]+)"$"#)]
-async fn cannot_decide(world: &mut Tackly, name: String, a: String, b: String, title: String) {
-    check(world.go(&name, "Tasks").await);
-    let task = card(&check(world.page(&name)), &title);
-    for part in ["Waiting for", &a, &b, "to decide"] {
-        check(expect(&task).to_contain_text(part).await);
-    }
+#[then(regex = r#"^(\w+) cannot tick "([^"]+)" off$"#)]
+async fn cannot_tick(world: &mut Tackly, name: String, title: String) {
+    let page = check(world.page(&name));
     check(
-        expect(&task.get_by_role("button", "Keep"))
-            .to_have_count(0)
+        expect(&page.get_by_role_exact("checkbox", &format!("Done: {title}")))
+            .to_be_hidden()
             .await,
     );
 }
 
-#[then(regex = r"^(.+?) sees? the members (.+) with (\w+) as head of the family$")]
-async fn sees_members(world: &mut Tackly, who: String, members: String, head: String) {
+#[then(regex = r#"^(\w+) sees (\d+) in (Mine|Unassigned|All)$"#)]
+async fn sees_count(world: &mut Tackly, name: String, count: String, filter: String) {
+    let chip = check(world.page(&name))
+        .locator("[aria-label=Filter]")
+        .get_by_role_exact("button", &format!("{filter} ({count})"));
+    check(expect(&chip).to_be_visible().await);
+}
+
+#[then(regex = r#"^(\w+(?:, \w+)*(?: and \w+)?) sees? the list "([^"]+)"(?: with "([^"]+)")?$"#)]
+async fn sees_list(world: &mut Tackly, who: String, list: String, detail: String) {
     for name in names(&who) {
-        check(world.go(&name, "Family").await);
-        let page = check(world.page(&name));
-        for member in names(&members) {
-            check(expect(&card(&page, &member)).to_be_visible().await);
+        check(world.go(&name, "Tasks").await);
+        let row = check(world.page(&name))
+            .locator("main")
+            .get_by_role("button", &list);
+        check(expect(&row).to_be_visible().await);
+        if !detail.is_empty() {
+            check(expect(&row).to_contain_text(&detail).await);
         }
+    }
+}
+
+#[then(regex = r#"^(\w+(?:, \w+)*(?: and \w+)?) (?:does not|do not) see the list "([^"]+)"$"#)]
+async fn does_not_see_list(world: &mut Tackly, who: String, list: String) {
+    for name in names(&who) {
+        check(world.go(&name, "Tasks").await);
         check(
-            expect(&card(&page, &head))
-                .to_contain_text("Head of the family")
-                .await,
+            expect(
+                &check(world.page(&name))
+                    .locator("main")
+                    .get_by_role("button", &list),
+            )
+            .to_be_hidden()
+            .await,
         );
     }
 }
 
+#[then(regex = r#"^(\w+(?:, \w+)*(?: and \w+)?) sees? "([^"]+)" with "([^"]+)"$"#)]
+async fn sees_row(world: &mut Tackly, who: String, row: String, detail: String) {
+    for name in names(&who) {
+        let row = check(world.page(&name))
+            .locator("main")
+            .get_by_role("button", &row);
+        check(expect(&row).to_contain_text(&detail).await);
+    }
+}
+
+#[then(regex = r#"^(\w+) sees the text "([^"]+)"$"#)]
+async fn sees_text(world: &mut Tackly, name: String, text: String) {
+    check(
+        expect(&check(world.page(&name)).locator("main").get_by_text(&text))
+            .to_be_visible()
+            .await,
+    );
+}
+
+#[then(regex = r"^(\w+(?:, \w+)*(?: and \w+)?) sees? the members (.+)$")]
+async fn sees_members(world: &mut Tackly, who: String, members: String) {
+    for name in names(&who) {
+        check(world.go(&name, "Family").await);
+        let page = check(world.page(&name));
+        for member in names(&members) {
+            check(
+                expect(&page.locator("main").get_by_role("button", &member))
+                    .to_be_visible()
+                    .await,
+            );
+        }
+    }
+}
+
+#[then(regex = r#"^(\w+)'s color scheme is "([^"]+)"$"#)]
+async fn scheme_is(world: &mut Tackly, name: String, scheme: String) {
+    let radio = check(world.page(&name))
+        .locator("[role=radio][aria-checked=true]")
+        .filter_has_text(&scheme);
+    check(expect(&radio).to_be_visible().await);
+}
+
 #[then(regex = r"^(\w+)'s app says it is offline$")]
 async fn says_offline(world: &mut Tackly, name: String) {
-    let chip = check(world.page(&name)).locator(".sync.off");
-    check(expect(&chip).to_be_visible().await);
+    check(
+        expect(
+            &check(world.page(&name))
+                .locator("header")
+                .get_by_text("Offline"),
+        )
+        .to_be_visible()
+        .await,
+    );
 }
 
 #[then(regex = r"^(\w+)'s app says it is live$")]
 async fn says_live(world: &mut Tackly, name: String) {
-    let chip = check(world.page(&name)).locator(".sync.on");
-    check(expect(&chip).to_be_visible().await);
+    check(
+        expect(
+            &check(world.page(&name))
+                .locator("header")
+                .get_by_text("Offline"),
+        )
+        .to_be_hidden()
+        .await,
+    );
 }
 
 // ---- runner ------------------------------------------------------------------------

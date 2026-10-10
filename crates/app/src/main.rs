@@ -2,7 +2,10 @@
 
 mod platform;
 mod screens;
+mod settings;
 mod state;
+mod theme;
+mod ui;
 #[cfg(feature = "ui-test")]
 mod uitest;
 
@@ -44,9 +47,11 @@ fn App() -> Element {
     #[cfg(feature = "ui-test")]
     uitest::install();
     let opened = use_hook(|| AppState::open().map_err(|error| format!("{error:#}")));
+    let fonts = use_hook(ui::font_faces);
     rsx! {
+        style { {fonts} }
         style { {include_str!("style.css")} }
-        div { class: "screen",
+        div { class: "h-dvh max-w-[430px] mx-auto bg-stone-300 font-sans antialiased",
             match opened {
                 Ok(state) => rsx! { Ready { state } },
                 Err(message) => rsx! { screens::StartupFailed { message } },
@@ -64,6 +69,5 @@ fn Ready(state: AppState) -> Element {
     let in_a_family = (state.membership)().is_some();
     rsx! {
         if in_a_family { screens::Home {} } else { screens::Onboarding {} }
-        screens::Snackbar {}
     }
 }

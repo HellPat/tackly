@@ -1,127 +1,183 @@
-//! The Places tab: groups such as "Grocery Store", the places in them, and
-//! what there is to get at each. Opening a place shows its tasks.
+//! The Places tab: groups ("Grocery Store") to step into, their places
+//! ("LIDL") sorted by what there is to get, a place's tasks, and Edit place.
 
 use dioxus::prelude::*;
-use tackly_protocol::{Family, Place};
-use uuid::Uuid;
+use tackly_protocol::Place;
 
-use super::tasks::TaskCard;
-use crate::state::AppState;
+use super::{
+    home::{Nav, SheetKind},
+    tasks::TaskList,
+};
+use crate::{
+    state::AppState,
+    ui::{CARD, CHIP_OFF, CHIP_ON, EmptyState, FIELD, Heading, Icon, OverviewRow},
+};
 
 #[component]
-pub fn PlacesTab(
-    open_place: EventHandler<Uuid>,
-    new_group: EventHandler<()>,
-    new_place: EventHandler<Uuid>,
-) -> Element {
+pub fn PlacesTab() -> Element {
     let state = use_context::<AppState>();
+    let mut nav = use_context::<Signal<Nav>>();
     let family = (state.family)();
-    rsx! {
-        if family.place_groups.is_empty() {
-            div { class: "empty",
-                div { class: "big", "📍" }
-                p { "No places yet. Make a group such as Grocery Store, then add the shops in it." }
-            }
+    let here = nav();
+
+    if let Some(place) = here.place.and_then(|id| family.places.get(&id).cloned()) {
+        if here.editing_place {
+            return rsx! { EditPlace { place } };
         }
-        for group in family.place_groups.values() {
-            div { key: "{group.id}", class: "group-head",
-                span { class: "section", "{group.emoji} {group.name}" }
-                button { class: "btn text", onclick: {
-                        let id = group.id;
-                        move |_| new_place.call(id)
-                    },
-                    "Add place"
-                }
+        let n = place.locations.len();
+        let tasks = family.open_tasks_at(place.id).cloned().collect();
+        return rsx! {
+            button {
+                class: "flex items-center gap-1.5 px-2 pb-3 text-sm text-stone-700 hover:text-stone-900",
+                onclick: move |_| nav.write().editing_place = true,
+                Icon { name: "location_on", class: "!text-[18px] text-stone-600" }
+                if n == 1 { "1 location" } else { "{n} locations" }
             }
-            for place in places_by_open_tasks(&family, group.id) {
-                PlaceCard { key: "{place.id}", place: place.clone(), open_place }
-            }
-        }
-        div { class: "actions",
-            button { class: "btn tonal", onclick: move |_| new_group.call(()), "New group" }
-        }
+            TaskList { tasks, empty_line: "Nothing to get here." }
+        };
     }
-}
 
-/// The place with the most to get comes first, to help choose where to go.
-fn places_by_open_tasks(family: &Family, group: Uuid) -> Vec<Place> {
-    let mut places: Vec<Place> = family
-        .places
-        .values()
-        .filter(|place| place.group_id == group)
-        .cloned()
-        .collect();
-    places.sort_by_key(|place| std::cmp::Reverse(family.open_tasks_at(place.id).count()));
-    places
-}
-
-#[component]
-fn PlaceCard(place: Place, open_place: EventHandler<Uuid>) -> Element {
-    let state = use_context::<AppState>();
-    let count = (state.family)().open_tasks_at(place.id).count();
-    let id = place.id;
-    let first = place.locations.first().map(|location| {
-        location
-            .address
-            .clone()
-            .unwrap_or_else(|| location.name.clone())
-    });
-    let more = place.locations.len().saturating_sub(1);
-    rsx! {
-        button { class: "card place-card", onclick: move |_| open_place.call(id),
-            div { class: "emoji", aria_hidden: "true", "{place.emoji}" }
-            div { class: "body",
-                div { class: "title", "{place.name}" }
-                if let Some(first) = first {
-                    div { class: "meta",
-                        "{first}"
-                        if more > 0 {
-                            " · +{more} more"
-                        }
+    if let Some(group) = here.group {
+        let mut places: Vec<&Place> = family.places_in(group).collect();
+        places.sort_by_key(|place| std::cmp::Reverse(family.open_tasks_at(place.id).count()));
+        if places.is_empty() {
+            return rsx! { EmptyState { icon: "storefront", title: "No places here yet", line: "Add one below, for example LIDL." } };
+        }
+        return rsx! {
+            ul { class: "{CARD} overflow-hidden mt-1",
+                for place in places {
+                    OverviewRow {
+                        key: "{place.id}",
+                        icon: "storefront",
+                        name: place.name.clone(),
+                        count: match family.open_tasks_at(place.id).count() {
+                            0 => String::new(),
+                            n => format!("{n} to get"),
+                        },
+                        onclick: {
+                            let id = place.id;
+                            move |_| nav.write().place = Some(id)
+                        },
                     }
                 }
             }
-            span { class: "count", aria_label: "{count} to get", "{count}" }
+        };
+    }
+
+    if family.place_groups.is_empty() {
+        return rsx! { EmptyState { icon: "storefront", title: "No places yet", line: "Start with a group below, for example Grocery Store." } };
+    }
+    rsx! {
+        ul { class: "{CARD} overflow-hidden mt-1",
+            for group in family.place_groups.values() {
+                OverviewRow {
+                    key: "{group.id}",
+                    icon: "category",
+                    name: group.name.clone(),
+                    sub: match family.places_in(group.id).count() {
+                        1 => "1 place".to_owned(),
+                        n => format!("{n} places"),
+                    },
+                    count: match family.places_in(group.id).map(|place| family.open_tasks_at(place.id).count()).sum::<usize>() {
+                        0 => String::new(),
+                        n => format!("{n} to get"),
+                    },
+                    onclick: {
+                        let id = group.id;
+                        move |_| nav.write().group = Some(id)
+                    },
+                }
+            }
         }
     }
 }
 
-/// One place: where it is, and what there is to get there.
+/// Edit place: its name, its group, and its locations as a plain list. New
+/// locations come from the bar at the bottom.
 #[component]
-pub fn PlaceView(
-    place: Uuid,
-    back: EventHandler<()>,
-    add_location: EventHandler<Uuid>,
-    open_finish: EventHandler<Uuid>,
-    edit_places: EventHandler<Uuid>,
-) -> Element {
+fn EditPlace(place: Place) -> Element {
     let state = use_context::<AppState>();
+    let mut sheet = use_context::<Signal<Option<SheetKind>>>();
     let family = (state.family)();
-    let Some(current) = family.places.get(&place) else {
-        return rsx! {};
-    };
-    let tasks: Vec<_> = family.open_tasks_at(place).cloned().collect();
+    let id = place.id;
+    let only_one = place.locations.len() == 1;
+    let mut typed = use_signal(|| place.name.clone());
     rsx! {
-        div { class: "place-head",
-            button { class: "btn text", aria_label: "Back", onclick: move |_| back.call(()), "←" }
-            h2 { "{current.emoji} {current.name}" }
+        label { class: "block px-1 pt-1",
+            span { class: "text-sm font-semibold text-stone-700", "Name" }
+            input {
+                class: "{FIELD} mt-1.5",
+                value: "{place.name}",
+                aria_label: "Place name",
+                // Saved when the field is left, or on Enter.
+                onchange: move |event| rename(state, id, event.value()),
+                onkeydown: move |event| {
+                    if event.key() == Key::Enter {
+                        rename(state, id, typed());
+                    }
+                },
+                oninput: move |event| typed.set(event.value()),
+            }
         }
-        for location in &current.locations {
-            div { key: "{location.id}", class: "meta",
-                "📍 {location.name}"
-                if let Some(address) = &location.address {
-                    " · {address}"
+        div { class: "px-1 pt-5",
+            span { class: "block text-sm font-semibold text-stone-700", id: "groupLabel", "Group" }
+            div { class: "mt-2 flex flex-wrap gap-2", role: "group", aria_labelledby: "groupLabel",
+                for group in family.place_groups.values() {
+                    button {
+                        key: "{group.id}",
+                        class: if group.id == place.group_id { CHIP_ON } else { CHIP_OFF },
+                        aria_pressed: "{group.id == place.group_id}",
+                        onclick: {
+                            let group_id = group.id;
+                            move |_| state.move_place(id, group_id)
+                        },
+                        "{group.name}"
+                    }
+                }
+                button {
+                    class: "shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full text-sm font-semibold border border-dashed border-stone-500 text-stone-700",
+                    onclick: move |_| sheet.set(Some(SheetKind::NewGroupFor(id))),
+                    Icon { name: "add", class: "!text-[18px]" }
+                    "New group"
                 }
             }
         }
-        div { class: "actions",
-            button { class: "btn text", onclick: move |_| add_location.call(place), "Add location" }
+        Heading { text: "Locations" }
+        ul { class: "{CARD} overflow-hidden",
+            for location in place.locations.clone() {
+                li { key: "{location.id}", class: "flex items-center gap-3 pl-4 pr-1 min-h-16",
+                    Icon { name: "location_on", class: "text-stone-500" }
+                    span { class: "flex-1 min-w-0",
+                        span { class: "block truncate", "{location.name}" }
+                        if let Some(address) = &location.address {
+                            span { class: "block text-sm text-stone-600 truncate", "{address}" }
+                        }
+                    }
+                    button {
+                        class: "size-12 grid place-items-center rounded-full text-stone-600 hover:bg-stone-100 disabled:opacity-40 disabled:hover:bg-transparent",
+                        aria_label: "Remove {location.name}",
+                        title: if only_one { "A place needs at least one location" } else { "" },
+                        disabled: only_one,
+                        onclick: {
+                            let location = location.clone();
+                            move |_| state.remove_location(id, location.clone())
+                        },
+                        Icon { name: "close" }
+                    }
+                }
+            }
         }
-        if tasks.is_empty() {
-            div { class: "empty", p { "Nothing to get here." } }
-        }
-        for task in tasks {
-            TaskCard { key: "{task.id}", task, open_finish, edit_places }
-        }
+    }
+}
+
+fn rename(state: AppState, place: uuid::Uuid, name: String) {
+    let current = state
+        .family
+        .peek()
+        .places
+        .get(&place)
+        .map(|place| place.name.clone());
+    if !name.trim().is_empty() && current.as_deref() != Some(name.trim()) {
+        state.rename_place(place, name);
     }
 }

@@ -26,7 +26,7 @@ ensure_device() {
   local avd
   avd="$(emulator -list-avds | head -n 1)"
   [[ -n "$avd" ]] || { echo 'No device on adb and no AVD. Create one in Android Studio.' >&2; exit 1; }
-  echo "Booting $avd…"
+  echo "Booting ${avd}…"
   nohup emulator -avd "$avd" -no-window -no-audio -no-boot-anim -no-snapshot \
     -gpu swiftshader_indirect >"$root/.dev/emulator.log" 2>&1 </dev/null &
   for _ in {1..90}; do device_is_ready && return; sleep 2; done

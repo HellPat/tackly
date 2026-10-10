@@ -29,6 +29,7 @@
             nodejs_22
             pkg-config
             sqlite
+            tailwindcss_4  # `just css` compiles the app styles
           ]) ++ pkgs.lib.optionals pkgs.stdenv.isLinux (with pkgs; [
             gtk3
             libsoup_3

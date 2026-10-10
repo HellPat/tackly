@@ -15,6 +15,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - run: cargo fmt --all --check
+      - name: The compiled styles are up to date (`just css`)
+        run: |
+          curl -sSfL https://github.com/tailwindlabs/tailwindcss/releases/download/v4.3.3/tailwindcss-linux-x64 -o "$RUNNER_TEMP/tailwindcss"
+          chmod +x "$RUNNER_TEMP/tailwindcss"
+          "$RUNNER_TEMP/tailwindcss" --input crates/app/tailwind.css --output crates/app/src/style.css --minify
+          git diff --exit-code crates/app/src/style.css
       - name: Unit and end-to-end tests (real server, three phones, SSE, outages)
         run: cargo test --locked -p tackly-protocol -p tackly-client -p tackly-sync
 
@@ -25,6 +31,8 @@ jobs:
       - uses: actions/checkout@v6
       - name: Clippy on everything, unwrap and expect denied
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: App tests (color schemes, the embedded icon font)
+        run: cargo test --locked -p tackly-app
       - run: cargo build --locked --release -p tackly-sync -p tackly-app
       - uses: actions/upload-artifact@v4
         with:
