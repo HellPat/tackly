@@ -142,8 +142,8 @@ const heading = (text) => `<h2 class="px-2 pt-6 pb-2 text-sm font-semibold text-
 const barMode = () => state.tab === 'places' && state.editPlace ? 'location' : state.tab === 'places' && !state.placeView ? 'place' : 'task';
 /* A person's picture: an icon on a soft tint, or a photo. Round, with a white border and a small shadow,
    so any photo (too light, too busy, badly cropped) still sits cleanly on the page. */
-const avatar = (m, size = 'size-10') => `<span class="relative ${size} shrink-0 rounded-full overflow-hidden grid place-items-center ${TINTS[m.avatar.tint]} ${{ 'size-24': 'border-4', 'size-10': 'border-[3px]' }[size] ?? 'border-2'} border-white shadow-[0_1px_3px_rgb(41_37_36/.3)]">
-  ${m.avatar.photo ? `<img src="${m.avatar.photo}" alt="" class="size-full object-cover">` : icon(m.avatar.icon, size === 'size-24' ? '!text-[40px]' : size === 'size-8' ? '!text-[18px]' : '')}</span>`;
+const avatar = (m, size = 'size-10') => `<span class="relative ${size} shrink-0 rounded-full overflow-hidden grid place-items-center ${TINTS[m.avatar.tint]} ${{ 'size-24': 'border-4', 'size-12': 'border-[3px]', 'size-10': 'border-[3px]' }[size] ?? 'border-2'} border-white shadow-[0_1px_3px_rgb(41_37_36/.3)]">
+  ${m.avatar.photo ? `<img src="${m.avatar.photo}" alt="" class="size-full object-cover">` : icon(m.avatar.icon, size === 'size-24' ? '!text-[40px]' : size === 'size-12' ? '!text-[28px]' : size === 'size-8' ? '!text-[18px]' : '')}</span>`;
 
 /* Time worked: today, and in total since the task was (re)opened. */
 function worked(t) {
@@ -270,9 +270,12 @@ function renderTasks() {
 function nothingMine() {
   const someone = state.members.find((m) => !m.me);
   // A handwritten note, to go with the hand-drawn arrow.
-  return `<button id="toAll" data-filter="all" class="block ml-auto mr-4 mt-12 text-right font-['Caveat'] text-stone-800 -rotate-2">
-      <span class="flex items-center justify-end gap-2 text-[34px] leading-none font-bold">Make ${someone.name} <span class="rotate-2">${avatar(someone, 'size-9')}</span> happy</span>
-      <span class="block mt-1 text-2xl leading-none font-medium text-stone-700">pick some</span>
+  return `<button id="toAll" data-filter="all" class="flex items-center gap-3 ml-auto mr-4 mt-14 text-left font-['Caveat'] text-stone-800">
+      <span id="arrowFrom" class="-rotate-3">${avatar(someone, 'size-12')}</span>
+      <span class="-rotate-2">
+        <span class="block text-[34px] leading-none font-bold">Make ${someone.name} happy</span>
+        <span class="block mt-1 text-2xl leading-none font-medium text-stone-700">pick some</span>
+      </span>
     </button>`;
 }
 /* A hand-drawn arrow from the message up to the "All" chip, measured after layout. */
@@ -281,9 +284,10 @@ function drawArrowToAll() {
   main.querySelector('#arrow')?.remove();
   if (!from || !to) return;
   const m = main.getBoundingClientRect(), a = from.getBoundingClientRect(), c = to.getBoundingClientRect();
-  const sx = a.left - m.left + a.width * 0.35, sy = a.top - m.top - 8;   // just above the note
+  const f = $('#arrowFrom').getBoundingClientRect();
+  const sx = f.left - m.left + f.width / 2, sy = f.top - m.top - 6;     // from Mona's picture
   const ex = c.left - m.left + c.width / 2, ey = c.bottom - m.top + 8;   // just under "All"
-  const cx = sx + 36, cy = (sy + ey) / 2 + 6;                            // one gentle bend
+  const cx = sx + (ex - sx) * 0.15, cy = ey + (sy - ey) * 0.15;          // one gentle bend, rising early
   // The head follows the curve's direction at its end.
   const angle = Math.atan2(ey - cy, ex - cx), len = 11, spread = 0.5;
   const hx1 = ex - len * Math.cos(angle - spread), hy1 = ey - len * Math.sin(angle - spread);
