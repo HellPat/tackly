@@ -370,6 +370,40 @@ async fn double_completion_is_settled_by_a_member_who_took_part() -> Result<()> 
 }
 
 #[tokio::test]
+async fn a_double_completion_that_agrees_settles_itself() -> Result<()> {
+    let dir = scratch_dir("auto-settle")?;
+    let mut relay = Relay::reserve(&dir)?;
+    relay.start().await?;
+    let (patrick, mona, mara) = family_of_three(&dir, &relay).await?;
+
+    patrick.add_task("Feed the cat", "🐱").await?;
+    for phone in [&mona, &mara] {
+        eventually("task synced", || async {
+            Ok(phone.state().await?.tasks.len() == 1)
+        })
+        .await?;
+    }
+    let task = patrick.task_id("Feed the cat").await?;
+
+    // Mona adds a note; Mara just taps finish. Nothing to decide.
+    relay.stop();
+    mona.complete(task, Some("Fed her"), None).await?;
+    mara.complete(task, None, None).await?;
+    relay.start().await?;
+
+    for phone in [&patrick, &mona, &mara] {
+        eventually("settled by itself", || async {
+            let state = phone.state().await?;
+            let task = &state.tasks[&task];
+            Ok(task.is_done() && task.claims.len() == 1)
+        })
+        .await?;
+        assert!(!phone.state().await?.tasks[&task].has_conflict());
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn everything_works_without_a_server_and_syncs_later() -> Result<()> {
     let dir = scratch_dir("offline")?;
     let mut relay = Relay::reserve(&dir)?; // not started: the relay is down

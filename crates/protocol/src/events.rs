@@ -74,6 +74,20 @@ pub struct CompletionMetadata {
     pub location: Option<GeoPoint>,
 }
 
+impl CompletionMetadata {
+    /// True when `other` records everything this one does: every detail set
+    /// here is unset or identical there.
+    pub fn is_covered_by(&self, other: &Self) -> bool {
+        fn covered<T: PartialEq>(mine: &Option<T>, theirs: &Option<T>) -> bool {
+            mine.is_none() || mine == theirs
+        }
+        covered(&self.started_event_id, &other.started_event_id)
+            && covered(&self.duration_seconds, &other.duration_seconds)
+            && covered(&self.note, &other.note)
+            && covered(&self.location, &other.location)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GeoPoint {
     pub latitude: f64,

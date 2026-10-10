@@ -70,6 +70,31 @@ impl Task {
     pub fn is_done(&self) -> bool {
         matches!(self.status, TaskStatus::Done { .. })
     }
+
+    /// The completion that makes a conflict obvious to settle: the earliest
+    /// one whose details include everything every other completion recorded.
+    /// `None` when the completions disagree and a person has to choose.
+    fn clear_winner(&self) -> Option<CompletionClaim> {
+        self.claims
+            .iter()
+            .find(|candidate| {
+                self.claims
+                    .iter()
+                    .all(|other| other.metadata.is_covered_by(&candidate.metadata))
+            })
+            .cloned()
+    }
+
+    /// Makes `claim` the one completion and ends any conflict.
+    fn keep_only(&mut self, claim: CompletionClaim) {
+        self.status = TaskStatus::Done {
+            by: claim.by,
+            at: claim.at,
+            completion_event_id: claim.completion_event_id,
+            metadata: claim.metadata.clone(),
+        };
+        self.claims = vec![claim];
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,6 +106,8 @@ pub enum ActivityKind {
     Finished,
     Reopened,
     Conflicted,
+    /// A second completion that added nothing; settled automatically.
+    AutoSettled,
     Resolved,
 }
 
@@ -229,9 +256,16 @@ impl Family {
                     metadata: metadata.clone(),
                 });
                 if task.is_done() {
-                    // A second finisher: keep the first, flag the conflict.
                     let title = task.title.clone();
-                    activity(self, ActivityKind::Conflicted, title);
+                    // A second finisher. If one completion already says
+                    // everything the others say, nothing is lost by keeping
+                    // it: settle without asking anyone.
+                    if let Some(winner) = task.clear_winner() {
+                        task.keep_only(winner);
+                        activity(self, ActivityKind::AutoSettled, title);
+                    } else {
+                        activity(self, ActivityKind::Conflicted, title);
+                    }
                     return;
                 }
                 task.status = TaskStatus::Done {
@@ -282,13 +316,7 @@ impl Family {
                 if !task.has_conflict() || !participant || !covers_all {
                     return;
                 }
-                task.status = TaskStatus::Done {
-                    by: kept.by,
-                    at: kept.at,
-                    completion_event_id: kept.completion_event_id,
-                    metadata: kept.metadata.clone(),
-                };
-                task.claims = vec![kept];
+                task.keep_only(kept);
                 let title = task.title.clone();
                 activity(self, ActivityKind::Resolved, title);
             }
@@ -387,8 +415,8 @@ mod tests {
     fn only_participants_resolve_a_conflict() {
         let (list, task) = (Uuid::new_v4(), Uuid::new_v4());
         let (a, b, c) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
-        let done_a = event(task, a, DomainEvent::TaskCompleted(Default::default()));
-        let done_b = event(task, b, DomainEvent::TaskCompleted(Default::default()));
+        let done_a = event(task, a, DomainEvent::TaskCompleted(note("A did it")));
+        let done_b = event(task, b, DomainEvent::TaskCompleted(note("B did it")));
         let mut state = Family::replay(&[
             event(
                 task,
@@ -421,5 +449,63 @@ mod tests {
             &state.tasks[&task].status,
             TaskStatus::Done { by, .. } if *by == b
         ));
+    }
+
+    fn two_completions(first: CompletionMetadata, second: CompletionMetadata) -> Task {
+        let (list, task) = (Uuid::new_v4(), Uuid::new_v4());
+        let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+        let state = Family::replay(&[
+            event(
+                task,
+                a,
+                DomainEvent::TaskCreated {
+                    list_id: list,
+                    title: "Trash".into(),
+                    emoji: "🗑".into(),
+                },
+            ),
+            event(task, a, DomainEvent::TaskCompleted(first)),
+            event(task, b, DomainEvent::TaskCompleted(second)),
+        ]);
+        state.tasks[&task].clone()
+    }
+
+    fn note(text: &str) -> CompletionMetadata {
+        CompletionMetadata {
+            note: Some(text.into()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_second_completion_that_adds_nothing_settles_itself() {
+        let task = two_completions(note("Done"), CompletionMetadata::default());
+        assert!(!task.has_conflict());
+        assert!(
+            matches!(&task.status, TaskStatus::Done { metadata, .. } if metadata.note.is_some())
+        );
+    }
+
+    #[test]
+    fn the_more_detailed_completion_wins_even_when_it_came_second() {
+        let task = two_completions(CompletionMetadata::default(), note("Fed her"));
+        assert!(!task.has_conflict());
+        assert!(
+            matches!(&task.status, TaskStatus::Done { metadata, .. } if metadata.note.is_some())
+        );
+        assert_eq!(task.claims.len(), 1);
+    }
+
+    #[test]
+    fn identical_completions_keep_the_first() {
+        let task = two_completions(note("Same"), note("Same"));
+        assert!(!task.has_conflict());
+        assert!(matches!(&task.status, TaskStatus::Done { by, .. } if *by == task.created_by));
+    }
+
+    #[test]
+    fn contradicting_completions_still_need_a_person() {
+        let task = two_completions(note("Mona fed her"), note("Mara fed her"));
+        assert!(task.has_conflict());
     }
 }

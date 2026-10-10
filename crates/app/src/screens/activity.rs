@@ -51,6 +51,10 @@ fn describe(entry: &Activity, who: &str) -> (&'static str, String) {
         ActivityKind::Finished => ("✅", format!("{who} finished “{subject}”")),
         ActivityKind::Reopened => ("↩️", format!("{who} reopened “{subject}”")),
         ActivityKind::Conflicted => ("⚠️", format!("{who} also finished “{subject}”")),
+        ActivityKind::AutoSettled => (
+            "🤝",
+            format!("{who} also finished “{subject}”, same result"),
+        ),
         ActivityKind::Resolved => ("🤝", format!("{who} settled “{subject}”")),
     }
 }

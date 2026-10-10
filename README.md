@@ -72,9 +72,11 @@ workspace build, so a stray `unwrap()` fails plain `cargo build`, not only
   uploads later. Pairing needs the server.
 - **Live updates.** The app keeps an SSE connection
   (`GET /v1/families/{id}/stream`) and reconnects from its cursor with backoff.
-- **Conflicts.** If two members finish the same task while apart, both
-  completions are kept and shown. Either of them can pick the winner; others
-  cannot.
+- **Conflicts.** If two members finish the same task while apart and one
+  completion already contains everything the other recorded (identical, or the
+  other has no note, duration or location), it simply wins and nobody is asked.
+  If they disagree, both are kept and shown; either of them can pick the
+  winner, others cannot.
 - **Encrypted.** Events are encrypted on the phone with a family key
   (AES-256-GCM). The server stores ciphertext and routing IDs only. The family
   key travels to a new member sealed under the invitation secret.
