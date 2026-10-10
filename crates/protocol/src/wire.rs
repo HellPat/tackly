@@ -28,11 +28,12 @@ pub struct CreateFamily {
     pub token_hash: String,
 }
 
-/// An event as the server stores it. The server can read only the IDs.
+/// An event as the server stores it. The server can read only the two IDs
+/// below, so they are random (UUIDv4): a time-ordered ID would tell it when the
+/// action really happened, even if the phone uploaded it days later.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EncryptedEvent {
     pub event_id: Uuid,
-    pub aggregate_id: Uuid,
     pub origin_device_id: Uuid,
     pub key_version: i32,
     pub nonce: String,
@@ -43,10 +44,7 @@ pub struct EncryptedEvent {
 impl EncryptedEvent {
     /// Associated data binding the ciphertext to its routing IDs.
     pub fn associated_data(&self, family_id: Uuid) -> String {
-        format!(
-            "{family_id}:{}:{}:{}",
-            self.event_id, self.aggregate_id, self.origin_device_id
-        )
+        format!("{family_id}:{}:{}", self.event_id, self.origin_device_id)
     }
 }
 

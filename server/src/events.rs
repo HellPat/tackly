@@ -58,13 +58,12 @@ pub async fn append_events(
         }
         let inserted = sqlx::query(
             "INSERT INTO encrypted_events \
-             (family_id, event_id, aggregate_id, origin_device_id, key_version, nonce, ciphertext, mac) \
-             VALUES (?,?,?,?,?,?,?,?) \
+             (family_id, event_id, origin_device_id, key_version, nonce, ciphertext, mac) \
+             VALUES (?,?,?,?,?,?,?) \
              ON CONFLICT (family_id, event_id) DO NOTHING",
         )
         .bind(family_id.to_string())
         .bind(event.event_id.to_string())
-        .bind(event.aggregate_id.to_string())
         .bind(event.origin_device_id.to_string())
         .bind(event.key_version)
         .bind(&nonce)
@@ -75,7 +74,7 @@ pub async fn append_events(
         .map_err(internal)?;
         if inserted.rows_affected() == 0 {
             let stored = sqlx::query(
-                "SELECT aggregate_id, origin_device_id, key_version, nonce, ciphertext, mac \
+                "SELECT origin_device_id, key_version, nonce, ciphertext, mac \
                  FROM encrypted_events WHERE family_id=? AND event_id=?",
             )
             .bind(family_id.to_string())
@@ -83,10 +82,8 @@ pub async fn append_events(
             .fetch_one(&mut *tx)
             .await
             .map_err(internal)?;
-            let identical = column::<String>(&stored, "aggregate_id")?
-                == event.aggregate_id.to_string()
-                && column::<String>(&stored, "origin_device_id")?
-                    == event.origin_device_id.to_string()
+            let identical = column::<String>(&stored, "origin_device_id")?
+                == event.origin_device_id.to_string()
                 && column::<i32>(&stored, "key_version")? == event.key_version
                 && column::<Vec<u8>>(&stored, "nonce")? == nonce
                 && column::<Vec<u8>>(&stored, "ciphertext")? == ciphertext
@@ -111,7 +108,7 @@ async fn events_after(
     limit: i64,
 ) -> Result<Vec<SequencedEvent>, ApiError> {
     let rows = sqlx::query(
-        "SELECT sequence, event_id, aggregate_id, origin_device_id, \
+        "SELECT sequence, event_id, origin_device_id, \
          key_version, nonce, ciphertext, mac FROM encrypted_events \
          WHERE family_id=? AND sequence>? ORDER BY sequence LIMIT ?",
     )
@@ -127,7 +124,6 @@ async fn events_after(
                 sequence: column(row, "sequence")?,
                 event: EncryptedEvent {
                     event_id: uuid_column(row, "event_id")?,
-                    aggregate_id: uuid_column(row, "aggregate_id")?,
                     origin_device_id: uuid_column(row, "origin_device_id")?,
                     key_version: column(row, "key_version")?,
                     nonce: encode(&column::<Vec<u8>>(row, "nonce")?),

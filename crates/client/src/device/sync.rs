@@ -131,8 +131,7 @@ fn open_update(key: &[u8], family_id: Uuid, update: &SequencedEvent) -> Option<F
     };
     let plaintext = crypto::open(key, &sealed, &wire.associated_data(family_id)).ok()?;
     let event: FamilyEvent = serde_json::from_slice(&plaintext).ok()?;
-    let matches_routing = event.id == wire.event_id
-        && event.subject_id == wire.aggregate_id
-        && event.origin_device_id == wire.origin_device_id;
+    let matches_routing =
+        event.id == wire.event_id && event.origin_device_id == wire.origin_device_id;
     matches_routing.then_some(event)
 }

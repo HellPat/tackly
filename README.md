@@ -124,7 +124,9 @@ Server details are in [server/README.md](server/README.md).
 Location autocomplete asks a [Photon](https://photon.komoot.io) server (OpenStreetMap
 data); the typed text is sent there and nothing else. Offline, or with no match,
 the typed text is kept as the location's name. `TACKLY_GEOCODER` points at
-another server; tests use a fake one. IDs are UUIDv7.
+another server; tests use a fake one. Tasks, places and other IDs inside encrypted events are UUIDv7. The four IDs the
+server sees (family, device, event, invitation) are random UUIDv4, because a
+v7 ID would reveal when something happened.
 
 ### Status
 

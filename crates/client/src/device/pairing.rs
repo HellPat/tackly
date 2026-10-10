@@ -99,7 +99,7 @@ impl Device {
         let membership = self.joined()?.clone();
         ensure!(membership.owner, "only the head of the family can invite");
         let secret = random_bytes::<32>().to_vec();
-        let invite_id = Uuid::now_v7();
+        let invite_id = Uuid::new_v4();
         self.api()?
             .create_invite(
                 membership.family_id,

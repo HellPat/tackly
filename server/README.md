@@ -66,7 +66,7 @@ A reconnecting client sends it back as `Last-Event-ID`. Keep-alives come every
   the same six digits derived from it and the head confirms them; the head's
   phone seals the family key under the secret and the server relays that
   package.
-- **Events.** UUID event IDs make retries idempotent: the same bytes again are
+- **Events.** Random (v4) event IDs make retries idempotent: the same bytes again are
   accepted, other bytes under the same ID are a conflict. An event must come
   from the device that sends it. Writes use one SQLite connection, so sequence
   numbers are allocated in commit order and a cursor cannot skip a late commit.
@@ -75,7 +75,8 @@ A reconnecting client sends it back as `Last-Event-ID`. Keep-alives come every
   event table (a database administrator can still bypass them). Corrections,
   reversals and reopenings are new events.
 
-The server sees family, device and event IDs, payload sizes, upload times, IP
+The server sees family, device and event IDs (all random, never time-ordered, so
+they say nothing about when something happened), payload sizes, upload times, IP
 addresses and access patterns. The time of an action is inside the ciphertext.
 AES-256-GCM protects the contents and authenticates the routing IDs as
 associated data. The server does not have the family key.

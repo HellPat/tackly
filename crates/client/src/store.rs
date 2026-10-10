@@ -85,7 +85,7 @@ impl EventStore {
         let device_id = match secrets.read("device_id")? {
             Some(bytes) => String::from_utf8(bytes)?.parse().context("device ID")?,
             None if count == 0 => {
-                let id = Uuid::now_v7();
+                let id = Uuid::new_v4();
                 secrets.write("device_id", id.to_string().as_bytes())?;
                 id
             }
@@ -215,7 +215,6 @@ impl EventStore {
         };
         let mut wire = EncryptedEvent {
             event_id: event.id,
-            aggregate_id: event.subject_id,
             origin_device_id: event.origin_device_id,
             key_version: 1,
             nonce: String::new(),
@@ -269,7 +268,7 @@ impl EventStore {
              VACUUM;",
         )?;
         self.local_key = random_bytes::<32>().to_vec();
-        self.device_id = Uuid::now_v7();
+        self.device_id = Uuid::new_v4();
         secrets.write("local_event_key", &self.local_key)?;
         secrets.write("device_id", self.device_id.to_string().as_bytes())?;
         Ok(())

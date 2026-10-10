@@ -124,7 +124,8 @@ impl Aggregate for Family {
         sink: &EventSink<Self>,
     ) -> Result<(), FamilyError> {
         let event = |subject_id, event| FamilyEvent {
-            id: Uuid::now_v7(),
+            // Random, not time-ordered: the server sees event IDs.
+            id: Uuid::new_v4(),
             subject_id,
             origin_device_id: services.device_id,
             occurred_at: Utc::now(),

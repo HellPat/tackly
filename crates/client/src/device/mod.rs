@@ -143,7 +143,7 @@ impl Device {
             "names are required"
         );
         let api = Api::new(server_url)?;
-        let family_id = Uuid::now_v7();
+        let family_id = Uuid::new_v4();
         let device_token = crypto::encode(&random_bytes::<32>());
         let registered = match api
             .create_family(family_id, self.device_id(), &device_token)
