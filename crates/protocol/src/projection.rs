@@ -1,145 +1,132 @@
 //! Replays events into the visible family state. Events are applied in server
-//! order, followed by this device's not-yet-uploaded events.
+//! order, followed by this device's not-yet-uploaded events. Replay never
+//! fails: an event that no longer fits (a second completion, a start on a done
+//! task, a delete that would orphan something) is ignored, so every device
+//! that sees the same events in the same order ends up with the same state.
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::events::{CompletionMetadata, DomainEvent, FamilyEvent, PlaceLocation};
+use crate::events::{DomainEvent, FamilyEvent, GeoPoint, Picture, PlaceLocation};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Member {
     pub device_id: Uuid,
     pub name: String,
     pub owner: bool,
+    pub picture: Option<Picture>,
 }
 
+/// A list people made. "Other" is not one of these: it is where tasks
+/// without a list live, so it can never be missing or deleted.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TaskList {
     pub id: Uuid,
     pub name: String,
-    pub emoji: String,
 }
 
-/// A set of places that belong together, e.g. "Grocery Store".
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PlaceGroup {
     pub id: Uuid,
     pub name: String,
-    pub emoji: String,
 }
 
-/// Somewhere tasks get done, e.g. "LIDL".
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Place {
     pub id: Uuid,
     pub group_id: Uuid,
     pub name: String,
-    pub emoji: String,
-    /// Where it is. Never empty.
+    /// Never empty.
     pub locations: Vec<PlaceLocation>,
 }
 
+/// A stretch of work on a task. `end` is `None` while it runs.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum TaskStatus {
-    Open,
-    InProgress {
-        by: Uuid,
-        since: DateTime<Utc>,
-        start_event_id: Uuid,
-    },
-    Done {
-        by: Uuid,
-        at: DateTime<Utc>,
-        completion_event_id: Uuid,
-        metadata: CompletionMetadata,
-    },
+pub struct Session {
+    pub by: Uuid,
+    pub start: DateTime<Utc>,
+    pub end: Option<DateTime<Utc>>,
 }
 
-/// One member's claim to have finished a task.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct CompletionClaim {
+pub struct Completion {
     pub by: Uuid,
     pub at: DateTime<Utc>,
-    pub completion_event_id: Uuid,
-    pub metadata: CompletionMetadata,
+    /// Where it was finished, if the phone knew.
+    pub location: Option<GeoPoint>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Task {
     pub id: Uuid,
-    pub list_id: Uuid,
+    /// `None`: in "Other".
+    pub list_id: Option<Uuid>,
     pub title: String,
-    pub emoji: String,
     pub created_by: Uuid,
-    pub status: TaskStatus,
-    /// Where it can be done. Empty means anywhere.
+    pub created_at: DateTime<Utc>,
     pub place_ids: Vec<Uuid>,
-    /// Competing completions, first-in-server-order first. Empty unless two
-    /// members both finished the task. Any member who wrote one of them may
-    /// settle it with `task.conflict_resolved`.
-    pub claims: Vec<CompletionClaim>,
+    /// Who has it.
+    pub assignee: Option<Uuid>,
+    /// Who gave it to them (the assignee themselves when they took it).
+    pub assigned_by: Option<Uuid>,
+    /// Work since the task was created or last reopened.
+    pub sessions: Vec<Session>,
+    pub done: Option<Completion>,
+}
+
+/// What the person who has a task is doing with it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Progress {
+    /// Has it, has not started.
+    Picked,
+    Working,
+    Paused,
 }
 
 impl Task {
-    pub fn has_conflict(&self) -> bool {
-        self.claims.len() > 1
-    }
-
     pub fn is_done(&self) -> bool {
-        matches!(self.status, TaskStatus::Done { .. })
+        self.done.is_some()
     }
 
-    /// The completion that makes a conflict obvious to settle: the earliest
-    /// one whose details include everything every other completion recorded.
-    /// `None` when the completions disagree and a person has to choose.
-    fn clear_winner(&self) -> Option<CompletionClaim> {
-        self.claims
-            .iter()
-            .find(|candidate| {
-                self.claims
-                    .iter()
-                    .all(|other| other.metadata.is_covered_by(&candidate.metadata))
-            })
-            .cloned()
+    pub fn is_running(&self) -> bool {
+        self.sessions.iter().any(|session| session.end.is_none())
     }
 
-    /// Makes `claim` the one completion and ends any conflict.
-    fn keep_only(&mut self, claim: CompletionClaim) {
-        self.status = TaskStatus::Done {
-            by: claim.by,
-            at: claim.at,
-            completion_event_id: claim.completion_event_id,
-            metadata: claim.metadata.clone(),
-        };
-        self.claims = vec![claim];
+    pub fn progress(&self) -> Option<Progress> {
+        self.assignee?;
+        Some(if self.is_running() {
+            Progress::Working
+        } else if self.sessions.is_empty() {
+            Progress::Picked
+        } else {
+            Progress::Paused
+        })
     }
-}
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ActivityKind {
-    FamilyCreated,
-    Joined,
-    Created,
-    Started,
-    Finished,
-    Reopened,
-    Conflicted,
-    /// A second completion that added nothing; settled automatically.
-    AutoSettled,
-    Resolved,
-}
+    /// Time worked in total, and since `day_start` (the start of today).
+    pub fn worked(&self, now: DateTime<Utc>, day_start: DateTime<Utc>) -> (Duration, Duration) {
+        let (mut total, mut today) = (Duration::zero(), Duration::zero());
+        for session in &self.sessions {
+            let end = session.end.unwrap_or(now);
+            total += end - session.start;
+            let from = session.start.max(day_start);
+            if end > from {
+                today += end - from;
+            }
+        }
+        (total, today)
+    }
 
-/// A human-readable history line, newest last.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Activity {
-    pub event_id: Uuid,
-    pub at: DateTime<Utc>,
-    pub by: Uuid,
-    pub kind: ActivityKind,
-    pub subject: String,
+    fn stop_running(&mut self, at: DateTime<Utc>) {
+        for session in &mut self.sessions {
+            if session.end.is_none() {
+                session.end = Some(at.max(session.start));
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -147,11 +134,11 @@ pub struct Family {
     pub family_id: Option<Uuid>,
     pub name: Option<String>,
     pub members: BTreeMap<Uuid, Member>,
+    /// IDs are UUIDv7, so these maps are in creation order.
     pub lists: BTreeMap<Uuid, TaskList>,
     pub place_groups: BTreeMap<Uuid, PlaceGroup>,
     pub places: BTreeMap<Uuid, Place>,
     pub tasks: BTreeMap<Uuid, Task>,
-    pub activity: Vec<Activity>,
 }
 
 impl Family {
@@ -170,44 +157,46 @@ impl Family {
             .map_or("Someone", |member| member.name.as_str())
     }
 
-    pub fn tasks_in(&self, list_id: Uuid) -> impl Iterator<Item = &Task> {
-        self.tasks
-            .values()
+    pub fn open_tasks(&self) -> impl Iterator<Item = &Task> {
+        self.tasks.values().filter(|task| !task.is_done())
+    }
+
+    /// Open tasks in a list; `None` is "Other".
+    pub fn open_tasks_in(&self, list_id: Option<Uuid>) -> impl Iterator<Item = &Task> {
+        self.open_tasks()
             .filter(move |task| task.list_id == list_id)
     }
 
-    /// Tasks still to do at a place.
+    /// Open tasks to do at a place.
     pub fn open_tasks_at(&self, place_id: Uuid) -> impl Iterator<Item = &Task> {
-        self.tasks
+        self.open_tasks()
+            .filter(move |task| task.place_ids.contains(&place_id))
+    }
+
+    pub fn places_in(&self, group_id: Uuid) -> impl Iterator<Item = &Place> {
+        self.places
             .values()
-            .filter(move |task| !task.is_done() && task.place_ids.contains(&place_id))
+            .filter(move |place| place.group_id == group_id)
     }
 
     pub fn task_by_title(&self, title: &str) -> Option<&Task> {
         self.tasks.values().find(|task| task.title == title)
     }
 
-    /// Applies one event. Events that do not fit the current state (a second
-    /// completion, a start after completion, a stale reopen) are ignored, so
-    /// replay never fails and every device converges on the same result.
+    /// Applies one event. Events that do not fit the current state are
+    /// ignored (see the module documentation).
     pub fn apply_event(&mut self, envelope: &FamilyEvent) {
-        let by = envelope.origin_device_id;
-        let at = envelope.occurred_at;
-        let activity = |state: &mut Self, kind, subject: String| {
-            state.activity.push(Activity {
-                event_id: envelope.id,
-                at,
-                by,
-                kind,
-                subject,
-            })
-        };
+        let (subject, by, at) = (
+            envelope.subject_id,
+            envelope.origin_device_id,
+            envelope.occurred_at,
+        );
         match &envelope.event {
             DomainEvent::FamilyCreated { name, owner_name } => {
                 if self.family_id.is_some() {
                     return;
                 }
-                self.family_id = Some(envelope.subject_id);
+                self.family_id = Some(subject);
                 self.name = Some(name.clone());
                 self.members.insert(
                     by,
@@ -215,468 +204,227 @@ impl Family {
                         device_id: by,
                         name: owner_name.clone(),
                         owner: true,
+                        picture: None,
                     },
                 );
-                activity(self, ActivityKind::FamilyCreated, name.clone());
             }
             DomainEvent::MemberJoined { name } => {
-                let owner = self.members.get(&by).is_some_and(|member| member.owner);
-                self.members.insert(
-                    by,
-                    Member {
-                        device_id: by,
-                        name: name.clone(),
-                        owner,
-                    },
-                );
-                activity(self, ActivityKind::Joined, name.clone());
+                let member = self.members.entry(by).or_insert(Member {
+                    device_id: by,
+                    name: String::new(),
+                    owner: false,
+                    picture: None,
+                });
+                member.name = name.clone();
             }
-            DomainEvent::ListCreated { name, emoji } => {
-                self.lists.entry(envelope.subject_id).or_insert(TaskList {
-                    id: envelope.subject_id,
+            DomainEvent::MemberRenamed { name } => {
+                if let Some(member) = self.members.get_mut(&by) {
+                    member.name = name.clone();
+                }
+            }
+            DomainEvent::MemberPictureChanged { picture } => {
+                if let Some(member) = self.members.get_mut(&by) {
+                    member.picture = Some(picture.clone());
+                }
+            }
+
+            DomainEvent::ListCreated { name } => {
+                self.lists.entry(subject).or_insert(TaskList {
+                    id: subject,
                     name: name.clone(),
-                    emoji: emoji.clone(),
                 });
             }
-            DomainEvent::PlaceGroupCreated { name, emoji } => {
-                self.place_groups
-                    .entry(envelope.subject_id)
-                    .or_insert(PlaceGroup {
-                        id: envelope.subject_id,
-                        name: name.clone(),
-                        emoji: emoji.clone(),
-                    });
+            DomainEvent::ListRenamed { name } => {
+                if let Some(list) = self.lists.get_mut(&subject) {
+                    list.name = name.clone();
+                }
+            }
+            DomainEvent::ListDeleted => {
+                if self.open_tasks_in(Some(subject)).next().is_none() {
+                    self.lists.remove(&subject);
+                }
+            }
+
+            DomainEvent::PlaceGroupCreated { name } => {
+                self.place_groups.entry(subject).or_insert(PlaceGroup {
+                    id: subject,
+                    name: name.clone(),
+                });
+            }
+            DomainEvent::PlaceGroupRenamed { name } => {
+                if let Some(group) = self.place_groups.get_mut(&subject) {
+                    group.name = name.clone();
+                }
+            }
+            DomainEvent::PlaceGroupDeleted => {
+                if self.places_in(subject).next().is_none() {
+                    self.place_groups.remove(&subject);
+                }
             }
             DomainEvent::PlaceCreated {
                 group_id,
                 name,
-                emoji,
                 location,
             } => {
                 if self.place_groups.contains_key(group_id) {
-                    self.places.entry(envelope.subject_id).or_insert(Place {
-                        id: envelope.subject_id,
+                    self.places.entry(subject).or_insert(Place {
+                        id: subject,
                         group_id: *group_id,
                         name: name.clone(),
-                        emoji: emoji.clone(),
                         locations: vec![location.clone()],
                     });
                 }
             }
+            DomainEvent::PlaceRenamed { name } => {
+                if let Some(place) = self.places.get_mut(&subject) {
+                    place.name = name.clone();
+                }
+            }
+            DomainEvent::PlaceMoved { group_id } => {
+                if self.place_groups.contains_key(group_id)
+                    && let Some(place) = self.places.get_mut(&subject)
+                {
+                    place.group_id = *group_id;
+                }
+            }
+            DomainEvent::PlaceDeleted => {
+                if self.places.remove(&subject).is_some() {
+                    for task in self.tasks.values_mut() {
+                        task.place_ids.retain(|id| *id != subject);
+                    }
+                }
+            }
             DomainEvent::PlaceLocationAdded { location } => {
-                if let Some(place) = self.places.get_mut(&envelope.subject_id)
+                if let Some(place) = self.places.get_mut(&subject)
                     && !place.locations.iter().any(|known| known.id == location.id)
                 {
                     place.locations.push(location.clone());
                 }
             }
+            DomainEvent::PlaceLocationRemoved { location_id } => {
+                if let Some(place) = self.places.get_mut(&subject)
+                    && place.locations.len() > 1
+                {
+                    place
+                        .locations
+                        .retain(|location| location.id != *location_id);
+                }
+            }
+
+            DomainEvent::TaskCreated {
+                list_id,
+                title,
+                place_ids,
+            } => {
+                if self.tasks.contains_key(&subject) {
+                    return;
+                }
+                let list_id = list_id.filter(|id| self.lists.contains_key(id));
+                let place_ids = place_ids
+                    .iter()
+                    .filter(|id| self.places.contains_key(id))
+                    .copied()
+                    .collect();
+                self.tasks.insert(
+                    subject,
+                    Task {
+                        id: subject,
+                        list_id,
+                        title: title.clone(),
+                        created_by: by,
+                        created_at: at,
+                        place_ids,
+                        assignee: None,
+                        assigned_by: None,
+                        sessions: Vec::new(),
+                        done: None,
+                    },
+                );
+            }
+            DomainEvent::TaskDeleted => {
+                self.tasks.remove(&subject);
+            }
             DomainEvent::TaskPlaceAdded { place_id } => {
                 if !self.places.contains_key(place_id) {
                     return;
                 }
-                if let Some(task) = self.tasks.get_mut(&envelope.subject_id)
+                if let Some(task) = self.tasks.get_mut(&subject)
                     && !task.place_ids.contains(place_id)
                 {
                     task.place_ids.push(*place_id);
                 }
             }
             DomainEvent::TaskPlaceRemoved { place_id } => {
-                if let Some(task) = self.tasks.get_mut(&envelope.subject_id) {
+                if let Some(task) = self.tasks.get_mut(&subject) {
                     task.place_ids.retain(|id| id != place_id);
                 }
             }
-            DomainEvent::TaskCreated {
-                list_id,
-                title,
-                emoji,
-                place_ids,
-            } => {
-                if self.tasks.contains_key(&envelope.subject_id) {
-                    return;
+            DomainEvent::TaskAssigned { member_id } => {
+                let known = member_id.is_none_or(|id| self.members.contains_key(&id));
+                if let Some(task) = self.tasks.get_mut(&subject)
+                    && !task.is_done()
+                    && known
+                {
+                    if task.assignee != *member_id {
+                        task.stop_running(at);
+                    }
+                    task.assignee = *member_id;
+                    task.assigned_by = member_id.map(|_| by);
                 }
-                self.tasks.insert(
-                    envelope.subject_id,
-                    Task {
-                        id: envelope.subject_id,
-                        list_id: *list_id,
-                        title: title.clone(),
-                        emoji: emoji.clone(),
-                        created_by: by,
-                        status: TaskStatus::Open,
-                        place_ids: place_ids
-                            .iter()
-                            .filter(|id| self.places.contains_key(id))
-                            .copied()
-                            .collect(),
-                        claims: Vec::new(),
-                    },
-                );
-                activity(self, ActivityKind::Created, title.clone());
             }
             DomainEvent::TaskStarted => {
-                let Some(task) = self.tasks.get_mut(&envelope.subject_id) else {
-                    return;
-                };
-                if task.is_done() {
-                    return;
-                }
-                task.status = TaskStatus::InProgress {
-                    by,
-                    since: at,
-                    start_event_id: envelope.id,
-                };
-                let title = task.title.clone();
-                activity(self, ActivityKind::Started, title);
-            }
-            DomainEvent::TaskCompleted(metadata) => {
-                let Some(task) = self.tasks.get_mut(&envelope.subject_id) else {
-                    return;
-                };
-                task.claims.push(CompletionClaim {
-                    by,
-                    at,
-                    completion_event_id: envelope.id,
-                    metadata: metadata.clone(),
-                });
-                if task.is_done() {
-                    let title = task.title.clone();
-                    // A second finisher. If one completion already says
-                    // everything the others say, nothing is lost by keeping
-                    // it: settle without asking anyone.
-                    if let Some(winner) = task.clear_winner() {
-                        task.keep_only(winner);
-                        activity(self, ActivityKind::AutoSettled, title);
-                    } else {
-                        activity(self, ActivityKind::Conflicted, title);
-                    }
-                    return;
-                }
-                task.status = TaskStatus::Done {
-                    by,
-                    at,
-                    completion_event_id: envelope.id,
-                    metadata: metadata.clone(),
-                };
-                let title = task.title.clone();
-                activity(self, ActivityKind::Finished, title);
-            }
-            DomainEvent::TaskReopened {
-                completion_event_id,
-            } => {
-                let Some(task) = self.tasks.get_mut(&envelope.subject_id) else {
-                    return;
-                };
-                if !matches!(&task.status, TaskStatus::Done { completion_event_id: done, .. } if done == completion_event_id)
+                if let Some(task) = self.tasks.get_mut(&subject)
+                    && !task.is_done()
                 {
-                    return;
+                    if task.assignee != Some(by) {
+                        task.stop_running(at);
+                        task.assignee = Some(by);
+                        task.assigned_by = Some(by);
+                    }
+                    if !task.is_running() {
+                        task.sessions.push(Session {
+                            by,
+                            start: at,
+                            end: None,
+                        });
+                    }
                 }
-                task.status = TaskStatus::Open;
-                task.claims.clear();
-                let title = task.title.clone();
-                activity(self, ActivityKind::Reopened, title);
             }
-            DomainEvent::TaskConflictResolved {
-                kept_completion_event_id,
-                resolved_event_ids,
-            } => {
-                let Some(task) = self.tasks.get_mut(&envelope.subject_id) else {
-                    return;
-                };
-                // Anyone who took part in the conflict may resolve it.
-                let participant = task.claims.iter().any(|claim| claim.by == by);
-                let covers_all = task
-                    .claims
-                    .iter()
-                    .all(|claim| resolved_event_ids.contains(&claim.completion_event_id));
-                let Some(kept) = task
-                    .claims
-                    .iter()
-                    .find(|claim| claim.completion_event_id == *kept_completion_event_id)
-                    .cloned()
-                else {
-                    return;
-                };
-                if !task.has_conflict() || !participant || !covers_all {
-                    return;
+            DomainEvent::TaskPaused => {
+                if let Some(task) = self.tasks.get_mut(&subject) {
+                    task.stop_running(at);
                 }
-                task.keep_only(kept);
-                let title = task.title.clone();
-                activity(self, ActivityKind::Resolved, title);
+            }
+            DomainEvent::TaskCompleted { location } => {
+                // A second completion changes nothing: done is done. Only a
+                // session the second finisher left running is closed.
+                if let Some(task) = self.tasks.get_mut(&subject) {
+                    task.stop_running(at);
+                    if task.done.is_none() {
+                        task.done = Some(Completion {
+                            by,
+                            at,
+                            location: *location,
+                        });
+                    }
+                }
+            }
+            DomainEvent::TaskCompletionUndone => {
+                if let Some(task) = self.tasks.get_mut(&subject) {
+                    task.done = None;
+                }
+            }
+            DomainEvent::TaskReopened => {
+                if let Some(task) = self.tasks.get_mut(&subject)
+                    && task.is_done()
+                {
+                    task.done = None;
+                    task.sessions.clear();
+                    task.assignee = None;
+                    task.assigned_by = None;
+                }
             }
             DomainEvent::Unknown => {}
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn event(subject_id: Uuid, by: Uuid, event: DomainEvent) -> FamilyEvent {
-        FamilyEvent {
-            id: Uuid::now_v7(),
-            subject_id,
-            origin_device_id: by,
-            occurred_at: Utc::now(),
-            event,
-        }
-    }
-
-    #[test]
-    fn first_completion_wins_and_reopen_needs_the_current_completion() {
-        let (family, list, task) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
-        let (owner, member) = (Uuid::now_v7(), Uuid::now_v7());
-        let first = event(task, member, DomainEvent::TaskCompleted(Default::default()));
-        let events = vec![
-            event(
-                family,
-                owner,
-                DomainEvent::FamilyCreated {
-                    name: "Home".into(),
-                    owner_name: "A".into(),
-                },
-            ),
-            event(
-                member,
-                member,
-                DomainEvent::MemberJoined { name: "B".into() },
-            ),
-            event(
-                list,
-                owner,
-                DomainEvent::ListCreated {
-                    name: "Chores".into(),
-                    emoji: "🧹".into(),
-                },
-            ),
-            event(
-                task,
-                owner,
-                DomainEvent::TaskCreated {
-                    list_id: list,
-                    title: "Dishes".into(),
-                    emoji: "🍽".into(),
-                    place_ids: Vec::new(),
-                },
-            ),
-            event(task, owner, DomainEvent::TaskStarted),
-            first.clone(),
-            event(task, owner, DomainEvent::TaskCompleted(Default::default())),
-            event(
-                task,
-                owner,
-                DomainEvent::TaskReopened {
-                    completion_event_id: Uuid::now_v7(),
-                },
-            ),
-        ];
-        let state = Family::replay(&events);
-        assert_eq!(state.member_name(member), "B");
-        match &state.tasks[&task].status {
-            TaskStatus::Done {
-                by,
-                completion_event_id,
-                ..
-            } => {
-                assert_eq!(*by, member);
-                assert_eq!(*completion_event_id, first.id);
-            }
-            other => panic!("unexpected {other:?}"),
-        }
-        let reopened = event(
-            task,
-            owner,
-            DomainEvent::TaskReopened {
-                completion_event_id: first.id,
-            },
-        );
-        let mut state = state;
-        state.apply_event(&reopened);
-        assert_eq!(state.tasks[&task].status, TaskStatus::Open);
-    }
-
-    #[test]
-    fn only_participants_resolve_a_conflict() {
-        let (list, task) = (Uuid::now_v7(), Uuid::now_v7());
-        let (a, b, c) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
-        let done_a = event(task, a, DomainEvent::TaskCompleted(note("A did it")));
-        let done_b = event(task, b, DomainEvent::TaskCompleted(note("B did it")));
-        let mut state = Family::replay(&[
-            event(
-                task,
-                a,
-                DomainEvent::TaskCreated {
-                    list_id: list,
-                    title: "Trash".into(),
-                    emoji: "🗑".into(),
-                    place_ids: Vec::new(),
-                },
-            ),
-            done_a.clone(),
-            done_b.clone(),
-        ]);
-        assert!(state.tasks[&task].has_conflict());
-        let resolve = |by| {
-            event(
-                task,
-                by,
-                DomainEvent::TaskConflictResolved {
-                    kept_completion_event_id: done_b.id,
-                    resolved_event_ids: vec![done_a.id, done_b.id],
-                },
-            )
-        };
-        state.apply_event(&resolve(c));
-        assert!(state.tasks[&task].has_conflict(), "outsider is ignored");
-        state.apply_event(&resolve(b));
-        assert!(!state.tasks[&task].has_conflict());
-        assert!(matches!(
-            &state.tasks[&task].status,
-            TaskStatus::Done { by, .. } if *by == b
-        ));
-    }
-
-    fn two_completions(first: CompletionMetadata, second: CompletionMetadata) -> Task {
-        let (list, task) = (Uuid::now_v7(), Uuid::now_v7());
-        let (a, b) = (Uuid::now_v7(), Uuid::now_v7());
-        let state = Family::replay(&[
-            event(
-                task,
-                a,
-                DomainEvent::TaskCreated {
-                    list_id: list,
-                    title: "Trash".into(),
-                    emoji: "🗑".into(),
-                    place_ids: Vec::new(),
-                },
-            ),
-            event(task, a, DomainEvent::TaskCompleted(first)),
-            event(task, b, DomainEvent::TaskCompleted(second)),
-        ]);
-        state.tasks[&task].clone()
-    }
-
-    fn note(text: &str) -> CompletionMetadata {
-        CompletionMetadata {
-            note: Some(text.into()),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn a_second_completion_that_adds_nothing_settles_itself() {
-        let task = two_completions(note("Done"), CompletionMetadata::default());
-        assert!(!task.has_conflict());
-        assert!(
-            matches!(&task.status, TaskStatus::Done { metadata, .. } if metadata.note.is_some())
-        );
-    }
-
-    #[test]
-    fn the_more_detailed_completion_wins_even_when_it_came_second() {
-        let task = two_completions(CompletionMetadata::default(), note("Fed her"));
-        assert!(!task.has_conflict());
-        assert!(
-            matches!(&task.status, TaskStatus::Done { metadata, .. } if metadata.note.is_some())
-        );
-        assert_eq!(task.claims.len(), 1);
-    }
-
-    #[test]
-    fn identical_completions_keep_the_first() {
-        let task = two_completions(note("Same"), note("Same"));
-        assert!(!task.has_conflict());
-        assert!(matches!(&task.status, TaskStatus::Done { by, .. } if *by == task.created_by));
-    }
-
-    #[test]
-    fn contradicting_completions_still_need_a_person() {
-        let task = two_completions(note("Mona fed her"), note("Mara fed her"));
-        assert!(task.has_conflict());
-    }
-
-    #[test]
-    fn places_collect_the_open_tasks_assigned_to_them() {
-        let (list, group, lidl, aldi) = (
-            Uuid::now_v7(),
-            Uuid::now_v7(),
-            Uuid::now_v7(),
-            Uuid::now_v7(),
-        );
-        let (milk, bread) = (Uuid::now_v7(), Uuid::now_v7());
-        let me = Uuid::now_v7();
-        let created = |id, title: &str, place_ids| {
-            event(
-                id,
-                me,
-                DomainEvent::TaskCreated {
-                    list_id: list,
-                    title: title.into(),
-                    emoji: "🛒".into(),
-                    place_ids,
-                },
-            )
-        };
-        let place = |id, name: &str| {
-            event(
-                id,
-                me,
-                DomainEvent::PlaceCreated {
-                    group_id: group,
-                    name: name.into(),
-                    emoji: "🏪".into(),
-                    location: PlaceLocation::named(name),
-                },
-            )
-        };
-        let mut state = Family::replay(&[
-            event(
-                list,
-                me,
-                DomainEvent::ListCreated {
-                    name: "Home".into(),
-                    emoji: "🏠".into(),
-                },
-            ),
-            event(
-                group,
-                me,
-                DomainEvent::PlaceGroupCreated {
-                    name: "Grocery Store".into(),
-                    emoji: "🛒".into(),
-                },
-            ),
-            place(lidl, "LIDL"),
-            place(aldi, "Aldi"),
-            created(milk, "Milk", vec![lidl, aldi]),
-            created(bread, "Bread", vec![lidl]),
-        ]);
-        assert_eq!(state.open_tasks_at(lidl).count(), 2);
-        assert_eq!(state.open_tasks_at(aldi).count(), 1);
-
-        state.apply_event(&event(
-            milk,
-            me,
-            DomainEvent::TaskPlaceRemoved { place_id: lidl },
-        ));
-        assert_eq!(state.open_tasks_at(lidl).count(), 1);
-
-        // Buying it anywhere takes it off every list.
-        state.apply_event(&event(
-            milk,
-            me,
-            DomainEvent::TaskCompleted(Default::default()),
-        ));
-        assert_eq!(state.open_tasks_at(aldi).count(), 0);
-
-        // A place that does not exist is ignored.
-        state.apply_event(&event(
-            bread,
-            me,
-            DomainEvent::TaskPlaceAdded {
-                place_id: Uuid::now_v7(),
-            },
-        ));
-        assert_eq!(state.tasks[&bread].place_ids, vec![lidl]);
     }
 }

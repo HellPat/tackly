@@ -2,7 +2,7 @@
 //! connection to the relay. The family key and device token never leave it.
 //!
 //! The work is split by what it is about:
-//! - [`tasks`]: commands a person gives (add, start, finish, …)
+//! - [`tasks`]: commands a person gives (add, take, start, pause, finish, lists, their name)
 //! - [`places`]: groups of places, places, and which task belongs where
 //! - [`pairing`]: inviting someone, and joining
 //! - [`sync`]: uploading local events and downloading the others'
@@ -20,7 +20,7 @@ use std::{
 
 use anyhow::{Context, Result, ensure};
 use cqrs_es::CqrsFramework;
-use tackly_protocol::{Family, FamilyCommand, Services};
+use tackly_protocol::{CommandContext, Family, FamilyCommand};
 use tokio::sync::Notify;
 use uuid::Uuid;
 
@@ -72,7 +72,7 @@ impl Device {
         CqrsFramework::new(
             DeviceStore::new(events.clone()),
             vec![Box::new(UploadTrigger(upload.clone()))],
-            Services { device_id },
+            CommandContext::for_device(device_id),
         )
     }
 
@@ -164,7 +164,6 @@ impl Device {
         })?;
         self.run(FamilyCommand::CreateFamily {
             family_id,
-            list_id: Uuid::now_v7(),
             name: family_name.to_owned(),
             owner_name: my_name.to_owned(),
         })

@@ -1,48 +1,90 @@
 //! The family aggregate: commands are checked against the replayed state and
-//! produce events. `Family::apply` stays lenient, because events from other
-//! devices arrive in server order and may overlap (see `apply_event`).
+//! produce events. `Family::apply_event` stays lenient, because events from
+//! other devices arrive in server order and may overlap.
 
-use chrono::Utc;
+use std::sync::Arc;
+
+use chrono::{DateTime, Utc};
 use cqrs_es::{Aggregate, event_sink::EventSink};
 use uuid::Uuid;
 
-use crate::{
-    CompletionMetadata, DomainEvent, Family, FamilyEvent, GeoPoint, PlaceLocation, TaskStatus,
-};
+use crate::{DomainEvent, Family, FamilyEvent, GeoPoint, Picture, PlaceLocation};
 
 #[derive(Clone, Debug)]
 pub enum FamilyCommand {
     CreateFamily {
         family_id: Uuid,
-        list_id: Uuid,
         name: String,
         owner_name: String,
     },
     Join {
         name: String,
     },
-    AddTask {
-        task_id: Uuid,
-        list_id: Uuid,
-        title: String,
-        emoji: String,
-        place_ids: Vec<Uuid>,
+    Rename {
+        name: String,
     },
+    SetPicture {
+        picture: Picture,
+    },
+
+    CreateList {
+        list_id: Uuid,
+        name: String,
+    },
+    RenameList {
+        list_id: Uuid,
+        name: String,
+    },
+    DeleteList {
+        list_id: Uuid,
+    },
+
     CreatePlaceGroup {
         group_id: Uuid,
         name: String,
-        emoji: String,
+    },
+    RenamePlaceGroup {
+        group_id: Uuid,
+        name: String,
+    },
+    DeletePlaceGroup {
+        group_id: Uuid,
     },
     CreatePlace {
         place_id: Uuid,
         group_id: Uuid,
         name: String,
-        emoji: String,
         location: PlaceLocation,
+    },
+    RenamePlace {
+        place_id: Uuid,
+        name: String,
+    },
+    MovePlace {
+        place_id: Uuid,
+        group_id: Uuid,
+    },
+    DeletePlace {
+        place_id: Uuid,
     },
     AddPlaceLocation {
         place_id: Uuid,
         location: PlaceLocation,
+    },
+    RemovePlaceLocation {
+        place_id: Uuid,
+        location_id: Uuid,
+    },
+
+    /// `list_id: None` puts it in "Other".
+    AddTask {
+        task_id: Uuid,
+        list_id: Option<Uuid>,
+        title: String,
+        place_ids: Vec<Uuid>,
+    },
+    DeleteTask {
+        task_id: Uuid,
     },
     AddTaskToPlace {
         task_id: Uuid,
@@ -52,21 +94,27 @@ pub enum FamilyCommand {
         task_id: Uuid,
         place_id: Uuid,
     },
+    /// Take a task, give it to someone, or (`None`) give it back.
+    AssignTask {
+        task_id: Uuid,
+        member_id: Option<Uuid>,
+    },
     StartTask {
+        task_id: Uuid,
+    },
+    PauseTask {
         task_id: Uuid,
     },
     CompleteTask {
         task_id: Uuid,
-        note: Option<String>,
+        /// Where the phone is, if it can tell.
         location: Option<GeoPoint>,
+    },
+    UndoCompletion {
+        task_id: Uuid,
     },
     ReopenTask {
         task_id: Uuid,
-    },
-    /// Anyone who finished the task may settle a double completion.
-    ResolveConflict {
-        task_id: Uuid,
-        keep_completion_event_id: Uuid,
     },
 }
 
@@ -74,40 +122,339 @@ pub enum FamilyCommand {
 pub enum FamilyError {
     #[error("this phone is already in a family")]
     AlreadyCreated,
+    #[error("not in a family yet")]
+    NoFamily,
     #[error("names and titles must not be empty")]
     Empty,
+    #[error("unknown member")]
+    UnknownMember,
     #[error("unknown list")]
     UnknownList,
+    #[error("a list with open tasks can't be deleted")]
+    ListNotEmpty,
     #[error("unknown place group")]
     UnknownGroup,
+    #[error("a group with places can't be deleted")]
+    GroupNotEmpty,
     #[error("unknown place")]
     UnknownPlace,
+    #[error("a place keeps at least one location")]
+    LastLocation,
     #[error("unknown task")]
     UnknownTask,
     #[error("the task is already done")]
     AlreadyDone,
     #[error("the task is not done")]
     NotDone,
-    #[error("the task has no conflict")]
-    NoConflict,
-    #[error("only members who finished this task can resolve it")]
-    NotParticipant,
-    #[error("that completion is not part of the conflict")]
-    UnknownClaim,
+    #[error("someone else has this task")]
+    Taken,
+    #[error("you are not working on it")]
+    NotWorking,
+    #[error("only who finished it can undo that")]
+    NotYours,
 }
 
-/// Who is acting. Time comes from the system clock.
-#[derive(Clone, Debug)]
-pub struct Services {
+/// Who is acting, what time it is, and where new event IDs come from. On a
+/// phone: the system clock and random IDs. In tests: fixed, so expected events
+/// can be written out exactly.
+#[derive(Clone)]
+pub struct CommandContext {
     pub device_id: Uuid,
+    clock: Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>,
+    event_ids: Arc<dyn Fn() -> Uuid + Send + Sync>,
 }
 
-fn clean_location(mut location: PlaceLocation) -> Result<PlaceLocation, FamilyError> {
-    location.name = location.name.trim().to_owned();
-    if location.name.is_empty() {
-        return Err(FamilyError::Empty);
+impl CommandContext {
+    /// On a phone: this device, the system clock, random event IDs.
+    pub fn for_device(device_id: Uuid) -> Self {
+        Self {
+            device_id,
+            clock: Arc::new(Utc::now),
+            // Random, not time-ordered: the server sees event IDs.
+            event_ids: Arc::new(Uuid::new_v4),
+        }
     }
-    Ok(location)
+
+    /// Always the same time and event ID; for tests.
+    pub fn fixed(device_id: Uuid, at: DateTime<Utc>, event_id: Uuid) -> Self {
+        Self {
+            device_id,
+            clock: Arc::new(move || at),
+            event_ids: Arc::new(move || event_id),
+        }
+    }
+}
+
+impl std::fmt::Debug for CommandContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CommandContext")
+            .field("device_id", &self.device_id)
+            .finish()
+    }
+}
+
+fn not_empty(text: &str) -> Result<String, FamilyError> {
+    let text = text.trim();
+    if text.is_empty() {
+        Err(FamilyError::Empty)
+    } else {
+        Ok(text.to_owned())
+    }
+}
+
+impl Family {
+    fn open_task(&self, task_id: Uuid) -> Result<&crate::Task, FamilyError> {
+        let task = self.tasks.get(&task_id).ok_or(FamilyError::UnknownTask)?;
+        if task.is_done() {
+            return Err(FamilyError::AlreadyDone);
+        }
+        Ok(task)
+    }
+
+    /// A task that is free, or mine.
+    fn my_open_task(&self, task_id: Uuid, me: Uuid) -> Result<&crate::Task, FamilyError> {
+        let task = self.open_task(task_id)?;
+        match task.assignee {
+            Some(someone) if someone != me => Err(FamilyError::Taken),
+            _ => Ok(task),
+        }
+    }
+
+    /// Checks a command and returns the events it produces, as (subject, event).
+    fn decide(
+        &self,
+        command: FamilyCommand,
+        me: Uuid,
+    ) -> Result<Vec<(Uuid, DomainEvent)>, FamilyError> {
+        use DomainEvent as E;
+        use FamilyCommand as C;
+        let family = || self.family_id.ok_or(FamilyError::NoFamily);
+        let list = |id: Uuid| self.lists.get(&id).ok_or(FamilyError::UnknownList);
+        let group = |id: Uuid| self.place_groups.get(&id).ok_or(FamilyError::UnknownGroup);
+        let place = |id: Uuid| self.places.get(&id).ok_or(FamilyError::UnknownPlace);
+        let one = |subject, event| Ok(vec![(subject, event)]);
+        match command {
+            C::CreateFamily {
+                family_id,
+                name,
+                owner_name,
+            } => {
+                if self.family_id.is_some() {
+                    return Err(FamilyError::AlreadyCreated);
+                }
+                one(
+                    family_id,
+                    E::FamilyCreated {
+                        name: not_empty(&name)?,
+                        owner_name: not_empty(&owner_name)?,
+                    },
+                )
+            }
+            C::Join { name } => one(
+                family()?,
+                E::MemberJoined {
+                    name: not_empty(&name)?,
+                },
+            ),
+            C::Rename { name } => one(
+                family()?,
+                E::MemberRenamed {
+                    name: not_empty(&name)?,
+                },
+            ),
+            C::SetPicture { picture } => one(family()?, E::MemberPictureChanged { picture }),
+
+            C::CreateList { list_id, name } => one(
+                list_id,
+                E::ListCreated {
+                    name: not_empty(&name)?,
+                },
+            ),
+            C::RenameList { list_id, name } => {
+                list(list_id)?;
+                one(
+                    list_id,
+                    E::ListRenamed {
+                        name: not_empty(&name)?,
+                    },
+                )
+            }
+            C::DeleteList { list_id } => {
+                list(list_id)?;
+                if self.open_tasks_in(Some(list_id)).next().is_some() {
+                    return Err(FamilyError::ListNotEmpty);
+                }
+                one(list_id, E::ListDeleted)
+            }
+
+            C::CreatePlaceGroup { group_id, name } => one(
+                group_id,
+                E::PlaceGroupCreated {
+                    name: not_empty(&name)?,
+                },
+            ),
+            C::RenamePlaceGroup { group_id, name } => {
+                group(group_id)?;
+                one(
+                    group_id,
+                    E::PlaceGroupRenamed {
+                        name: not_empty(&name)?,
+                    },
+                )
+            }
+            C::DeletePlaceGroup { group_id } => {
+                group(group_id)?;
+                if self.places_in(group_id).next().is_some() {
+                    return Err(FamilyError::GroupNotEmpty);
+                }
+                one(group_id, E::PlaceGroupDeleted)
+            }
+            C::CreatePlace {
+                place_id,
+                group_id,
+                name,
+                mut location,
+            } => {
+                group(group_id)?;
+                location.name = not_empty(&location.name)?;
+                one(
+                    place_id,
+                    E::PlaceCreated {
+                        group_id,
+                        name: not_empty(&name)?,
+                        location,
+                    },
+                )
+            }
+            C::RenamePlace { place_id, name } => {
+                place(place_id)?;
+                one(
+                    place_id,
+                    E::PlaceRenamed {
+                        name: not_empty(&name)?,
+                    },
+                )
+            }
+            C::MovePlace { place_id, group_id } => {
+                place(place_id)?;
+                group(group_id)?;
+                one(place_id, E::PlaceMoved { group_id })
+            }
+            C::DeletePlace { place_id } => {
+                place(place_id)?;
+                one(place_id, E::PlaceDeleted)
+            }
+            C::AddPlaceLocation {
+                place_id,
+                mut location,
+            } => {
+                place(place_id)?;
+                location.name = not_empty(&location.name)?;
+                one(place_id, E::PlaceLocationAdded { location })
+            }
+            C::RemovePlaceLocation {
+                place_id,
+                location_id,
+            } => {
+                if place(place_id)?.locations.len() <= 1 {
+                    return Err(FamilyError::LastLocation);
+                }
+                one(place_id, E::PlaceLocationRemoved { location_id })
+            }
+
+            C::AddTask {
+                task_id,
+                list_id,
+                title,
+                place_ids,
+            } => {
+                if let Some(id) = list_id {
+                    list(id)?;
+                }
+                for id in &place_ids {
+                    place(*id)?;
+                }
+                one(
+                    task_id,
+                    E::TaskCreated {
+                        list_id,
+                        title: not_empty(&title)?,
+                        place_ids,
+                    },
+                )
+            }
+            C::DeleteTask { task_id } => {
+                self.tasks.get(&task_id).ok_or(FamilyError::UnknownTask)?;
+                one(task_id, E::TaskDeleted)
+            }
+            C::AddTaskToPlace { task_id, place_id } => {
+                let task = self.tasks.get(&task_id).ok_or(FamilyError::UnknownTask)?;
+                place(place_id)?;
+                Ok(if task.place_ids.contains(&place_id) {
+                    vec![]
+                } else {
+                    vec![(task_id, E::TaskPlaceAdded { place_id })]
+                })
+            }
+            C::RemoveTaskFromPlace { task_id, place_id } => {
+                let task = self.tasks.get(&task_id).ok_or(FamilyError::UnknownTask)?;
+                Ok(if task.place_ids.contains(&place_id) {
+                    vec![(task_id, E::TaskPlaceRemoved { place_id })]
+                } else {
+                    vec![]
+                })
+            }
+            C::AssignTask { task_id, member_id } => {
+                let task = self.open_task(task_id)?;
+                if let Some(id) = member_id {
+                    self.members.get(&id).ok_or(FamilyError::UnknownMember)?;
+                }
+                // Free tasks can be given to anyone; a given task can be changed
+                // by who has it or who gave it (that is also how Undo works).
+                let allowed = task.assignee.is_none()
+                    || task.assignee == Some(me)
+                    || task.assigned_by == Some(me);
+                if !allowed {
+                    return Err(FamilyError::Taken);
+                }
+                one(task_id, E::TaskAssigned { member_id })
+            }
+            C::StartTask { task_id } => {
+                let task = self.my_open_task(task_id, me)?;
+                Ok(if task.is_running() {
+                    vec![]
+                } else {
+                    vec![(task_id, E::TaskStarted)]
+                })
+            }
+            C::PauseTask { task_id } => {
+                let task = self.my_open_task(task_id, me)?;
+                if !task.is_running() {
+                    return Err(FamilyError::NotWorking);
+                }
+                one(task_id, E::TaskPaused)
+            }
+            C::CompleteTask { task_id, location } => {
+                self.my_open_task(task_id, me)?;
+                one(task_id, E::TaskCompleted { location })
+            }
+            C::UndoCompletion { task_id } => {
+                let task = self.tasks.get(&task_id).ok_or(FamilyError::UnknownTask)?;
+                match &task.done {
+                    None => Err(FamilyError::NotDone),
+                    Some(done) if done.by != me => Err(FamilyError::NotYours),
+                    Some(_) => one(task_id, E::TaskCompletionUndone),
+                }
+            }
+            C::ReopenTask { task_id } => {
+                let task = self.tasks.get(&task_id).ok_or(FamilyError::UnknownTask)?;
+                if !task.is_done() {
+                    return Err(FamilyError::NotDone);
+                }
+                one(task_id, E::TaskReopened)
+            }
+        }
+    }
 }
 
 impl Aggregate for Family {
@@ -115,391 +462,29 @@ impl Aggregate for Family {
     type Command = FamilyCommand;
     type Event = FamilyEvent;
     type Error = FamilyError;
-    type Services = Services;
+    /// cqrs-es calls what a command gets from outside "services".
+    type Services = CommandContext;
 
     async fn handle(
         &mut self,
         command: FamilyCommand,
-        services: &Services,
+        context: &CommandContext,
         sink: &EventSink<Self>,
     ) -> Result<(), FamilyError> {
-        let event = |subject_id, event| FamilyEvent {
-            // Random, not time-ordered: the server sees event IDs.
-            id: Uuid::new_v4(),
-            subject_id,
-            origin_device_id: services.device_id,
-            occurred_at: Utc::now(),
-            event,
-        };
-        let not_empty = |text: &str| -> Result<String, FamilyError> {
-            let text = text.trim();
-            if text.is_empty() {
-                Err(FamilyError::Empty)
-            } else {
-                Ok(text.to_owned())
-            }
-        };
-        match command {
-            FamilyCommand::CreateFamily {
-                family_id,
-                list_id,
-                name,
-                owner_name,
-            } => {
-                if self.family_id.is_some() {
-                    return Err(FamilyError::AlreadyCreated);
-                }
-                let (name, owner_name) = (not_empty(&name)?, not_empty(&owner_name)?);
-                sink.write(
-                    event(family_id, DomainEvent::FamilyCreated { name, owner_name }),
-                    self,
-                )
-                .await;
-                sink.write(
-                    event(
-                        list_id,
-                        DomainEvent::ListCreated {
-                            name: "Household".into(),
-                            emoji: "🏠".into(),
-                        },
-                    ),
-                    self,
-                )
-                .await;
-            }
-            FamilyCommand::Join { name } => {
-                let family_id = self.family_id.ok_or(FamilyError::UnknownList)?;
-                let name = not_empty(&name)?;
-                sink.write(event(family_id, DomainEvent::MemberJoined { name }), self)
-                    .await;
-            }
-            FamilyCommand::AddTask {
-                task_id,
-                list_id,
-                title,
-                emoji,
-                place_ids,
-            } => {
-                if !self.lists.contains_key(&list_id) {
-                    return Err(FamilyError::UnknownList);
-                }
-                if place_ids.iter().any(|id| !self.places.contains_key(id)) {
-                    return Err(FamilyError::UnknownPlace);
-                }
-                let title = not_empty(&title)?;
-                let emoji = if emoji.is_empty() {
-                    "✅".into()
-                } else {
-                    emoji
-                };
-                sink.write(
-                    event(
-                        task_id,
-                        DomainEvent::TaskCreated {
-                            list_id,
-                            title,
-                            emoji,
-                            place_ids,
-                        },
-                    ),
-                    self,
-                )
-                .await;
-            }
-            FamilyCommand::CreatePlaceGroup {
-                group_id,
-                name,
-                emoji,
-            } => {
-                let name = not_empty(&name)?;
-                sink.write(
-                    event(group_id, DomainEvent::PlaceGroupCreated { name, emoji }),
-                    self,
-                )
-                .await;
-            }
-            FamilyCommand::CreatePlace {
-                place_id,
-                group_id,
-                name,
-                emoji,
-                location,
-            } => {
-                if !self.place_groups.contains_key(&group_id) {
-                    return Err(FamilyError::UnknownGroup);
-                }
-                let name = not_empty(&name)?;
-                let location = clean_location(location)?;
-                sink.write(
-                    event(
-                        place_id,
-                        DomainEvent::PlaceCreated {
-                            group_id,
-                            name,
-                            emoji,
-                            location,
-                        },
-                    ),
-                    self,
-                )
-                .await;
-            }
-            FamilyCommand::AddPlaceLocation { place_id, location } => {
-                if !self.places.contains_key(&place_id) {
-                    return Err(FamilyError::UnknownPlace);
-                }
-                let location = clean_location(location)?;
-                sink.write(
-                    event(place_id, DomainEvent::PlaceLocationAdded { location }),
-                    self,
-                )
-                .await;
-            }
-            FamilyCommand::AddTaskToPlace { task_id, place_id } => {
-                let task = self.tasks.get(&task_id).ok_or(FamilyError::UnknownTask)?;
-                if !self.places.contains_key(&place_id) {
-                    return Err(FamilyError::UnknownPlace);
-                }
-                if !task.place_ids.contains(&place_id) {
-                    sink.write(
-                        event(task_id, DomainEvent::TaskPlaceAdded { place_id }),
-                        self,
-                    )
-                    .await;
-                }
-            }
-            FamilyCommand::RemoveTaskFromPlace { task_id, place_id } => {
-                let task = self.tasks.get(&task_id).ok_or(FamilyError::UnknownTask)?;
-                if task.place_ids.contains(&place_id) {
-                    sink.write(
-                        event(task_id, DomainEvent::TaskPlaceRemoved { place_id }),
-                        self,
-                    )
-                    .await;
-                }
-            }
-            FamilyCommand::StartTask { task_id } => {
-                let task = self.tasks.get(&task_id).ok_or(FamilyError::UnknownTask)?;
-                if task.is_done() {
-                    return Err(FamilyError::AlreadyDone);
-                }
-                sink.write(event(task_id, DomainEvent::TaskStarted), self)
-                    .await;
-            }
-            FamilyCommand::CompleteTask {
-                task_id,
-                note,
-                location,
-            } => {
-                let task = self.tasks.get(&task_id).ok_or(FamilyError::UnknownTask)?;
-                let (started_event_id, duration_seconds) = match &task.status {
-                    TaskStatus::Done { .. } => return Err(FamilyError::AlreadyDone),
-                    TaskStatus::InProgress {
-                        since,
-                        start_event_id,
-                        ..
-                    } => (
-                        Some(*start_event_id),
-                        Some((Utc::now() - *since).num_seconds().max(0)),
-                    ),
-                    TaskStatus::Open => (None, None),
-                };
-                let metadata = CompletionMetadata {
-                    started_event_id,
-                    duration_seconds,
-                    note: note.filter(|note| !note.trim().is_empty()),
-                    location,
-                };
-                sink.write(event(task_id, DomainEvent::TaskCompleted(metadata)), self)
-                    .await;
-            }
-            FamilyCommand::ReopenTask { task_id } => {
-                let task = self.tasks.get(&task_id).ok_or(FamilyError::UnknownTask)?;
-                let TaskStatus::Done {
-                    completion_event_id,
-                    ..
-                } = &task.status
-                else {
-                    return Err(FamilyError::NotDone);
-                };
-                let completion_event_id = *completion_event_id;
-                sink.write(
-                    event(
-                        task_id,
-                        DomainEvent::TaskReopened {
-                            completion_event_id,
-                        },
-                    ),
-                    self,
-                )
-                .await;
-            }
-            FamilyCommand::ResolveConflict {
-                task_id,
-                keep_completion_event_id,
-            } => {
-                let task = self.tasks.get(&task_id).ok_or(FamilyError::UnknownTask)?;
-                if !task.has_conflict() {
-                    return Err(FamilyError::NoConflict);
-                }
-                if !task
-                    .claims
-                    .iter()
-                    .any(|claim| claim.by == services.device_id)
-                {
-                    return Err(FamilyError::NotParticipant);
-                }
-                if !task
-                    .claims
-                    .iter()
-                    .any(|claim| claim.completion_event_id == keep_completion_event_id)
-                {
-                    return Err(FamilyError::UnknownClaim);
-                }
-                let resolved_event_ids = task
-                    .claims
-                    .iter()
-                    .map(|claim| claim.completion_event_id)
-                    .collect();
-                sink.write(
-                    event(
-                        task_id,
-                        DomainEvent::TaskConflictResolved {
-                            kept_completion_event_id: keep_completion_event_id,
-                            resolved_event_ids,
-                        },
-                    ),
-                    self,
-                )
-                .await;
-            }
+        for (subject_id, event) in self.decide(command, context.device_id)? {
+            let envelope = FamilyEvent {
+                id: (context.event_ids)(),
+                subject_id,
+                origin_device_id: context.device_id,
+                occurred_at: (context.clock)(),
+                event,
+            };
+            sink.write(envelope, self).await;
         }
         Ok(())
     }
 
     fn apply(&mut self, event: FamilyEvent) {
         self.apply_event(&event);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use cqrs_es::{CqrsFramework, mem_store::MemStore};
-
-    use super::*;
-
-    #[tokio::test]
-    async fn commands_are_checked_and_events_replayed() {
-        let services = Services {
-            device_id: Uuid::now_v7(),
-        };
-        let cqrs = CqrsFramework::new(MemStore::<Family>::default(), vec![], services);
-        let (family, list, task) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
-        let id = family.to_string();
-        cqrs.execute(
-            &id,
-            FamilyCommand::CreateFamily {
-                family_id: family,
-                list_id: list,
-                name: "Home".into(),
-                owner_name: "A".into(),
-            },
-        )
-        .await
-        .unwrap();
-        cqrs.execute(
-            &id,
-            FamilyCommand::AddTask {
-                task_id: task,
-                list_id: list,
-                title: "Dishes".into(),
-                emoji: "🍽".into(),
-                place_ids: vec![],
-            },
-        )
-        .await
-        .unwrap();
-        cqrs.execute(&id, FamilyCommand::StartTask { task_id: task })
-            .await
-            .unwrap();
-        cqrs.execute(
-            &id,
-            FamilyCommand::CompleteTask {
-                task_id: task,
-                note: Some("ok".into()),
-                location: None,
-            },
-        )
-        .await
-        .unwrap();
-        let again = cqrs
-            .execute(
-                &id,
-                FamilyCommand::CompleteTask {
-                    task_id: task,
-                    note: None,
-                    location: None,
-                },
-            )
-            .await;
-        assert!(matches!(
-            again,
-            Err(cqrs_es::AggregateError::UserError(FamilyError::AlreadyDone))
-        ));
-    }
-
-    #[tokio::test]
-    async fn tasks_are_assigned_to_places_that_exist() {
-        let services = Services {
-            device_id: Uuid::now_v7(),
-        };
-        let cqrs = CqrsFramework::new(MemStore::<Family>::default(), vec![], services);
-        let (family, list, group, place, task) = (
-            Uuid::now_v7(),
-            Uuid::now_v7(),
-            Uuid::now_v7(),
-            Uuid::now_v7(),
-            Uuid::now_v7(),
-        );
-        let id = family.to_string();
-        let run = |command| cqrs.execute(&id, command);
-        run(FamilyCommand::CreateFamily {
-            family_id: family,
-            list_id: list,
-            name: "Home".into(),
-            owner_name: "A".into(),
-        })
-        .await
-        .unwrap();
-        let add = |place_ids| FamilyCommand::AddTask {
-            task_id: task,
-            list_id: list,
-            title: "Milk".into(),
-            emoji: "🥛".into(),
-            place_ids,
-        };
-        assert!(matches!(
-            run(add(vec![place])).await,
-            Err(cqrs_es::AggregateError::UserError(
-                FamilyError::UnknownPlace
-            ))
-        ));
-        run(FamilyCommand::CreatePlaceGroup {
-            group_id: group,
-            name: "Grocery Store".into(),
-            emoji: "🛒".into(),
-        })
-        .await
-        .unwrap();
-        run(FamilyCommand::CreatePlace {
-            place_id: place,
-            group_id: group,
-            name: "LIDL".into(),
-            emoji: "🏪".into(),
-            location: PlaceLocation::named("LIDL Winnenden"),
-        })
-        .await
-        .unwrap();
-        run(add(vec![place])).await.unwrap();
     }
 }

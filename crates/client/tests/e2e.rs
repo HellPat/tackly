@@ -12,7 +12,7 @@ use std::{
 
 use anyhow::{Context, Result, bail, ensure};
 use tackly_client::{Device, InviteProgress, SharedDevice, api::Api, run_live};
-use tackly_protocol::{Family, GeoPoint, PlaceLocation, TaskStatus};
+use tackly_protocol::{Family, GeoPoint, Picture, PlaceLocation, Progress, Task};
 use tackly_testkit::Relay;
 use tokio::{sync::Mutex, task::JoinHandle};
 use uuid::Uuid;
@@ -72,34 +72,17 @@ impl Phone {
     // What a person does. It succeeds locally whatever the network does; the
     // device's upload trigger syncs it as soon as the relay is reachable.
 
-    async fn add_task(&self, title: &str, emoji: &str) -> Result<Uuid> {
-        self.device.lock().await.add_task(title, emoji, &[]).await
+    /// Adds a task to "Other".
+    async fn add_task(&self, title: &str) -> Result<Uuid> {
+        self.device.lock().await.add_task(title, None, &[]).await
     }
 
     async fn start(&self, task: Uuid) -> Result<()> {
         self.device.lock().await.start_task(task).await
     }
 
-    async fn complete(
-        &self,
-        task: Uuid,
-        note: Option<&str>,
-        location: Option<GeoPoint>,
-    ) -> Result<()> {
-        let note = note.map(str::to_owned);
-        self.device
-            .lock()
-            .await
-            .complete_task(task, note, location)
-            .await
-    }
-
-    async fn reopen(&self, task: Uuid) -> Result<()> {
-        self.device.lock().await.reopen_task(task).await
-    }
-
-    async fn resolve(&self, task: Uuid, keep: Uuid) -> Result<()> {
-        self.device.lock().await.resolve_conflict(task, keep).await
+    async fn complete(&self, task: Uuid, location: Option<GeoPoint>) -> Result<()> {
+        self.device.lock().await.complete_task(task, location).await
     }
 
     async fn task_id(&self, title: &str) -> Result<Uuid> {
@@ -110,12 +93,10 @@ impl Phone {
         Ok(task.id)
     }
 
-    /// Whether the task exists and its status satisfies `check`.
-    async fn sees(&self, title: &str, check: impl Fn(&TaskStatus) -> bool) -> Result<bool> {
+    /// Whether the task exists and satisfies `check`.
+    async fn sees(&self, title: &str, check: impl Fn(&Task) -> bool) -> Result<bool> {
         let state = self.state().await?;
-        Ok(state
-            .task_by_title(title)
-            .is_some_and(|task| check(&task.status)))
+        Ok(state.task_by_title(title).is_some_and(check))
     }
 }
 
@@ -172,13 +153,19 @@ fn scratch_dir(name: &str) -> Result<PathBuf> {
     Ok(dir)
 }
 
-fn in_progress_by(who: Uuid) -> impl Fn(&TaskStatus) -> bool {
-    move |status| matches!(status, TaskStatus::InProgress { by, .. } if *by == who)
+fn working(who: Uuid) -> impl Fn(&Task) -> bool {
+    move |task| task.assignee == Some(who) && task.progress() == Some(Progress::Working)
 }
 
-fn is_done(status: &TaskStatus) -> bool {
-    matches!(status, TaskStatus::Done { .. })
+fn is_done(task: &Task) -> bool {
+    task.is_done()
 }
+
+const WINNENDEN: GeoPoint = GeoPoint {
+    latitude: 48.8752,
+    longitude: 9.3775,
+    accuracy_meters: Some(12.0),
+};
 
 /// Patrick creates the family; Mona and Mara join.
 async fn family_of_three(dir: &Path, relay: &Relay) -> Result<(Phone, Phone, Phone)> {
@@ -204,203 +191,188 @@ async fn three_members_share_tasks_and_see_each_other_live() -> Result<()> {
     let mut relay = Relay::reserve(&dir)?;
     relay.start().await?;
     let (patrick, mona, mara) = family_of_three(&dir, &relay).await?;
-    let (patrick_id, mona_id, mara_id) = (patrick.id().await, mona.id().await, mara.id().await);
-
-    // Everyone sees the family and all three members.
-    for phone in [&patrick, &mona, &mara] {
-        eventually("all members known", || async {
-            let state = phone.state().await?;
-            Ok(state.name.as_deref() == Some("The Smiths") && state.members.len() == 3)
-        })
-        .await?;
-        let state = phone.state().await?;
-        assert_eq!(state.member_name(patrick_id), "Patrick");
-        assert!(state.members[&patrick_id].owner);
-        assert_eq!(state.member_name(mona_id), "Mona");
-        assert_eq!(state.member_name(mara_id), "Mara");
-        assert!(!state.members[&mona_id].owner);
-    }
+    let (mona_id, mara_id) = (mona.id().await, mara.id().await);
 
     // The task list syncs.
-    patrick.add_task("Do the dishes", "🍽").await?;
-    patrick.add_task("Take out the trash", "🗑").await?;
+    let dishes = patrick.add_task("Do the dishes").await?;
+    let trash = patrick.add_task("Take out the trash").await?;
     for phone in [&mona, &mara] {
         eventually("task list synced", || async {
-            Ok(phone.state().await?.tasks.len() == 2)
+            Ok(phone.state().await?.open_tasks_in(None).count() == 2)
         })
         .await?;
     }
 
-    // Mona starts a task: the others see it live, without any refresh.
-    let dishes = mona.task_id("Do the dishes").await?;
+    // Mona starts the dishes; the others see her working on it, live.
     mona.start(dishes).await?;
     for phone in [&patrick, &mara] {
-        eventually("start visible", || async {
-            phone.sees("Do the dishes", in_progress_by(mona_id)).await
+        eventually("Mona seen working", || async {
+            phone.sees("Do the dishes", working(mona_id)).await
         })
         .await?;
     }
-    let activity = mara.state().await?.activity;
-    assert!(
-        activity
-            .iter()
-            .any(|a| a.by == mona_id && a.subject == "Do the dishes")
-    );
 
-    // Mona finishes it with metadata; everyone sees who, when, how long, where.
-    tokio::time::sleep(Duration::from_millis(1100)).await;
-    mona.complete(
-        dishes,
-        Some("Dishwasher was full"),
-        Some(GeoPoint {
-            latitude: 52.52,
-            longitude: 13.405,
-            accuracy_meters: Some(9.0),
-        }),
-    )
-    .await?;
-    for phone in [&patrick, &mara, &mona] {
-        eventually("completion visible", || async {
+    // Mona finishes; everyone sees it done, with where it happened.
+    mona.complete(dishes, Some(WINNENDEN)).await?;
+    for phone in [&patrick, &mara] {
+        eventually("dishes done", || async {
             phone.sees("Do the dishes", is_done).await
         })
         .await?;
         let state = phone.state().await?;
-        let TaskStatus::Done {
-            by, metadata, at, ..
-        } = &state.tasks[&dishes].status
-        else {
-            bail!("the task should be done");
-        };
-        assert_eq!(*by, mona_id);
-        assert!(metadata.started_event_id.is_some());
-        assert!(metadata.duration_seconds.context("a duration")? >= 1);
-        assert_eq!(metadata.note.as_deref(), Some("Dishwasher was full"));
-        assert_eq!(metadata.location.context("a location")?.latitude, 52.52);
-        assert!(*at <= chrono::Utc::now());
+        let done = state.tasks[&dishes].done.as_ref().context("done")?;
+        assert_eq!((done.by, done.location), (mona_id, Some(WINNENDEN)));
+        assert_eq!(state.tasks[&dishes].sessions.len(), 1, "her work was timed");
     }
 
-    // Mara does the same for the other task, Patrick watches.
-    let trash = mara.task_id("Take out the trash").await?;
-    mara.start(trash).await?;
-    eventually("patrick sees mara start", || async {
+    // Mara takes the trash without starting it.
+    mara.device
+        .lock()
+        .await
+        .assign_task(trash, Some(mara_id))
+        .await?;
+    eventually("Mara has the trash", || async {
         patrick
-            .sees("Take out the trash", in_progress_by(mara_id))
+            .sees("Take out the trash", |task| {
+                task.assignee == Some(mara_id) && task.progress() == Some(Progress::Picked)
+            })
             .await
     })
     .await?;
-    mara.complete(trash, None, None).await?;
-    eventually("patrick sees mara finish", || async {
-        patrick.sees("Take out the trash", is_done).await
-    })
-    .await?;
+    Ok(())
+}
 
-    // Reopening propagates too.
-    mona.reopen(dishes).await?;
-    eventually("reopen visible", || async {
-        mara.sees("Do the dishes", |s| matches!(s, TaskStatus::Open))
+#[tokio::test]
+async fn finished_twice_while_apart_is_simply_done() -> Result<()> {
+    let dir = scratch_dir("twice")?;
+    let mut relay = Relay::reserve(&dir)?;
+    relay.start().await?;
+    let (patrick, mona, mara) = family_of_three(&dir, &relay).await?;
+
+    let cat = patrick.add_task("Feed the cat").await?;
+    for phone in [&mona, &mara] {
+        eventually("task synced", || async {
+            phone.sees("Feed the cat", |_| true).await
+        })
+        .await?;
+    }
+    relay.stop();
+    mona.complete(cat, None).await?;
+    mara.complete(cat, None).await?;
+    relay.start().await?;
+
+    for phone in [&patrick, &mona, &mara] {
+        eventually("done everywhere", || async {
+            phone.sees("Feed the cat", is_done).await
+        })
+        .await?;
+    }
+    // Every phone agrees on who it counts for (whoever reached the relay first).
+    let finisher = |family: Family| family.tasks[&cat].done.as_ref().map(|done| done.by);
+    eventually("everyone agrees", || async {
+        let (a, b, c) = (
+            patrick.state().await?,
+            mona.state().await?,
+            mara.state().await?,
+        );
+        Ok(finisher(a.clone()) == finisher(b) && finisher(a) == finisher(c))
+    })
+    .await
+}
+
+#[tokio::test]
+async fn giving_a_task_away_and_taking_it_back_syncs() -> Result<()> {
+    let dir = scratch_dir("assign")?;
+    let mut relay = Relay::reserve(&dir)?;
+    relay.start().await?;
+    let (patrick, mona, _mara) = family_of_three(&dir, &relay).await?;
+    let mona_id = mona.id().await;
+
+    let parcel = patrick.add_task("Pick up the parcel").await?;
+    patrick
+        .device
+        .lock()
+        .await
+        .assign_task(parcel, Some(mona_id))
+        .await?;
+    eventually("Mona has it", || async {
+        mona.sees("Pick up the parcel", |task| task.assignee == Some(mona_id))
             .await
     })
     .await?;
+    // Mona can't hand it back for Patrick, but Patrick (who gave it) can: Undo.
+    patrick
+        .device
+        .lock()
+        .await
+        .assign_task(parcel, None)
+        .await?;
+    eventually("free again", || async {
+        mona.sees("Pick up the parcel", |task| task.assignee.is_none())
+            .await
+    })
+    .await
+}
 
-    // All three replays are identical.
-    let (a, b, c) = (
-        patrick.state().await?,
-        mona.state().await?,
-        mara.state().await?,
+#[tokio::test]
+async fn lists_and_names_sync_to_everyone() -> Result<()> {
+    let dir = scratch_dir("lists")?;
+    let mut relay = Relay::reserve(&dir)?;
+    relay.start().await?;
+    let (patrick, mona, _mara) = family_of_three(&dir, &relay).await?;
+    let mona_id = mona.id().await;
+
+    let garden = patrick.device.lock().await.create_list("Garden").await?;
+    let lawn = patrick
+        .device
+        .lock()
+        .await
+        .add_task("Mow the lawn", Some(garden), &[])
+        .await?;
+    patrick
+        .device
+        .lock()
+        .await
+        .rename_list(garden, "Backyard")
+        .await?;
+    {
+        let mut device = mona.device.lock().await;
+        device.rename_me("Mo").await?;
+        device
+            .set_picture(Picture {
+                icon: "pets".into(),
+                tint: 2,
+            })
+            .await?;
+    }
+    eventually("everyone sees the list and the new name", || async {
+        let (on_mona, on_patrick) = (mona.state().await?, patrick.state().await?);
+        Ok(on_mona
+            .lists
+            .get(&garden)
+            .is_some_and(|list| list.name == "Backyard")
+            && on_mona.open_tasks_in(Some(garden)).count() == 1
+            && on_patrick.member_name(mona_id) == "Mo"
+            && on_patrick.members[&mona_id].picture.is_some())
+    })
+    .await?;
+
+    // A list with open tasks stays; once they are done it can go.
+    assert!(
+        patrick
+            .device
+            .lock()
+            .await
+            .delete_list(garden)
+            .await
+            .is_err()
     );
-    assert_eq!(a.tasks, b.tasks);
-    assert_eq!(b.tasks, c.tasks);
-    assert_eq!(a.activity.len(), c.activity.len());
-    Ok(())
-}
-
-#[tokio::test]
-async fn double_completion_is_settled_by_a_member_who_took_part() -> Result<()> {
-    let dir = scratch_dir("conflict")?;
-    let mut relay = Relay::reserve(&dir)?;
-    relay.start().await?;
-    let (patrick, mona, mara) = family_of_three(&dir, &relay).await?;
-    let mara_id = mara.id().await;
-
-    patrick.add_task("Water the plants", "🪴").await?;
-    for phone in [&mona, &mara] {
-        eventually("task synced", || async {
-            Ok(phone.state().await?.tasks.len() == 1)
-        })
-        .await?;
-    }
-    let task = patrick.task_id("Water the plants").await?;
-
-    // Mona and Mara both finish it while the relay is down.
-    relay.stop();
-    mona.complete(task, Some("Mona did it"), None).await?;
-    mara.complete(task, Some("Mara did it"), None).await?;
-    relay.start().await?;
-
-    for phone in [&patrick, &mona, &mara] {
-        eventually("conflict visible", || async {
-            Ok(phone.state().await?.tasks[&task].has_conflict())
-        })
-        .await?;
-    }
-
-    // Patrick did not take part, so he cannot settle it.
-    let first_claim = patrick.state().await?.tasks[&task].claims[0].completion_event_id;
-    assert!(patrick.resolve(task, first_claim).await.is_err());
-
-    // Either participant can.
-    let state = patrick.state().await?;
-    let kept = state.tasks[&task]
-        .claims
-        .iter()
-        .find(|claim| claim.by == mara_id)
-        .context("Mara's claim")?
-        .completion_event_id;
-    mona.resolve(task, kept).await?;
-    for phone in [&patrick, &mona, &mara] {
-        eventually("conflict settled", || async {
-            let state = phone.state().await?;
-            let task = &state.tasks[&task];
-            Ok(!task.has_conflict()
-                && matches!(&task.status, TaskStatus::Done { by, .. } if *by == mara_id))
-        })
-        .await?;
-    }
-    Ok(())
-}
-
-#[tokio::test]
-async fn a_double_completion_that_agrees_settles_itself() -> Result<()> {
-    let dir = scratch_dir("auto-settle")?;
-    let mut relay = Relay::reserve(&dir)?;
-    relay.start().await?;
-    let (patrick, mona, mara) = family_of_three(&dir, &relay).await?;
-
-    patrick.add_task("Feed the cat", "🐱").await?;
-    for phone in [&mona, &mara] {
-        eventually("task synced", || async {
-            Ok(phone.state().await?.tasks.len() == 1)
-        })
-        .await?;
-    }
-    let task = patrick.task_id("Feed the cat").await?;
-
-    // Mona adds a note; Mara just taps finish. Nothing to decide.
-    relay.stop();
-    mona.complete(task, Some("Fed her"), None).await?;
-    mara.complete(task, None, None).await?;
-    relay.start().await?;
-
-    for phone in [&patrick, &mona, &mara] {
-        eventually("settled by itself", || async {
-            let state = phone.state().await?;
-            let task = &state.tasks[&task];
-            Ok(task.is_done() && task.claims.len() == 1)
-        })
-        .await?;
-        assert!(!phone.state().await?.tasks[&task].has_conflict());
-    }
-    Ok(())
+    patrick.complete(lawn, None).await?;
+    patrick.device.lock().await.delete_list(garden).await?;
+    eventually("list gone everywhere", || async {
+        Ok(!mona.state().await?.lists.contains_key(&garden))
+    })
+    .await
 }
 
 #[tokio::test]
@@ -413,18 +385,18 @@ async fn places_and_their_tasks_sync_to_everyone() -> Result<()> {
     // Patrick sets up Grocery Store > LIDL (two branches) and Aldi.
     let (lidl, aldi, milk) = {
         let mut device = patrick.device.lock().await;
-        let group = device.create_place_group("Grocery Store", "🛒").await?;
+        let group = device.create_place_group("Grocery Store").await?;
         let lidl = device
-            .create_place(group, "LIDL", "🏪", PlaceLocation::named("LIDL Winnenden"))
+            .create_place(group, "LIDL", PlaceLocation::named("LIDL Winnenden"))
             .await?;
         device
             .add_place_location(lidl, PlaceLocation::named("LIDL Backnang"))
             .await?;
         let aldi = device
-            .create_place(group, "Aldi", "🏬", PlaceLocation::named("Aldi Waiblingen"))
+            .create_place(group, "Aldi", PlaceLocation::named("Aldi Waiblingen"))
             .await?;
-        let milk = device.add_task("Milk", "🥛", &[lidl, aldi]).await?;
-        device.add_task("Bread", "🍞", &[lidl]).await?;
+        let milk = device.add_task("Milk", None, &[lidl, aldi]).await?;
+        device.add_task("Bread", None, &[lidl]).await?;
         (lidl, aldi, milk)
     };
 
@@ -442,7 +414,7 @@ async fn places_and_their_tasks_sync_to_everyone() -> Result<()> {
     }
 
     // Mona buys the milk at Aldi: it is gone from LIDL's list as well.
-    mona.complete(milk, None, None).await?;
+    mona.complete(milk, None).await?;
     eventually("milk is off both lists", || async {
         let state = patrick.state().await?;
         Ok(state.open_tasks_at(lidl).count() == 1 && state.open_tasks_at(aldi).count() == 0)
@@ -479,12 +451,12 @@ async fn everything_works_without_a_server_and_syncs_later() -> Result<()> {
     patrick.go_live();
     let patrick_id = patrick.id().await;
 
-    let task = patrick.add_task("Pack the bags", "🧳").await?;
+    let task = patrick.add_task("Pack the bags").await?;
     patrick.start(task).await?;
-    patrick.complete(task, Some("Done offline"), None).await?;
+    patrick.complete(task, Some(WINNENDEN)).await?;
     let state = patrick.state().await?;
     assert_eq!(state.name.as_deref(), Some("The Smiths"));
-    assert!(is_done(&state.tasks[&task].status));
+    assert!(state.tasks[&task].is_done());
     let registered = patrick
         .device
         .lock()
@@ -509,12 +481,9 @@ async fn everything_works_without_a_server_and_syncs_later() -> Result<()> {
     })
     .await?;
     let state = mona.state().await?;
-    let TaskStatus::Done { by, metadata, .. } = &state.tasks[&task].status else {
-        bail!("the task should be done");
-    };
-    assert_eq!(*by, patrick_id);
-    assert_eq!(metadata.note.as_deref(), Some("Done offline"));
-    assert!(metadata.duration_seconds.is_some());
+    let done = state.tasks[&task].done.as_ref().context("done")?;
+    assert_eq!((done.by, done.location), (patrick_id, Some(WINNENDEN)));
+    assert_eq!(state.tasks[&task].sessions.len(), 1);
     Ok(())
 }
 
@@ -526,31 +495,29 @@ async fn a_server_outage_does_not_stop_members_and_they_converge_afterwards() ->
     let (patrick, mona, mara) = family_of_three(&dir, &relay).await?;
     let mona_id = mona.id().await;
 
-    patrick.add_task("Laundry", "🧺").await?;
-    patrick.add_task("Groceries", "🛒").await?;
+    let laundry = patrick.add_task("Laundry").await?;
+    let groceries = patrick.add_task("Groceries").await?;
     for phone in [&mona, &mara] {
         eventually("tasks synced", || async {
             Ok(phone.state().await?.tasks.len() == 2)
         })
         .await?;
     }
-    let laundry = patrick.task_id("Laundry").await?;
-    let groceries = patrick.task_id("Groceries").await?;
 
     relay.stop();
     mona.start(laundry).await?;
     mara.start(groceries).await?;
-    mara.complete(groceries, None, None).await?;
-    patrick.add_task("Vacuum", "🧹").await?;
+    mara.complete(groceries, None).await?;
+    patrick.add_task("Vacuum").await?;
     // Phones without the relay see only their own changes, and keep working.
-    assert!(mona.sees("Laundry", in_progress_by(mona_id)).await?);
-    assert!(!patrick.sees("Laundry", in_progress_by(mona_id)).await?);
+    assert!(mona.sees("Laundry", working(mona_id)).await?);
+    assert!(!patrick.sees("Laundry", working(mona_id)).await?);
     assert!(mona.state().await?.task_by_title("Vacuum").is_none());
 
     relay.start().await?;
     for phone in [&patrick, &mona, &mara] {
         eventually("converged after the outage", || async {
-            Ok(phone.sees("Laundry", in_progress_by(mona_id)).await?
+            Ok(phone.sees("Laundry", working(mona_id)).await?
                 && phone.sees("Groceries", is_done).await?
                 && phone.state().await?.task_by_title("Vacuum").is_some())
         })
