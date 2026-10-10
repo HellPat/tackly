@@ -1,75 +1,34 @@
 <!doctype html>
-<html lang="en" data-theme="light" data-accent="coral">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tackly prototype</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;600&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&display=block" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/daisyui@5.7.47/daisyui.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.3"></script>
-  <style>
-    body { font-family: Roboto, system-ui, sans-serif; }
-    .icon { font-family: 'Material Symbols Rounded'; font-size: 24px; line-height: 1; font-variation-settings: 'FILL' 0; user-select: none; }
-    .icon.fill { font-variation-settings: 'FILL' 1; }
-    .icon.sm { font-size: 18px; }
-    .muted { color: color-mix(in oklab, var(--color-base-content) 70%, transparent); }
-    .dock > *::after { display: none; }
-    .input:focus-within { outline: 2px solid var(--color-primary); outline-offset: 0; }
-    .tabular { font-variant-numeric: tabular-nums; }
-
-    /* Accent: one saturated colour, used only for the main action and what is active.
-       Each passes 4.5:1 against its button text. Switch with ?accent=coral|green|violet. */
-    [data-accent=coral]  { --accent: #c2410c; --accent-ink: #ffffff; }
-    [data-accent=green]  { --accent: #1f883d; --accent-ink: #ffffff; }
-    [data-accent=violet] { --accent: #6d28d9; --accent-ink: #ffffff; }
-    /* Light, but soft on the eyes: off-white page, near-white cards, dark-grey text instead of black. */
-    [data-theme] { --color-primary: var(--accent); --color-primary-content: var(--accent-ink); --radius-field: 0.375rem;
-      --color-base-100: #fdfcfa; --color-base-200: #f4f2ee; --color-base-300: #e7e4de; --color-base-content: #1f2328; }
-
-    /* Buttons like GitHub's: small radius, 1px border, semibold. Primary is filled, secondary is neutral. */
-    .btn { font-weight: 600; border-width: 1px; box-shadow: none; }
-    .btn:not(.btn-primary):not(.btn-ghost) { background: var(--color-base-200); border-color: color-mix(in oklab, var(--color-base-content) 18%, transparent); }
-    .btn-primary { border-color: color-mix(in oklab, black 15%, var(--color-primary)); }
-
-    /* Cards: depth from a two-layer shadow, no border. Work in progress gets an accent edge. */
-    .task-card { background: var(--color-base-100); border-radius: 14px; box-shadow: 0 1px 2px rgb(31 35 40 / .06), 0 2px 6px rgb(31 35 40 / .06); }
-    .task-card.doing { box-shadow: inset 4px 0 0 var(--color-primary), 0 1px 2px rgb(31 35 40 / .06), 0 2px 6px rgb(31 35 40 / .06); }
-    /* The finish circle is grey until it is ticked; only then it takes the accent. */
-    .tick { appearance: none; width: 24px; height: 24px; border-radius: 999px; border: 2px solid color-mix(in oklab, var(--color-base-content) 40%, transparent); display: grid; place-items: center; cursor: pointer; transition: background .15s, border-color .15s; }
-    .tick:hover { border-color: var(--color-primary); }
-    .tick:checked { background: var(--color-primary); border-color: var(--color-primary); }
-    .tick:checked::after { content: ''; width: 6px; height: 11px; border: solid var(--color-primary-content); border-width: 0 2.5px 2.5px 0; transform: translateY(-1px) rotate(45deg); }
-    .tick:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
-    /* Place pills: all the same and quiet, so no place looks preferred. */
-    .pill { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 10px; border-radius: 999px; font-size: 13px; font-weight: 500;
-      background: var(--color-base-200); color: color-mix(in oklab, var(--color-base-content) 80%, transparent); border: 1px solid var(--color-base-300); }
-    /* Soft tints, only for people's pictures. */
-    .hue-0 { background: #dbeafe; color: #1e3a8a; } .hue-1 { background: #fce7f3; color: #831843; }
-    .hue-2 { background: #ccfbf1; color: #134e4a; } .hue-3 { background: #fef3c7; color: #78350f; }
-    .hue-4 { background: #ede9fe; color: #4c1d95; }
-    button.pill { height: 36px; padding: 0 14px; font-size: 14px; background: var(--color-base-100); }
-    button.pill[aria-pressed=true] { background: var(--color-base-content); color: var(--color-base-100); border-color: var(--color-base-content); }
-
-    /* Done: the check pops, then the card folds away. */
-    @keyframes pop { 0% { transform: scale(1); } 40% { transform: scale(1.3); } 100% { transform: scale(1); } }
-    @keyframes fold { 0% { opacity: 1; max-height: 120px; } 60% { opacity: 0; transform: translateX(32px); max-height: 120px; } 100% { opacity: 0; transform: translateX(32px); max-height: 0; margin: 0; } }
-    .popping { animation: pop .3s ease-out; }
-    .folding { animation: fold .45s ease-in .25s forwards; overflow: hidden; }
-    @keyframes breathe { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-primary) 35%, transparent); } 50% { box-shadow: 0 0 0 18px color-mix(in oklab, var(--color-primary) 0%, transparent); } }
-    .running { animation: breathe 2.4s ease-in-out infinite; }
-    @media (prefers-reduced-motion: reduce) { .popping, .folding, .running { animation: none; } }
+  <!-- The only custom CSS: the font, two animations, and daisyUI's surface colours for the bottom sheet. -->
+  <style type="text/tailwindcss">
+    @theme {
+      --font-sans: Roboto, system-ui, sans-serif;
+      --animate-pop: pop .3s ease-out;
+      --animate-breathe: breathe 2.4s ease-in-out infinite;
+      @keyframes pop { 40% { transform: scale(1.3); } }
+      @keyframes breathe { 50% { box-shadow: 0 0 0 16px rgb(194 65 12 / 0); } 0%, 100% { box-shadow: 0 0 0 0 rgb(194 65 12 / .3); } }
+    }
   </style>
+  <style>[data-theme=light] { --color-base-100: #fffdfb; --color-base-content: #292524; }</style>
 </head>
-<body class="bg-base-300">
-  <div class="fixed inset-0 mx-auto max-w-[430px] bg-base-200 flex flex-col overflow-hidden">
+<body class="bg-stone-300 text-stone-800 antialiased">
+  <div id="app" class="fixed inset-0 mx-auto max-w-[430px] bg-stone-100 flex flex-col overflow-hidden">
 
     <header class="shrink-0 flex items-center gap-1 px-2 h-16">
-      <button id="backBtn" class="btn btn-ghost btn-circle size-12 hidden" aria-label="Back"><span class="icon">arrow_back</span></button>
-      <h1 id="title" class="flex-1 px-2 text-2xl font-medium truncate">Tasks</h1>
-      <span id="offline" class="hidden badge badge-ghost gap-1 h-8 mr-2"><span class="icon sm" aria-hidden="true">cloud_off</span>Offline</span>
+      <button id="backBtn" class="hidden size-12 grid place-items-center rounded-full text-stone-700 hover:bg-stone-200" aria-label="Back"><span class="material-symbols-rounded" aria-hidden="true">arrow_back</span></button>
+      <h1 id="title" class="flex-1 px-2 text-2xl font-semibold tracking-tight truncate">Tasks</h1>
+      <span id="offline" class="hidden mr-2 items-center gap-1 h-8 px-3 rounded-full bg-stone-200 text-sm text-stone-700"><span class="material-symbols-rounded !text-[18px]" aria-hidden="true">cloud_off</span>Offline</span>
     </header>
 
     <main id="main" class="flex-1 overflow-y-auto px-3 pb-6"></main>
@@ -78,46 +37,57 @@
     <section id="composer" aria-label="Add" class="shrink-0 px-3 pb-3 pt-2 flex flex-col gap-2">
       <div id="extras" class="hidden flex-col gap-2"></div>
       <form id="addForm" class="flex items-center gap-2">
-        <label class="input flex-1 h-12 rounded-full bg-base-100 border-0 shadow-sm">
-          <span class="icon text-primary" aria-hidden="true">add</span>
-          <input id="addInput" aria-label="Add a task" placeholder="Add a task" autocomplete="off" class="grow text-base">
+        <label class="flex-1 flex items-center gap-2 h-12 px-4 rounded-full bg-[#fffdfb] shadow-sm focus-within:outline-2 focus-within:outline-orange-700">
+          <span class="material-symbols-rounded text-orange-700" aria-hidden="true">add</span>
+          <input id="addInput" aria-label="Add a task" placeholder="Add a task" autocomplete="off" class="flex-1 min-w-0 border-0 bg-transparent p-0 text-base outline-none focus:outline-none placeholder:text-stone-500">
         </label>
-        <button id="addBtn" aria-label="Add" class="btn btn-primary btn-square size-12 hidden"><span class="icon">arrow_upward</span></button>
+        <button id="addBtn" aria-label="Add" class="hidden size-12 place-items-center rounded-md border border-orange-800 bg-orange-700 text-white shadow-sm inset-shadow-[0_1px_0_rgb(255_255_255/.18)] hover:bg-orange-800"><span class="material-symbols-rounded" aria-hidden="true">arrow_upward</span></button>
       </form>
     </section>
 
-    <nav id="dock" class="dock static h-20 shrink-0 bg-base-100" aria-label="Main"></nav>
+    <nav id="dock" class="shrink-0 h-20 grid grid-cols-3 bg-[#fffdfb] shadow-[0_-1px_0_var(--color-stone-200)]" aria-label="Main"></nav>
 
     <!-- A task in focus: full screen, no navigation. -->
-    <section id="detail" class="hidden absolute inset-0 z-40 bg-base-100 flex-col" aria-label="Task"></section>
+    <section id="detail" class="hidden absolute inset-0 z-40 bg-[#fffdfb] flex-col" aria-label="Task"></section>
 
     <dialog id="sheet" class="modal modal-bottom">
-      <div class="modal-box rounded-t-[28px] px-6 pt-3 pb-8">
-        <div class="mx-auto mb-5 h-1 w-8 rounded-full bg-base-content/30"></div>
+      <div class="modal-box rounded-t-[28px] px-6 pt-3 pb-8 shadow-2xl">
+        <div class="mx-auto mb-5 h-1 w-8 rounded-full bg-stone-300"></div>
         <div id="sheetBody"></div>
       </div>
       <form method="dialog" class="modal-backdrop"><button>Close</button></form>
     </dialog>
 
-    <div id="toast" class="toast toast-center hidden mb-28 w-[calc(100%-2rem)] max-w-[398px] z-50" role="status"><div class="alert bg-neutral text-neutral-content border-0 justify-between"><span id="toastText"></span><button id="toastAction" class="btn btn-ghost btn-sm h-10 text-neutral-content hidden"></button></div></div>
+    <!-- Toasts, stacked like Sonner: newest in front, older ones tucked behind; hover to fan them out. -->
+    <section id="toasts" class="absolute inset-x-4 bottom-40 z-50 h-0" aria-label="Notifications" aria-live="polite"></section>
   </div>
 
 <script>
 const $ = (s) => document.querySelector(s);
-const icon = (name, cls = '') => `<span class="icon ${cls}" aria-hidden="true">${name}</span>`;
+const icon = (name, cls = '') => `<span class="material-symbols-rounded ${cls}" aria-hidden="true">${name}</span>`;
+const FILL = "[font-variation-settings:'FILL'_1]";
 const MIN = 60_000, now = () => Date.now();
+
+/* Buttons, GitHub style: primary filled, secondary neutral. */
+const BTN = 'inline-flex items-center justify-center gap-2 h-10 px-4 rounded-md border font-semibold shadow-sm transition-colors active:shadow-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-700';
+const PRIMARY = `${BTN} border-orange-800 bg-orange-700 text-white inset-shadow-[0_1px_0_rgb(255_255_255/.18)] hover:bg-orange-800`;
+const SECONDARY = `${BTN} border-stone-300 bg-stone-50 text-stone-800 inset-shadow-[0_1px_0_white] hover:bg-stone-100`;
+const PILL = 'inline-flex items-center h-6 px-2.5 rounded-full bg-stone-100 text-stone-700 text-[13px] font-semibold';
+const CARD = 'bg-[#fffdfb] rounded-2xl shadow-sm';
+const TINTS = ['bg-sky-100 text-sky-900', 'bg-pink-100 text-pink-900', 'bg-teal-100 text-teal-900', 'bg-amber-100 text-amber-900', 'bg-violet-100 text-violet-900'];
+
 const state = {
   tab: 'tasks', placeView: null, chosen: new Set(), detail: null,
   groups: [{ id: 'g1', name: 'Grocery Store' }, { id: 'g2', name: 'Hardware' }],
   places: [
-    { id: 'lidl', group: 'g1', name: 'LIDL', hue: 0, locations: ['Marbacher Straße 1, Winnenden', 'Stuttgarter Straße 3, Backnang'] },
-    { id: 'aldi', group: 'g1', name: 'Aldi', hue: 2, locations: ['Aldi Waiblingen'] },
-    { id: 'bauhaus', group: 'g2', name: 'Bauhaus', hue: 3, locations: ['Stuttgarter Straße 9, Backnang'] },
+    { id: 'lidl', group: 'g1', name: 'LIDL', locations: ['Marbacher Straße 1, Winnenden', 'Stuttgarter Straße 3, Backnang'] },
+    { id: 'aldi', group: 'g1', name: 'Aldi', locations: ['Aldi Waiblingen'] },
+    { id: 'bauhaus', group: 'g2', name: 'Bauhaus', locations: ['Stuttgarter Straße 9, Backnang'] },
   ],
   members: [
-    { id: 'p', name: 'Patrick', me: true, avatar: { icon: 'sailing', hue: 0 } },
-    { id: 'mo', name: 'Mona', avatar: { icon: 'local_florist', hue: 1 } },
-    { id: 'ma', name: 'Mara', avatar: { icon: 'pets', hue: 2 } },
+    { id: 'p', name: 'Patrick', me: true, avatar: { icon: 'sailing', tint: 0 } },
+    { id: 'mo', name: 'Mona', avatar: { icon: 'local_florist', tint: 1 } },
+    { id: 'ma', name: 'Mara', avatar: { icon: 'pets', tint: 2 } },
   ],
   // Work sessions since the task was (re)opened; reopening starts over.
   tasks: [
@@ -141,10 +111,12 @@ const member = (id) => state.members.find((m) => m.id === id);
 const find = (id) => state.tasks.find((t) => t.id == id);
 const visible = () => state.tasks.filter((t) => t.status === 'open');
 const openAt = (p) => visible().filter((t) => t.places.includes(p.id));
-const pill = (p) => `<span class="pill">${p.name}</span>`;
-const heading = (text) => `<h2 class="px-2 pt-5 pb-2 text-sm font-medium muted">${text}</h2>`;
-const avatar = (m, size = 'w-10') => `<div class="avatar avatar-placeholder"><div class="${size} rounded-full hue-${m.avatar.hue}">${m.avatar.photo ? `<img src="${m.avatar.photo}" alt="">` : icon(m.avatar.icon, size === 'w-10' ? '' : '!text-5xl')}</div></div>`;
+const pill = (p) => `<span class="${PILL}">${p.name}</span>`;
+const heading = (text) => `<h2 class="px-2 pt-6 pb-2 text-sm font-semibold text-stone-600">${text}</h2>`;
 const addingPlace = () => state.tab === 'places' && !state.placeView;
+/* A person's picture: an icon on a soft tint, or a photo; round, with an inner ring so photos never bleed. */
+const avatar = (m, size = 'size-10') => `<span class="relative ${size} shrink-0 rounded-full overflow-hidden grid place-items-center ${TINTS[m.avatar.tint]} after:absolute after:inset-0 after:rounded-full after:ring-1 after:ring-inset after:ring-black/10">
+  ${m.avatar.photo ? `<img src="${m.avatar.photo}" alt="" class="size-full object-cover">` : icon(m.avatar.icon, size === 'size-24' ? '!text-[40px]' : size === 'size-8' ? '!text-[18px]' : '')}</span>`;
 
 /* Time worked: today, and in total since the task was (re)opened. */
 function worked(t) {
@@ -157,36 +129,81 @@ const running = (t) => t.sessions.some((s) => !s.to);
 const clock = (ms) => { const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return `${h}:${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
 const short = (ms) => { const m = Math.round(ms / MIN); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
 
+/* ---- Toasts (Sonner-like) ---------------------------------------------------------------- */
+const toasts = []; // newest first: { id, text, action, onAction, left, el }
+let fanned = false;
+const TOAST_MS = 4000, TOAST_GAP = 64, TOAST_SHOWN = 3;
 function toast(text, action, onAction) {
-  $('#toastText').textContent = text;
-  const btn = $('#toastAction');
-  btn.classList.toggle('hidden', !action); btn.textContent = action || '';
-  btn.onclick = () => { onAction(); $('#toast').classList.add('hidden'); };
-  $('#toast').classList.remove('hidden'); clearTimeout(toast.t); toast.t = setTimeout(() => $('#toast').classList.add('hidden'), 4000);
+  const t = { id: now() + Math.random(), text, action, onAction, left: TOAST_MS };
+  t.el = document.createElement('div');
+  t.el.setAttribute('role', 'status');
+  t.el.innerHTML = `<span class="flex-1 min-w-0 truncate">${text}</span>${action ? `<button class="h-7 px-2.5 rounded-md bg-stone-900 text-white text-xs font-semibold hover:bg-stone-700">${action}</button>` : ''}`;
+  t.el.querySelector('button')?.addEventListener('click', () => { onAction(); dismiss(t); });
+  t.el.className = toastClass(-1);
+  $('#toasts').prepend(t.el);
+  toasts.unshift(t);
+  requestAnimationFrame(() => requestAnimationFrame(layoutToasts));
 }
+function dismiss(t) {
+  const i = toasts.indexOf(t); if (i < 0) return;
+  toasts.splice(i, 1);
+  t.el.className = toastClass(-2);
+  setTimeout(() => t.el.remove(), 300);
+  layoutToasts();
+}
+/* -1: entering from below; -2: leaving; 0..: position in the stack. */
+function toastClass(i) {
+  const base = 'absolute inset-x-0 bottom-0 mx-auto max-w-[360px] flex items-center gap-3 h-14 pl-4 pr-2 rounded-xl bg-white border border-stone-200 shadow-lg text-sm text-stone-800 origin-bottom transition-all duration-300 ease-out';
+  if (i === -1) return `${base} translate-y-full opacity-0`;
+  if (i === -2) return `${base} translate-y-4 opacity-0 pointer-events-none`;
+  const z = ['z-30', 'z-20', 'z-10'][i] ?? 'z-0';
+  if (i >= TOAST_SHOWN) return `${base} ${z} opacity-0 pointer-events-none -translate-y-5 scale-[.85]`;
+  if (fanned) return `${base} ${z} -translate-y-[${i * TOAST_GAP}px]`;
+  return `${base} ${z} ${['', '-translate-y-2.5 scale-[.95]', '-translate-y-5 scale-[.9]'][i]}`;
+}
+function layoutToasts() { toasts.forEach((t, i) => { t.el.className = toastClass(i); }); }
+$('#toasts').addEventListener('mouseenter', () => { fanned = true; layoutToasts(); });
+$('#toasts').addEventListener('mouseleave', () => { fanned = false; layoutToasts(); });
+setInterval(() => { if (fanned) return; for (const t of [...toasts]) { t.left -= 100; if (t.left <= 0) dismiss(t); } }, 100);
+
+/* ---- Screens ------------------------------------------------------------------------------- */
 function sheet(html) { $('#sheetBody').innerHTML = html; $('#sheet').showModal(); }
 
-/* A task card: the checkbox finishes it, the rest opens it. */
+/* A task card: the circle finishes it, the rest opens it.
+   When someone else is on it, their picture takes the circle's place and the card is locked. */
 function taskCard(t) {
   const who = t.on && member(t.on);
-  // Inside a place, its own pill would only repeat the title.
-  const pills = t.places.filter((id) => id !== state.placeView).map(placeById).map(pill).join('');
-  return `<li class="task-card mb-2 ${who ? 'doing' : ''}" data-card="${t.id}">
-    <div class="flex items-center gap-1 pl-2 pr-4 min-h-16">
-      <label class="size-12 grid place-items-center cursor-pointer shrink-0">
-        <input type="checkbox" class="tick" data-check="${t.id}" aria-label="Done: ${t.title}">
-      </label>
-      <button class="flex-1 min-w-0 text-left py-3 flex flex-col gap-1.5" data-open="${t.id}">
-        <span class="text-base truncate">${t.title}</span>
-        ${pills || who ? `<span class="flex flex-wrap gap-1.5 items-center">${pills}${who ? `<span class="inline-flex items-center gap-1 text-sm">${icon('play_circle', 'fill sm text-primary')}${who.me ? 'You are' : `${who.name} is`} on it</span>` : ''}</span>` : ''}
+  const mine = who?.me, taken = who && !mine;
+  const lead = taken
+    ? `<span class="size-12 shrink-0 grid place-items-center">${avatar(who, 'size-8')}</span>`
+    : `<label class="size-12 shrink-0 grid place-items-center cursor-pointer">
+        <input type="checkbox" class="peer sr-only" data-check="${t.id}" aria-label="Done: ${t.title}">
+        <span class="size-6 rounded-full border-2 border-stone-400 grid place-items-center transition-colors hover:border-orange-700 peer-checked:bg-orange-700 peer-checked:border-orange-700 peer-checked:animate-pop peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-orange-700">
+          ${icon('check', '!text-[16px] text-white')}
+        </span>
+      </label>`;
+  const line = taken ? `${who.name} is on it` : mine ? 'You are on it' : '';
+  return `<li class="${CARD} mb-2 max-h-40 overflow-hidden transition-all duration-300 ${mine ? 'border-l-4 border-orange-700' : ''} ${taken ? 'bg-stone-50 shadow-none' : ''}" data-card="${t.id}" ${taken ? 'aria-disabled="true"' : ''}>
+    <div class="flex items-center gap-1 pl-1 pr-4 min-h-16">
+      ${lead}
+      <button class="flex-1 min-w-0 text-left py-3 flex flex-col gap-0.5 disabled:cursor-default" data-open="${t.id}" ${taken ? 'disabled' : ''}>
+        <span class="text-base truncate ${taken ? 'text-stone-600' : ''}">${t.title}</span>
+        ${line ? `<span class="text-sm text-stone-600">${line}</span>` : ''}
       </button>
     </div>
   </li>`;
 }
 
+/* Empty states: a normal-size icon in a tinted circle, a short friendly line. */
+function emptyState(ic, title, line) {
+  return `<div class="flex flex-col items-center text-center gap-2 py-20 px-8">
+    <span class="size-16 mb-2 rounded-full grid place-items-center bg-orange-100 text-orange-800">${icon(ic, '!text-[32px]')}</span>
+    <span class="text-lg font-semibold">${title}</span><span class="text-stone-600">${line}</span></div>`;
+}
+
 function renderTasks() {
   const tasks = visible();
-  if (!tasks.length) return `<div class="flex flex-col items-center gap-3 py-24 muted">${icon('celebration', 'text-primary !text-6xl')}<span class="text-lg">All done</span></div>`;
+  if (!tasks.length) return emptyState('celebration', 'All done', 'Nothing left to do. Enjoy it.');
   return `<ul class="pt-1">${tasks.map(taskCard).join('')}</ul>`;
 }
 
@@ -194,42 +211,42 @@ function renderPlaces() {
   if (state.placeView) {
     const p = placeById(state.placeView);
     const tasks = openAt(p);
-    return `<div class="flex flex-col gap-1 px-2 pb-2">
-        ${p.locations.map((l) => `<div class="flex items-center gap-2 text-sm muted">${icon('location_on', 'sm')}${l}</div>`).join('')}</div>
-      ${tasks.length ? `<ul class="pt-2">${tasks.map(taskCard).join('')}</ul>` : `<p class="py-16 text-center muted">Nothing to get here.</p>`}`;
+    return `<div class="flex flex-col gap-1 px-2 pb-3">
+        ${p.locations.map((l) => `<div class="flex items-center gap-2 text-sm text-stone-600">${icon('location_on', '!text-[18px] text-stone-500')}${l}</div>`).join('')}</div>
+      ${tasks.length ? `<ul>${tasks.map(taskCard).join('')}</ul>` : `<p class="py-16 text-center text-stone-600">Nothing to get here.</p>`}`;
   }
+  if (!state.places.length) return emptyState('storefront', 'No places yet', 'Add the shops you go to, then see what to get where.');
   const groups = [...state.groups, { id: null, name: 'Other' }];
   return groups.map((g) => {
     const places = state.places.filter((p) => (p.group ?? null) === g.id).sort((a, b) => openAt(b).length - openAt(a).length);
     if (!places.length) return '';
-    return heading(g.name) + `<ul class="task-card overflow-hidden">${places.map((p) => {
+    return heading(g.name) + `<ul class="${CARD} overflow-hidden">${places.map((p) => {
       const n = openAt(p).length;
-      return `<li class="border-b border-base-200 last:border-0"><button class="w-full flex items-center gap-3 px-4 min-h-14 text-left active:bg-base-200" data-place="${p.id}">
-        <span class="size-9 rounded-full bg-base-200 grid place-items-center shrink-0 muted">${icon('storefront', 'sm')}</span>
+      return `<li><button class="w-full flex items-center gap-3 px-4 min-h-14 text-left hover:bg-stone-50 active:bg-stone-100" data-place="${p.id}">
+        <span class="size-9 shrink-0 rounded-full grid place-items-center bg-stone-100 text-stone-600">${icon('storefront', '!text-[18px]')}</span>
         <span class="flex-1 text-base">${p.name}</span>
-        ${n ? `<span class="pill" aria-label="${n} to get">${n}</span>` : ''}
-        ${icon('chevron_right', 'muted')}</button></li>`;
+        ${n ? `<span class="text-sm text-stone-600">${n} to get</span>` : ''}
+        ${icon('chevron_right', 'text-stone-500')}</button></li>`;
     }).join('')}</ul>`;
   }).join('');
 }
 
 function renderFamily() {
-  return `<ul class="task-card overflow-hidden mt-1">${state.members.map((m) => `
-    <li class="border-b border-base-200 last:border-0">
-      ${m.me ? `<button class="w-full flex items-center gap-4 px-4 min-h-16 text-left" data-avatar aria-label="Change your picture">${avatar(m)}<span class="flex-1 text-base">${m.name}</span>${icon('edit', 'sm muted')}</button>`
+  return `<ul class="${CARD} overflow-hidden mt-1">${state.members.map((m) => `<li>
+      ${m.me ? `<button class="w-full flex items-center gap-4 px-4 min-h-16 text-left hover:bg-stone-50" data-avatar aria-label="Change your picture">${avatar(m)}<span class="flex-1 text-base">${m.name}</span>${icon('edit', '!text-[18px] text-stone-500')}</button>`
              : `<div class="flex items-center gap-4 px-4 min-h-16">${avatar(m)}<span class="flex-1 text-base">${m.name}</span></div>`}
     </li>`).join('')}</ul>
-    <button class="btn h-10 mt-4" data-invite>${icon('person_add', 'sm')}Invite someone</button>`;
+    <button class="${SECONDARY} mt-4" data-invite>${icon('person_add', '!text-[18px]')}Invite someone</button>`;
 }
 
-/* The picture: an icon in a colour, or a photo. Always round. */
+/* The picture: an icon on a tint, or a photo. Always round. */
 function avatarSheet() {
   const me = state.members.find((m) => m.me);
   const icons = ['sailing', 'local_florist', 'pets', 'rocket_launch', 'sports_soccer', 'music_note', 'coffee', 'bolt'];
   sheet(`<div class="flex flex-col items-center gap-5">
-    <h2 class="text-xl">Your picture</h2>${avatar(me, 'w-24')}
-    <div class="grid grid-cols-4 gap-3">${icons.map((ic, i) => `<button class="size-14 rounded-full hue-${i % 5} grid place-items-center ${me.avatar.icon === ic && !me.avatar.photo ? 'ring-2 ring-primary ring-offset-2 ring-offset-base-100' : ''}" data-pick="${ic}" data-hue="${i % 5}" aria-label="${ic.replace('_', ' ')}">${icon(ic)}</button>`).join('')}</div>
-    <label class="btn btn-primary h-10 px-4">${icon('photo_camera', 'sm')}Take or choose a photo<input type="file" accept="image/*" capture="user" class="hidden" id="photo"></label>
+    <h2 class="text-xl font-semibold">Your picture</h2>${avatar(me, 'size-24')}
+    <div class="grid grid-cols-4 gap-3">${icons.map((ic, i) => `<button class="size-14 rounded-full grid place-items-center ${TINTS[i % 5]} ${me.avatar.icon === ic && !me.avatar.photo ? 'ring-2 ring-orange-700 ring-offset-2 ring-offset-[#fffdfb]' : ''}" data-pick="${ic}" data-tint="${i % 5}" aria-label="${ic.replace('_', ' ')}">${icon(ic)}</button>`).join('')}</div>
+    <label class="${PRIMARY} cursor-pointer">${icon('photo_camera', '!text-[18px]')}Take or choose a photo<input type="file" accept="image/*" capture="user" class="hidden" id="photo"></label>
   </div>`);
   $('#photo').addEventListener('change', (e) => { const f = e.target.files[0]; if (!f) return; me.avatar.photo = URL.createObjectURL(f); $('#sheet').close(); render(); });
 }
@@ -251,23 +268,23 @@ function renderDetail() {
   if (!t) return;
   const { total, today } = worked(t), on = running(t);
   el.innerHTML = `
-    <div class="flex items-center px-2 h-16 shrink-0"><button class="btn btn-ghost btn-circle size-12" data-close-detail aria-label="Back">${icon('arrow_back')}</button></div>
+    <div class="flex items-center px-2 h-16 shrink-0"><button class="size-12 grid place-items-center rounded-full text-stone-700 hover:bg-stone-100" data-close-detail aria-label="Back">${icon('arrow_back')}</button></div>
     <div class="px-6 flex flex-col gap-3">
-      <h1 class="text-3xl font-medium">${t.title}</h1>
+      <h1 class="text-3xl font-semibold tracking-tight">${t.title}</h1>
       ${t.places.length ? `<div class="flex flex-wrap gap-1.5">${t.places.map(placeById).map(pill).join('')}</div>` : ''}
     </div>
-    <div class="flex-1 flex flex-col items-center justify-center gap-6">
-      <div class="size-64 rounded-full grid place-items-center ${on ? 'running' : ''}" style="${on ? 'background: color-mix(in oklab, var(--color-primary) 8%, var(--color-base-100)); border: 6px solid var(--color-primary);' : 'background: var(--color-base-200); border: 6px solid transparent;'}">
+    <div class="flex-1 grid place-items-center">
+      <div class="size-64 rounded-full grid place-items-center border-[6px] ${on ? 'border-orange-700 bg-linear-160 from-orange-50 to-red-50 animate-breathe' : 'border-transparent bg-stone-100'}">
         <div class="text-center">
-          <div class="text-xs font-semibold uppercase tracking-wider muted">Today</div>
-          <div class="text-5xl font-medium tabular mt-1" id="clockToday" role="timer" aria-label="Worked today">${clock(today)}</div>
-          <div class="text-sm muted tabular mt-2" id="clockTotal">${short(total)} in total</div>
+          <div class="text-xs font-semibold uppercase tracking-wider text-stone-600">Today</div>
+          <div class="mt-1 text-5xl font-semibold tabular-nums" id="clockToday" role="timer" aria-label="Worked today">${clock(today)}</div>
+          <div class="mt-2 text-sm text-stone-600 tabular-nums" id="clockTotal">${short(total)} in total</div>
         </div>
       </div>
     </div>
     <div class="px-6 pb-10 grid grid-cols-2 gap-3">
-      <button class="btn h-14 text-base ${on ? '' : 'btn-primary'}" data-toggle-run="${t.id}">${icon(on ? 'pause' : 'play_arrow')}${on ? 'Pause' : 'Start'}</button>
-      <button class="btn h-14 text-base ${on ? 'btn-primary' : ''}" data-finish-detail="${t.id}">${icon('check')}Finish</button>
+      <button class="${on ? SECONDARY : PRIMARY} !h-14 text-base" data-toggle-run="${t.id}">${icon(on ? 'pause' : 'play_arrow')}${on ? 'Pause' : 'Start'}</button>
+      <button class="${on ? PRIMARY : SECONDARY} !h-14 text-base" data-finish-detail="${t.id}">${icon('check')}Finish</button>
     </div>`;
 }
 setInterval(() => {
@@ -280,34 +297,32 @@ function renderDock() {
   const items = [['tasks', 'task_alt', 'Tasks'], ['places', 'storefront', 'Places'], ['family', 'group', 'Family']];
   $('#dock').innerHTML = items.map(([id, ic, label]) => {
     const on = state.tab === id;
-    return `<button data-tab="${id}" ${on ? 'aria-current="page"' : ''}>
-      <span class="w-16 h-8 rounded-full grid place-items-center ${on ? 'bg-primary/20' : ''}">${icon(ic, on ? 'fill' : '')}</span>
-      <span class="dock-label text-xs ${on ? 'font-medium' : 'muted'}">${label}</span></button>`;
+    return `<button data-tab="${id}" class="flex flex-col items-center justify-center gap-1" ${on ? 'aria-current="page"' : ''}>
+      <span class="w-16 h-8 rounded-full grid place-items-center transition-colors ${on ? 'bg-orange-100 text-orange-900' : 'text-stone-600'}">${icon(ic, on ? FILL : '')}</span>
+      <span class="text-xs ${on ? 'font-semibold text-stone-900' : 'text-stone-600'}">${label}</span></button>`;
   }).join('');
 }
 
-/* Above the bar while typing: for a task, place pills and add-again chips;
-   for a place, only the address search. */
+/* Above the bar while typing: for a task, place pills and add-again chips; for a place, only the address search. */
 function renderExtras() {
   const typed = $('#addInput').value.trim();
   if (addingPlace()) {
     const found = typed.length >= 3 ? FOUND.filter((f) => `${f.name} ${f.address}`.toLowerCase().includes(typed.toLowerCase().split(' ')[0])) : [];
-    $('#extras').innerHTML = found.length ? `<ul class="task-card overflow-hidden" aria-label="Addresses">${found.map((f, i) => `
-      <li class="border-b border-base-200 last:border-0"><button type="button" class="w-full flex items-center gap-3 px-4 min-h-14 text-left" data-found="${i}">
-        ${icon('location_on', 'muted')}<span><span class="block">${f.name}</span><span class="block text-sm muted">${f.address}</span></span></button></li>`).join('')}</ul>` : '';
+    $('#extras').innerHTML = found.length ? `<ul class="${CARD} shadow-md overflow-hidden" aria-label="Addresses">${found.map((f, i) => `
+      <li><button type="button" class="w-full flex items-center gap-3 px-4 min-h-14 text-left hover:bg-stone-50" data-found="${i}">
+        ${icon('location_on', 'text-stone-500')}<span><span class="block">${f.name}</span><span class="block text-sm text-stone-600">${f.address}</span></span></button></li>`).join('')}</ul>` : '';
     return;
   }
   const pills = state.places.slice(0, 5).map((p) => {
     const on = state.chosen.has(p.id);
-    return `<button type="button" data-chip="${p.id}" aria-pressed="${on}" class="pill shrink-0">${on ? icon('check', 'sm') : ''}${p.name}</button>`;
+    return `<button type="button" data-chip="${p.id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-stone-800 text-stone-50' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${on ? icon('check', '!text-[18px]') : ''}${p.name}</button>`;
   }).join('');
-  const again = state.recent.slice(0, 5).map((s) => `<button type="button" data-suggest="${s}" class="btn btn-sm h-9 !rounded-full shrink-0 !font-normal !bg-base-100 !border-0 shadow-sm">${icon('add', 'sm text-primary')}${s}</button>`).join('');
-  $('#extras').innerHTML = `<div class="flex gap-2 overflow-x-auto" role="group" aria-label="Where">${pills}</div><div class="flex gap-2 overflow-x-auto" role="group" aria-label="Add again">${again}</div>`;
+  const again = state.recent.slice(0, 5).map((s) => `<button type="button" data-suggest="${s}" class="shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full bg-[#fffdfb] text-sm shadow-sm">${icon('add', '!text-[18px] text-orange-700')}${s}</button>`).join('');
+  $('#extras').innerHTML = `<div class="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Where">${pills}</div><div class="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Add again">${again}</div>`;
 }
 
 function renderComposer() {
-  const show = state.tab === 'tasks' || state.tab === 'places';
-  $('#composer').classList.toggle('hidden', !show);
+  $('#composer').classList.toggle('hidden', !(state.tab === 'tasks' || state.tab === 'places'));
   const label = addingPlace() ? 'Add a place' : 'Add a task';
   $('#addInput').placeholder = label; $('#addInput').setAttribute('aria-label', label);
   renderExtras();
@@ -317,40 +332,47 @@ function render() {
   const titles = { tasks: 'Tasks', places: 'Places', family: 'The Smiths' };
   const inPlace = state.tab === 'places' && state.placeView;
   $('#title').textContent = inPlace ? placeById(state.placeView).name : titles[state.tab];
-  $('#backBtn').classList.toggle('hidden', !inPlace);
+  $('#backBtn').classList.toggle('hidden', !inPlace); $('#backBtn').classList.toggle('grid', !!inPlace);
   $('#main').innerHTML = { tasks: renderTasks, places: renderPlaces, family: renderFamily }[state.tab]();
-  $('#offline').classList.toggle('hidden', !state.offline);
+  $('#offline').classList.toggle('hidden', !state.offline); $('#offline').classList.toggle('inline-flex', !!state.offline);
   renderDock(); renderComposer(); renderDetail();
 }
 
-/* Extras appear only while typing. */
+/* ---- Behaviour ----------------------------------------------------------------------------- */
 function setExtras(open) { $('#extras').classList.toggle('hidden', !open); $('#extras').classList.toggle('flex', open); }
 $('#addInput').addEventListener('focus', () => setExtras(true));
 $('#addInput').addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== $('#addInput')) setExtras(false); }, 150));
 $('#composer').addEventListener('mousedown', (e) => { if (e.target.closest('#extras')) e.preventDefault(); });
-$('#addInput').addEventListener('input', (e) => { $('#addBtn').classList.toggle('hidden', !e.target.value.trim()); if (addingPlace()) renderExtras(); });
+$('#addInput').addEventListener('input', (e) => { const has = !!e.target.value.trim(); $('#addBtn').classList.toggle('hidden', !has); $('#addBtn').classList.toggle('grid', has); if (addingPlace()) renderExtras(); });
 
 function addTask(title) {
-  state.tasks.push({ id: now(), title, places: [...state.chosen], status: 'open', sessions: [] });
+  const t = { id: now(), title, places: [...state.chosen], status: 'open', sessions: [] };
+  state.tasks.push(t);
   state.chosen = new Set(state.placeView ? [state.placeView] : []);
   render();
+  toast(`Added ${title}`, 'Undo', () => { state.tasks.splice(state.tasks.indexOf(t), 1); render(); });
 }
 function addPlace(name, address) {
-  state.places.push({ id: `p${now()}`, group: null, name, hue: state.places.length % 5, locations: [address ?? name] });
-  render();
+  const p = { id: `p${now()}`, group: null, name, locations: [address ?? name] };
+  state.places.push(p); render();
+  toast(`Added ${name}`, 'Undo', () => { state.places.splice(state.places.indexOf(p), 1); render(); });
 }
-function clearBar() { $('#addInput').value = ''; $('#addBtn').classList.add('hidden'); renderExtras(); $('#addInput').focus(); }
+function clearBar() { $('#addInput').value = ''; $('#addBtn').classList.add('hidden'); $('#addBtn').classList.remove('grid'); renderExtras(); $('#addInput').focus(); }
 $('#addForm').addEventListener('submit', (e) => {
   e.preventDefault(); const v = $('#addInput').value.trim(); if (!v) return;
   addingPlace() ? addPlace(v) : addTask(v); clearBar();
 });
 
-/* Finishing: the check pops, the card folds away, Undo brings it back. */
+/* Finishing: the check pops, the card slides away and folds up, the toast offers Undo. */
 function finish(t, card) {
   for (const s of t.sessions) s.to ??= now();
   t.on = null;
   const done = () => { t.status = 'done'; if (!state.recent.includes(t.title)) state.recent.unshift(t.title); render(); };
-  if (card && !matchMedia('(prefers-reduced-motion: reduce)').matches) { card.querySelector('input').parentElement.classList.add('popping'); card.classList.add('folding'); setTimeout(done, 700); } else done();
+  if (card && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    setTimeout(() => card.classList.add('opacity-0', 'translate-x-8'), 250);
+    setTimeout(() => card.classList.add('!max-h-0', '!mb-0'), 450);
+    setTimeout(done, 750);
+  } else done();
   toast(`${t.title} done`, 'Undo', () => { t.status = 'open'; render(); });
 }
 
@@ -359,7 +381,7 @@ document.addEventListener('change', (e) => {
   finish(find(id), e.target.closest('[data-card]'));
 });
 document.addEventListener('click', (e) => {
-  const b = e.target.closest('button'); if (!b) return;
+  const b = e.target.closest('button'); if (!b || b.closest('#toasts')) return;
   const d = b.dataset;
   if (b.id === 'backBtn') { state.placeView = null; state.chosen = new Set(); }
   else if (d.tab) { state.tab = d.tab; state.placeView = null; state.chosen = new Set(); }
@@ -376,28 +398,33 @@ document.addEventListener('click', (e) => {
   }
   else if (d.finishDetail) { state.detail = null; finish(find(d.finishDetail)); return; }
   else if ('avatar' in d) { avatarSheet(); return; }
-  else if (d.pick) { const me = state.members.find((m) => m.me); me.avatar = { icon: d.pick, hue: +d.hue }; $('#sheet').close(); }
+  else if (d.pick) { const me = state.members.find((m) => m.me); me.avatar = { icon: d.pick, tint: +d.tint }; $('#sheet').close(); }
   else if ('invite' in d) {
-    sheet(`<div class="flex flex-col items-center gap-5 text-center"><h2 class="text-xl">Invite someone</h2>${qrSvg()}
-      <p class="text-sm muted">Scan with the other phone, or send the link.<br>Works once, for 5 minutes.</p>
-      <button class="btn btn-primary h-10 px-4" data-copy>${icon('content_copy', 'sm')}Copy link</button></div>`); return;
+    sheet(`<div class="flex flex-col items-center gap-5 text-center"><h2 class="text-xl font-semibold">Invite someone</h2>${qrSvg()}
+      <p class="text-sm text-stone-600">Scan with the other phone, or send the link.<br>Works once, for 5 minutes.</p>
+      <button class="${PRIMARY}" data-copy>${icon('content_copy', '!text-[18px]')}Copy link</button></div>`); return;
   }
   else if ('copy' in d) { toast('Link copied'); return; }
   else return;
   render();
 });
 
-// ?tab=places, ?tab=places&place=lidl, ?offline=1, ?typing=text, ?task=6, ?task=6&run=1, ?sheet=invite|avatar
+// ?tab=places, ?tab=places&place=lidl, ?offline=1, ?empty=1, ?typing=text, ?task=6, ?task=6&run=1, ?sheet=invite|avatar, ?toasts=3, ?fan=1
 const query = new URLSearchParams(location.search);
 if (query.get('tab')) state.tab = query.get('tab');
 if (query.get('place')) { state.placeView = query.get('place'); state.chosen = new Set([state.placeView]); }
-if (query.get('accent')) document.documentElement.dataset.accent = query.get('accent');
 state.offline = query.has('offline');
+if (query.has('empty')) { state.tasks = []; state.places = []; }
 if (query.get('task')) { state.detail = +query.get('task'); if (query.get('run')) { find(state.detail).sessions.push({ from: now() - 7 * MIN }); find(state.detail).on = 'p'; } }
 render();
 if (query.has('typing')) { $('#addInput').value = query.get('typing'); $('#addInput').focus(); $('#addInput').dispatchEvent(new Event('input')); }
 if (query.get('sheet') === 'invite') { state.tab = 'family'; render(); document.querySelector('[data-invite]').click(); }
 if (query.get('sheet') === 'avatar') { state.tab = 'family'; render(); avatarSheet(); }
+if (query.get('toasts')) {
+  ['Milk', 'Bread', 'Light bulbs'].slice(0, +query.get('toasts')).forEach((title) => finish(find(state.tasks.find((t) => t.title === title).id)));
+  toasts.forEach((t) => (t.left = 1e9));
+  if (query.has('fan')) setTimeout(() => { fanned = true; layoutToasts(); }, 50);
+}
 </script>
 </body>
 </html>
