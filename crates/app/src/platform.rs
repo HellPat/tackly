@@ -5,17 +5,40 @@ use std::path::PathBuf;
 use tackly_protocol::GeoPoint;
 
 pub fn data_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("TACKLY_DATA_DIR") {
-        return dir.into();
+    match std::env::var_os("TACKLY_DATA_DIR") {
+        Some(dir) => dir.into(),
+        None => default_data_dir(),
     }
-    let home = std::env::var_os("HOME")
+}
+
+#[cfg(target_os = "android")]
+fn default_data_dir() -> PathBuf {
+    // The app-private directory: /data/data/<package>/files. The package name
+    // is the process name.
+    let cmdline = std::fs::read("/proc/self/cmdline").unwrap_or_default();
+    let cmdline = String::from_utf8_lossy(&cmdline);
+    let package = cmdline.split('\0').next().unwrap_or("dev.tackly.tackly");
+    let dir = PathBuf::from("/data/data").join(package).join("files");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+#[cfg(not(target_os = "android"))]
+fn default_data_dir() -> PathBuf {
+    std::env::var_os("HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
-    home.join(".tackly")
+        .unwrap_or_else(std::env::temp_dir)
+        .join(".tackly")
 }
 
 pub fn default_server() -> String {
-    std::env::var("TACKLY_SERVER_URL").unwrap_or_else(|_| "http://127.0.0.1:3000".into())
+    // The emulator reaches the computer it runs on at 10.0.2.2.
+    let fallback = if cfg!(target_os = "android") {
+        "http://10.0.2.2:3000"
+    } else {
+        "http://127.0.0.1:3000"
+    };
+    std::env::var("TACKLY_SERVER_URL").unwrap_or_else(|_| fallback.into())
 }
 
 /// Desktop has no GPS. `TACKLY_LOCATION="lat,lon"` stands in for it so the

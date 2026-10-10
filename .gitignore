@@ -2,4 +2,4 @@
 /result
 /target/
 /.dev/
-/.tools/
+node_modules/

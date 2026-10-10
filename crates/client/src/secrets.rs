@@ -1,7 +1,7 @@
 //! Small secrets: the local event key, device identity, and family
-//! membership. Android keeps them in the platform Keystore. Other targets are
-//! development builds and keep them as owner-only files in the data directory,
-//! so several desktop instances can run side by side.
+//! membership, kept as owner-only files in the app's data directory. On Android
+//! that is the app-private storage, which other apps cannot read. Moving the
+//! keys into the hardware-backed Android Keystore is still to do.
 
 use std::path::{Path, PathBuf};
 
@@ -9,7 +9,6 @@ use anyhow::Result;
 
 #[derive(Clone, Debug)]
 pub struct Secrets {
-    #[cfg_attr(target_os = "android", allow(dead_code))]
     dir: PathBuf,
 }
 
@@ -21,7 +20,6 @@ impl Secrets {
     }
 }
 
-#[cfg(not(target_os = "android"))]
 impl Secrets {
     pub fn read(&self, name: &str) -> Result<Option<Vec<u8>>> {
         match std::fs::read(self.dir.join(name)) {
@@ -46,42 +44,6 @@ impl Secrets {
         match std::fs::remove_file(self.dir.join(name)) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error.into()),
-        }
-    }
-}
-
-#[cfg(target_os = "android")]
-impl Secrets {
-    fn entry(name: &str) -> Result<keyring_core::Entry> {
-        static STORE: std::sync::Once = std::sync::Once::new();
-        let mut failure = None;
-        STORE.call_once(|| match android_native_keyring_store::Store::new() {
-            Ok(store) => keyring_core::set_default_store(store),
-            Err(error) => failure = Some(error),
-        });
-        if let Some(error) = failure {
-            return Err(error.into());
-        }
-        Ok(keyring_core::Entry::new("tackly", name)?)
-    }
-
-    pub fn read(&self, name: &str) -> Result<Option<Vec<u8>>> {
-        match Self::entry(name)?.get_secret() {
-            Ok(value) => Ok(Some(value)),
-            Err(keyring_core::Error::NoEntry) => Ok(None),
-            Err(error) => Err(error.into()),
-        }
-    }
-
-    pub fn write(&self, name: &str, value: &[u8]) -> Result<()> {
-        Self::entry(name)?.set_secret(value)?;
-        Ok(())
-    }
-
-    pub fn delete(&self, name: &str) -> Result<()> {
-        match Self::entry(name)?.delete_credential() {
-            Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
             Err(error) => Err(error.into()),
         }
     }

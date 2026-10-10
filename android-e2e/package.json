@@ -1,0 +1,12 @@
+{
+  "name": "tackly-android-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Playwright-on-Android acceptance spike: drives the real app in an emulator",
+  "scripts": {
+    "spike": "node spike.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
+  }
+}
