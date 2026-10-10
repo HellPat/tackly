@@ -408,13 +408,15 @@ function nameSheet(kind, id) {
   $('#nameInput').focus();
 }
 
-/* Your settings: picture, name, and color scheme (a background with its matching accent; kept on this phone). */
+/* Your settings: name, picture, and color scheme (a background with its matching accent; kept on this phone). */
 const BG_NAMES = { blueclouds: 'Blue clouds' };
 const bgName = (n) => BG_NAMES[n] ?? n[0].toUpperCase() + n.slice(1);
 function renderSettings() {
   const me = state.members.find((m) => m.me);
   const icons = ['sailing', 'local_florist', 'pets', 'rocket_launch', 'sports_soccer', 'music_note', 'coffee', 'bolt'];
-  return `${heading('Picture')}
+  return `${heading('Name')}
+    <input id="myName" aria-label="Your name" value="${me.name}" class="w-full h-12 px-4 rounded-md bg-[#fffdfb] border border-stone-300 shadow-sm text-base outline-none focus:ring-2 focus:ring-accent-700">
+    ${heading('Picture')}
     <div class="${CARD} p-4 flex flex-col items-center gap-4">
       ${avatar(me, 'size-24')}
       <div class="grid grid-cols-4 gap-3" role="radiogroup" aria-label="Picture">${icons.map((ic, i) => {
@@ -423,8 +425,6 @@ function renderSettings() {
       }).join('')}</div>
       <label class="${SECONDARY} cursor-pointer">${icon('photo_camera', '!text-[18px]')}Take or choose a photo<input type="file" accept="image/*" capture="user" class="hidden" id="photo"></label>
     </div>
-    ${heading('Name')}
-    <input id="myName" aria-label="Your name" value="${me.name}" class="w-full h-12 px-4 rounded-md bg-[#fffdfb] border border-stone-300 shadow-sm text-base outline-none focus:ring-2 focus:ring-accent-700">
     ${heading('Color scheme')}
     <div class="grid grid-cols-3 gap-3 pb-4" role="radiogroup" aria-label="Color scheme">${Object.entries(BACKGROUNDS).map(([n, b]) => {
       const on = state.background === n;
