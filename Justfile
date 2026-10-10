@@ -1,7 +1,7 @@
 # Tackly development. `just start` is all you need.
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-# Run the sync server and three family members (Anna, Ben, Caro), each in
+# Run the sync server and three family members (Patrick, Mona, Mara), each in
 # its own window with its own database. Data lives in .dev/ between runs.
 start members="3":
     #!/usr/bin/env bash
@@ -38,7 +38,7 @@ start members="3":
       echo "Started the Tackly server on 127.0.0.1:$port (log: .dev/server.log)."
     fi
 
-    names=(Anna Ben Caro Dana Eli)
+    names=(Patrick Mona Mara Dana Eli) # Patrick is the head of the family
     places=("52.5200,13.4050" "52.5163,13.3777" "52.5075,13.3904" "52.4900,13.3600" "52.5300,13.4200")
     for ((i = 0; i < {{ members }} && i < 5; i++)); do
       name="${names[$i]}"
@@ -47,7 +47,7 @@ start members="3":
         target/debug/tackly-app >".dev/$name.log" 2>&1 &
       pids+=($!)
     done
-    echo "Windows: ${names[*]:0:{{ members }}}. Anna: Create a family, then Family > Invite someone."
+    echo "Windows: ${names[*]:0:{{ members }}}. Patrick: Create a family, then Family > Invite someone."
     echo "Ctrl-C stops everything. 'just reset' forgets all test data."
     wait "${pids[@]:1}"
 

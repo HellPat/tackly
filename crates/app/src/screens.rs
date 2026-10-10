@@ -547,7 +547,7 @@ fn FamilyTab() -> Element {
                 div { class: "avatar", "{initial(&member.name)}" }
                 div { class: "body",
                     div { class: "title", "{member.name}" if member.device_id == me { " (you)" } }
-                    div { class: "meta", if member.owner { "Owner" } else { "Member" } }
+                    div { class: "meta", if member.owner { "Head of the family" } else { "Member" } }
                 }
             }
         }

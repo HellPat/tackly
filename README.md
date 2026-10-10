@@ -21,12 +21,12 @@ just start
 ```
 
 This builds everything, starts the relay and opens **three app windows**
-(Anna, Ben, Caro), each with its own database under `.dev/`.
+(Patrick, Mona, Mara; Patrick is the head of the family), each with its own database under `.dev/`.
 
-1. In Anna's window: *Create a family*.
-2. Anna: *Family → Invite someone*, copy the code.
-3. Ben: *Join with an invitation*, paste the code, *Ask to join*. Both phones
-   show the same six digits; Anna confirms. Repeat for Caro.
+1. In Patrick's window: *Create a family*.
+2. Patrick: *Family → Invite someone*, copy the code.
+3. Mona: *Join with an invitation*, paste the code, *Ask to join*. Both phones
+   show the same six digits; Patrick confirms. Repeat for Mara.
 4. Add tasks, tap *Start* or *Finish* (optional note and location) and watch the
    other windows update live.
 
