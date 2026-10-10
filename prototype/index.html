@@ -256,7 +256,7 @@ function renderTasks() {
   const tasks = f ? all.filter(f.keep) : all;
   const chips = Object.entries(FILTERS).map(([id, { label, keep }]) => {
     const on = state.filter === id, n = all.filter(keep).length;
-    return `<button data-filter="${id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-stone-800 text-stone-50' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${on ? icon('check', '!text-[18px]') : ''}${label}<span class="${on ? 'text-stone-300' : 'text-stone-500'} font-normal">${n}</span></button>`;
+    return `<button data-filter="${id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-stone-800 text-stone-50' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${label}<span class="${on ? 'text-stone-300' : 'text-stone-500'} font-normal">${n}</span></button>`;
   }).join('');
   const none = { mine: 'You are not on any task. Pick one below.', free: 'Every task has someone on it.' }[state.filter];
   return `<div class="flex gap-2 pt-1 pb-3" role="group" aria-label="Filter">${chips}</div>
@@ -396,7 +396,7 @@ function renderExtras() {
   }
   const pills = state.places.slice(0, 5).map((p) => {
     const on = state.chosen.has(p.id);
-    return `<button type="button" data-chip="${p.id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-stone-800 text-stone-50' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${on ? icon('check', '!text-[18px]') : ''}${p.name}</button>`;
+    return `<button type="button" data-chip="${p.id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-stone-800 text-stone-50' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${p.name}</button>`;
   }).join('');
   const again = state.recent.slice(0, 5).map((s) => `<button type="button" data-suggest="${s}" class="shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full bg-[#fffdfb] text-sm shadow-sm">${icon('add', '!text-[18px] text-accent-700')}${s}</button>`).join('');
   $('#extras').innerHTML = `<div class="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Where">${pills}</div><div class="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Add again">${again}</div>`;
