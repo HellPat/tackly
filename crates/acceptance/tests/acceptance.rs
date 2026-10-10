@@ -191,8 +191,7 @@ impl Tackly {
     async fn add_task(&self, name: &str, title: &str) -> Outcome<()> {
         self.go(name, "Tasks").await?;
         let page = self.page(name)?;
-        page.get_by_role_exact("button", "New task").click().await?;
-        page.get_by_label("What needs doing?")
+        page.get_by_label("Add a task")
             .press_sequentially(title, KEY_DELAY)
             .await?;
         page.get_by_role_exact("button", "Add").click().await?;
@@ -337,11 +336,31 @@ async fn keeps(world: &mut Tackly, name: String, winner: String, title: String) 
 
 // ---- keyboard --------------------------------------------------------------------
 
-#[when(regex = r"^(\w+) opens the new task form$")]
-async fn opens_new_task(world: &mut Tackly, name: String) {
+#[when(regex = r"^(\w+) opens the task list$")]
+async fn opens_task_list(world: &mut Tackly, name: String) {
     check(world.go(&name, "Tasks").await);
+}
+
+#[when(regex = r#"^(\w+) taps the suggestion "([^"]+)"$"#)]
+async fn taps_suggestion(world: &mut Tackly, name: String, title: String) {
     let page = check(world.page(&name));
-    check(page.get_by_role_exact("button", "New task").click().await);
+    check(
+        page.locator(".suggestion")
+            .filter_has_text(&title)
+            .click()
+            .await,
+    );
+}
+
+#[then(regex = r#"^(\w+) (sees|does not see) the suggestion "([^"]+)"$"#)]
+async fn sees_suggestion(world: &mut Tackly, name: String, seen: String, title: String) {
+    let page = check(world.page(&name));
+    let suggestion = page.locator(".suggestion").filter_has_text(&title);
+    if seen == "sees" {
+        check(expect(&suggestion).to_be_visible().await);
+    } else {
+        check(expect(&suggestion).to_be_hidden().await);
+    }
 }
 
 #[when(regex = r#"^(\w+) types "([^"]*)" into "([^"]+)" key by key$"#)]

@@ -1,13 +1,11 @@
-//! The frame around a family: app bar, the three tabs, and the buttons that
-//! open sheets.
+//! The frame around a family: app bar, the three tabs, the add-a-task bar and
+//! the sheets.
 
 use dioxus::prelude::*;
 use uuid::Uuid;
 
 use super::{
-    activity::ActivityTab,
-    family::FamilyTab,
-    sheets::{AddTaskSheet, FinishSheet},
+    activity::ActivityTab, composer::Composer, family::FamilyTab, sheets::FinishSheet,
     tasks::TasksTab,
 };
 use crate::state::AppState;
@@ -23,7 +21,6 @@ enum Tab {
 #[derive(Clone, PartialEq)]
 enum Sheet {
     None,
-    AddTask,
     Finish(Uuid),
 }
 
@@ -43,10 +40,7 @@ pub fn Home() -> Element {
             }
         }
         if tab() == Tab::Tasks {
-            button { class: "fab", onclick: move |_| sheet.set(Sheet::AddTask),
-                span { aria_hidden: "true", "+" }
-                "New task"
-            }
+            Composer {}
         }
         div { class: "nav",
             NavButton { icon: "✓", label: "Tasks", active: tab() == Tab::Tasks, onclick: move |_| tab.set(Tab::Tasks) }
@@ -55,7 +49,6 @@ pub fn Home() -> Element {
         }
         match sheet() {
             Sheet::None => rsx! {},
-            Sheet::AddTask => rsx! { AddTaskSheet { close: move |_| sheet.set(Sheet::None) } },
             Sheet::Finish(task) => rsx! { FinishSheet { task, close: move |_| sheet.set(Sheet::None) } },
         }
     }

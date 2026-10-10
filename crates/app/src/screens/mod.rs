@@ -1,11 +1,13 @@
 //! The app's screens, one file each.
 //!
 //! - [`onboarding`]: creating a family or joining one
-//! - [`home`]: the frame around a family: app bar, tabs, buttons
+//! - [`home`]: the frame around a family: app bar, tabs, add-a-task bar
 //! - [`tasks`], [`activity`], [`family`]: the three tabs
-//! - [`sheets`]: the forms that slide up over the tasks
+//! - [`composer`]: typing a new task, with one-tap suggestions
+//! - [`sheets`]: the form for finishing a task
 
 mod activity;
+mod composer;
 mod family;
 mod format;
 mod home;

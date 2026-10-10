@@ -84,8 +84,7 @@ try {
   });
 
   await step("add a task with the keyboard and Enter", async () => {
-    await tap(page.getByRole("button", { name: "New task", exact: true }));
-    await page.getByLabel("What needs doing?").focus();
+    await page.getByLabel("Add a task").focus();
     await device.input.type("waterplants");
     await device.input.press("Enter");
     await expect(page.locator(".card").filter({ hasText: "waterplants" })).toBeVisible();
