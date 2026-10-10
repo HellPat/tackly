@@ -12,6 +12,17 @@ search existing tasks locally, and selecting a completed match reopens it.
 The app and data model are documented in [app/README.md](app/README.md), and
 server setup and security limits in [server/README.md](server/README.md).
 
+## Run locally
+
+With `just`, Flutter, Rust, and an Android SDK/AVD installed, run `just start`
+from the repository root. It reuses a local Tackly server on port 3000 or
+starts one with `server/tackly-sync.db`, opens an Android emulator, and runs the
+debug app against `http://10.0.2.2:3000`. New family dialogs use this address;
+an existing owner family without a server connects to it on launch. A family
+already connected to another server keeps its existing address. The app still
+works when the server is unavailable. Set `TACKLY_AVD` to select a different
+emulator. Stop `just start` with Ctrl-C; a server it started stops with it.
+
 ## Install a build from GitHub
 
 1. Open [GitHub Releases](https://github.com/HellPat/tackly/releases) and

@@ -47,7 +47,7 @@ class _FamilyPageState extends State<FamilyPage> {
   }
 
   Future<void> _createFamily() async {
-    final url = TextEditingController();
+    final url = TextEditingController(text: devSyncServerUrl);
     final name = TextEditingController(text: 'Our Home');
     final submitted = await showDialog<bool>(
       context: context,
@@ -149,7 +149,7 @@ class _FamilyPageState extends State<FamilyPage> {
   }
 
   Future<void> _recoverFamily() async {
-    final url = TextEditingController();
+    final url = TextEditingController(text: devSyncServerUrl);
     final recovery = TextEditingController();
     final submitted = await showDialog<bool>(
       context: context,
@@ -261,7 +261,11 @@ class _FamilyPageState extends State<FamilyPage> {
   }
 
   Future<void> _connectServer() async {
-    final url = TextEditingController(text: _service.credentials?.serverUrl);
+    final url = TextEditingController(
+      text: _service.credentials?.serverUrl.isNotEmpty == true
+          ? _service.credentials!.serverUrl
+          : devSyncServerUrl,
+    );
     final submitted = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(

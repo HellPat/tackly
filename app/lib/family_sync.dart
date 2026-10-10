@@ -10,6 +10,11 @@ import 'package:uuid/uuid.dart';
 import 'crypto_box.dart';
 import 'event_store.dart';
 
+/// Set only by the local `just start` debug session.
+const devSyncServerUrl = kDebugMode
+    ? String.fromEnvironment('TACKLY_DEV_SERVER_URL')
+    : '';
+
 class FamilyCredentials {
   const FamilyCredentials({
     required this.serverUrl,

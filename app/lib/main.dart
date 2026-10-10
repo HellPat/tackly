@@ -24,6 +24,14 @@ Future<void> main() async {
     final familySync = FamilySync(store);
     await familySync.load();
     controller.attachFamilySync(familySync);
+    if (devSyncServerUrl.isNotEmpty &&
+        familySync.credentials?.serverUrl.isEmpty == true) {
+      try {
+        await familySync.enableSync(devSyncServerUrl);
+      } catch (_) {
+        // The local family and its events remain usable; sync retries later.
+      }
+    }
     if (familySync.credentials != null) {
       try {
         await scheduleBackgroundSync();
