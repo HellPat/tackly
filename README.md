@@ -76,5 +76,4 @@ Server details are in [server/README.md](server/README.md).
 
 Not done, by decision: there is no restore process. A lost phone means
 leaving and rejoining with a new invitation. Also missing: device revocation,
-key rotation, real GPS on Android; the Android build is unverified. The Flutter app in `app/` is the previous implementation and is
-no longer built or tested.
+key rotation, real GPS on Android; the Android build is unverified.
