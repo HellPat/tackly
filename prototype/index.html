@@ -6,7 +6,7 @@
   <title>Tackly prototype</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;600&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&display=block" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/daisyui@5.7.47/daisyui.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.3"></script>
@@ -262,9 +262,10 @@ function renderTasks() {
 /* Nothing of mine: the calm picture fills the screen; an arrow points up to "All". */
 function nothingMine() {
   const someone = state.members.find((m) => !m.me);
-  return `<button id="toAll" data-filter="all" class="block ml-auto mr-3 mt-12 text-right">
-      <span class="block text-lg font-semibold text-stone-900">Make ${someone.name} happy</span>
-      <span class="block text-stone-800">pick one from All</span>
+  // A handwritten note, to go with the hand-drawn arrow.
+  return `<button id="toAll" data-filter="all" class="block ml-auto mr-4 mt-12 text-right font-['Caveat'] text-stone-800 -rotate-2">
+      <span class="block text-[34px] leading-none font-bold">Make ${someone.name} happy</span>
+      <span class="block mt-1 text-2xl leading-none font-medium text-stone-700">pick one from All</span>
     </button>`;
 }
 /* A hand-drawn arrow from the message up to the "All" chip, measured after layout. */
@@ -273,7 +274,7 @@ function drawArrowToAll() {
   main.querySelector('#arrow')?.remove();
   if (!from || !to) return;
   const m = main.getBoundingClientRect(), a = from.getBoundingClientRect(), c = to.getBoundingClientRect();
-  const x1 = a.left - m.left - 8, y1 = a.top - m.top + 14;  // from the start of the line, curving up
+  const x1 = a.left - m.left - 10, y1 = a.top - m.top + 18;  // from the start of the note, curving up
   const x2 = c.left - m.left + c.width / 2, y2 = c.bottom - m.top + 6;  // just under "All"
   main.insertAdjacentHTML('beforeend', `<svg id="arrow" class="absolute inset-0 pointer-events-none overflow-visible text-stone-800" width="100%" height="100%" aria-hidden="true">
     <g>
