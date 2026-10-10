@@ -232,7 +232,7 @@ function taskCard(t) {
       ${lead}
       <button class="flex-1 min-w-0 text-left py-3 flex flex-col gap-0.5 disabled:cursor-default" data-open="${t.id}" ${taken ? 'disabled' : ''}>
         <span class="text-base truncate ${taken ? 'text-stone-600' : ''}">${t.title}</span>
-        ${line ? `<span class="text-sm text-stone-600">${line}</span>` : ''}
+        ${line ? `<span class="sr-only">${line}</span>` : ''}
       </button>
       ${assignee}
     </div>
