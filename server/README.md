@@ -1,108 +1,94 @@
 # Tackly sync server
 
-This is a headless SQLite relay for the Android app's append-only events.
-It stores encrypted event bodies and encrypted invitation key packages. It
-cannot project task lists or read task names, photos, completion details, or
-coordinates. Each phone decrypts and replays its own events.
+A headless relay for the app's append-only events, on SQLite. It keeps each
+family's events as ciphertext, hands them to the family's phones by cursor, and
+pushes new ones over Server-Sent Events. It cannot read task names, notes or
+coordinates: every phone decrypts and replays the events itself.
+
+```
+src/events.rs    the encrypted event log: append, read by cursor, live stream
+src/families.rs  registering a family
+src/invites.rs   letting a new phone join
+src/auth.rs      who is calling (a device's bearer token)
+src/db.rs        opening the database, reading columns without panicking
+migrations/      the schema; applied when the server starts
+```
 
 ## Run
-
-Choose a private, writable location for the SQLite database and apply the
-migration explicitly. The database file is created if needed:
 
 ```sh
 DATABASE_URL=sqlite:///var/lib/tackly/tackly-sync.db cargo run --release -p tackly-sync
 ```
 
-Migrations are embedded and applied on start; `tackly-sync migrate` applies
-them and exits.
+The database file is created if needed. Migrations are embedded and applied on
+start; `tackly-sync migrate` applies them and exits. The server binds to
+`127.0.0.1:3000` (`TACKLY_BIND` changes it). `/health` answers 204 and exposes
+nothing.
 
-The server binds to `127.0.0.1:3000` by default. Set `TACKLY_BIND` to another
-socket address if needed. Put a TLS reverse proxy in front of it and enter the
-proxy's HTTPS URL in the app. The app accepts plain HTTP only for debug builds
-addressing an Android emulator's local development host. Do not expose the Rust
-listener directly to the internet without TLS, request limits, and abuse
-controls. `/health` returns 204 and does not expose data.
+Put a TLS reverse proxy in front of it and give the app the proxy's HTTPS URL.
+Do not expose the listener itself to the internet without TLS, request limits
+and abuse controls. This repository does not deploy the server or back up its
+database; the file and its write-ahead log both need backing up.
 
-The server and database are not deployed by this repository. A public HTTPS
-endpoint must be supplied before two phones can
-pair or synchronize outside a local development network.
+## API
 
-The end-to-end suite in `crates/client/tests/e2e.rs` starts this server
-in-process (`just test`). The older Python scripts below still exercise the
-raw HTTP API against a running server: `python3 tests/transport_smoke.py` and
-`python3 tests/api_e2e.py`.
-The latter covers every current HTTP endpoint, authorization and tenant
-isolation, event validation/paging/idempotency, concurrent writes, one-use
-joining, invitation expiry, cancellation. (The recovery endpoint it also exercised has been removed; there is no restore process.) Set
-`TACKLY_TEST_DB_PATH=/path/to/test.db` to include the expiry test
-against the disposable database. Run
-`python3 tests/retention.py` with the same variable only against a disposable
-database to verify the append-only triggers. These API tests use
-synthetic payload bytes; the Android live-relay suite covers actual client
-encryption against this server. Neither is a two-physical-phone test.
+| | |
+| --- | --- |
+| `POST /v1/families` | register a family and its first device |
+| `POST /v1/families/{id}/events` | append up to eight encrypted events |
+| `GET /v1/families/{id}/events?after=` | one page of events after a cursor |
+| `GET /v1/families/{id}/stream` | live stream (SSE) |
+| `POST /v1/families/{id}/invites` | create an invitation (head of the family) |
+| `GET`/`DELETE /v1/families/{id}/invites/{invite}` | its status; cancel it |
+| `POST /v1/families/{id}/invites/{invite}/approve` | hand over the sealed family key |
+| `POST /v1/invites/{invite}/request` | a new phone asks to join |
+| `POST /v1/invites/{invite}/claim` | the new phone collects the key and joins |
 
-## Live stream
+The request and response types live in `crates/protocol/src/wire.rs`, shared
+with the app.
 
-`GET /v1/families/{id}/stream?after=<sequence>` (bearer token; or the
-`Last-Event-ID` header) is a Server-Sent Events stream. It first replays events
-after the cursor, then pushes each newly accepted batch as an `events` message
-whose data is an `EventsPage` and whose `id` is the last sequence. Keep-alives
-are sent every 15 seconds. Wire types live in `crates/protocol`, shared with the
-app.
+**Live stream.** `GET /v1/families/{id}/stream?after=<sequence>` replays the
+events after the cursor, then pushes each newly accepted batch as an `events`
+message whose data is a page of events and whose SSE `id` is the last sequence.
+A reconnecting client sends it back as `Last-Event-ID`. Keep-alives come every
+15 seconds.
 
-## Protocol
+## Design
 
-- A phone can create one family locally without a server. Once a server is
-  configured, it registers that family and receives a random device bearer token. The
-  server stores only its SHA-256 hash. There is no restore: a lost phone
-  rejoins through a new invitation. A legacy per-device recovery verifier is
-  still stored but unused.
-- An owner creates a single-use invitation that expires after five minutes.
-  The QR contains a random secret that is never uploaded. The joining phone
-  requests access, and the owner confirms a matching code on both phones. The owner's phone
-  encrypts the family key under the QR secret; the server relays that package.
-- Phones POST encrypted events to `/v1/families/{id}/events` and fetch them by
-  cursor from the same path. UUID event IDs make retries idempotent. Server
-  writes are serialized per family so a cursor cannot skip a late commit.
-- The server retains every accepted encrypted event indefinitely. It has no
-  event expiry, pruning, or deletion API. Database triggers reject updates and
-  deletes of the event table. Corrections, reversals, and reopenings append
-  new events; projections and snapshots are rebuildable caches, not replacements
-  for the event history.
-- The app keeps an encrypted SQLite event log, a durable encrypted upload
-  envelope, and a cursor. It accepts edits while offline, retries when opened
-  or resumed, polls while active, and asks Android WorkManager for a
-  network-constrained retry. Android decides the actual background timing;
-  fifteen minutes is its minimum periodic interval, not a delivery guarantee.
-- Competing edits on the same task are held for a choice on the phones; other
-  tasks remain usable. Task state is replayed from events, not stored as
-  mutable server rows.
+- **Device tokens are chosen by the phone.** A phone makes a random token,
+  keeps it, and sends only its SHA-256 hash when it registers or joins. The
+  server never sees a token it could reveal, and repeating a request whose
+  answer was lost is harmless: same device, same hash, same answer. A different
+  token for an existing family is a conflict.
+- **Invitations.** The head of the family creates a single-use invitation that
+  expires after five minutes. Its secret is shown as a QR code and a link and is
+  never uploaded. The new phone proves it knows the secret; both phones show
+  the same six digits derived from it and the head confirms them; the head's
+  phone seals the family key under the secret and the server relays that
+  package.
+- **Events.** UUID event IDs make retries idempotent: the same bytes again are
+  accepted, other bytes under the same ID are a conflict. An event must come
+  from the device that sends it. Writes use one SQLite connection, so sequence
+  numbers are allocated in commit order and a cursor cannot skip a late commit.
+- **Retention.** Every accepted event is kept forever. There is no expiry,
+  pruning or delete API, and database triggers reject updates and deletes of the
+  event table (a database administrator can still bypass them). Corrections,
+  reversals and reopenings are new events.
 
-The server sees family, device, aggregate and event UUIDs, payload sizes,
-upload times, IP addresses, and access patterns. The original action time is
-inside the ciphertext. AES-256-GCM protects event contents and authenticates
-the routing IDs as associated data.
-The server does not have the family key.
+The server sees family, device and event IDs, payload sizes, upload times, IP
+addresses and access patterns. The time of an action is inside the ciphertext.
+AES-256-GCM protects the contents and authenticates the routing IDs as
+associated data. The server does not have the family key.
 
-Indefinite retention also needs durable SQLite file backups that include the
-write-ahead log, plus periodic restore checks; this repository does not deploy
-or operate those backups. A privileged database administrator can bypass the
-trigger. Future key rotation must keep
-the old decryption keys available to authorized clients, because old event
-ciphertext is never rewritten. Future event-schema upcasters should run during
-client replay and leave stored events intact.
+## Not done
 
-The current sharing slice does **not** provide device revocation, family-key
-rotation, signed client event histories, protection from a malicious server
-withholding events, or a resilient retry if the join response is lost after a
-one-use invitation is consumed. It should not be treated as a complete
-zero-knowledge production service until those controls are implemented and the
-two-device offline/reconnect flow has been exercised on real Android builds.
+Device revocation, family-key rotation (old events are never re-encrypted, so
+old keys must stay available to clients), signed client event histories, and
+protection against a malicious server withholding events. It should not be
+treated as a complete zero-knowledge production service until those exist.
 
-## Future MCP access
+## Tests
 
-A bearer API token can authorize event reads and writes but cannot decrypt the
-family. A future MCP that handles plaintext must run in a trusted client
-environment with the family key as well as an API token. The server must not
-receive that key. No MCP endpoint or token-management UI is implemented yet.
+`just test` runs the end-to-end suite in `crates/client/tests/e2e.rs`, which
+starts this server in-process on a real SQLite file and drives real devices
+against it, including the registration retry and server outages.

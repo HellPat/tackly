@@ -1,111 +1,191 @@
-use std::sync::{Arc, atomic::Ordering};
+//! What the screens read and what they can do.
+//!
+//! [`AppState`] is a small handle made only of signals, so it is `Copy`: any
+//! click handler can use it without cloning. The device itself sits behind one
+//! lock; every method here takes that lock only for the time of one call.
+
+use std::sync::atomic::Ordering;
 
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use dioxus::{core::spawn_forever, prelude::*};
-use tackly_client::{Device, Membership, SharedDevice, run_live};
-use tackly_protocol::Family;
+use tackly_client::{Device, InviteTicket, Membership, SharedDevice, run_live};
+use tackly_protocol::{Family, GeoPoint};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::platform;
 
-/// Everything screens read, as signals, plus the device they act through.
-#[derive(Clone)]
+/// How long a snackbar stays.
+const SNACKBAR_SECONDS: u64 = 5;
+/// The screens re-read the device at least this often (the time shown on
+/// cards moves on even when nothing happens).
+const REFRESH_SECONDS: u64 = 20;
+
+#[derive(Clone, Copy, PartialEq)]
 pub struct AppState {
-    pub device: SharedDevice,
+    device: Signal<SharedDevice>,
     pub family: Signal<Family>,
     pub membership: Signal<Option<Membership>>,
+    /// This phone's own ID, to tell "you" from the others.
     pub my_id: Signal<Uuid>,
+    /// Whether the live connection to the relay is up.
     pub online: Signal<bool>,
-    pub toast: Signal<Option<String>>,
-    pub now: Signal<chrono::DateTime<chrono::Utc>>,
-    started: Signal<bool>,
+    pub snackbar: Signal<Option<String>>,
+    pub now: Signal<DateTime<Utc>>,
+    sync_started: Signal<bool>,
 }
 
 impl AppState {
+    /// Opens this phone's data. Call once, inside a component.
     pub fn open() -> Result<Self> {
         let device = Device::open(platform::data_dir())?;
-        let family = device.state()?;
-        let membership = device.membership().cloned();
-        let my_id = device.device_id();
         Ok(Self {
-            device: Arc::new(Mutex::new(device)),
-            family: Signal::new(family),
-            membership: Signal::new(membership),
-            my_id: Signal::new(my_id),
+            family: Signal::new(device.state()?),
+            membership: Signal::new(device.membership().cloned()),
+            my_id: Signal::new(device.device_id()),
+            device: Signal::new(std::sync::Arc::new(Mutex::new(device))),
             online: Signal::new(false),
-            toast: Signal::new(None),
-            now: Signal::new(chrono::Utc::now()),
-            started: Signal::new(false),
+            snackbar: Signal::new(None),
+            now: Signal::new(Utc::now()),
+            sync_started: Signal::new(false),
         })
     }
 
+    pub fn device(&self) -> SharedDevice {
+        self.device.peek().clone()
+    }
+
     /// Reads the device into the signals. Cheap enough to call after any change.
-    pub async fn refresh(mut self) {
-        let device = self.device.lock().await;
-        if let Ok(family) = device.state() {
-            if *self.family.peek() != family {
-                self.family.set(family);
-            }
+    pub async fn refresh(self) {
+        let (family, membership, online, my_id) = {
+            let device = self.device().lock_owned().await;
+            (
+                device.state(),
+                device.membership().cloned(),
+                device.online_flag().load(Ordering::Relaxed),
+                device.device_id(),
+            )
+        };
+        let (mut family_signal, mut membership_signal) = (self.family, self.membership);
+        let (mut my_id_signal, mut online_signal, mut now) = (self.my_id, self.online, self.now);
+        if let Ok(family) = family
+            && *family_signal.peek() != family
+        {
+            family_signal.set(family);
         }
-        let membership = device.membership().cloned();
-        let online = device.online_flag().load(Ordering::Relaxed);
-        let my_id = device.device_id();
-        drop(device);
-        self.membership.set(membership);
-        self.my_id.set(my_id);
-        self.online.set(online);
-        self.now.set(chrono::Utc::now());
+        membership_signal.set(membership);
+        my_id_signal.set(my_id);
+        online_signal.set(online);
+        now.set(Utc::now());
     }
 
     /// Shows a snackbar for a few seconds.
-    pub fn say(mut self, message: impl Into<String>) {
+    pub fn say(self, message: impl Into<String>) {
         let message = message.into();
-        self.toast.set(Some(message.clone()));
-        let mut toast = self.toast;
+        let mut snackbar = self.snackbar;
+        snackbar.set(Some(message.clone()));
         spawn_forever(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            if toast.peek().as_deref() == Some(message.as_str()) {
-                toast.set(None);
+            tokio::time::sleep(std::time::Duration::from_secs(SNACKBAR_SECONDS)).await;
+            if snackbar.peek().as_deref() == Some(message.as_str()) {
+                snackbar.set(None);
             }
         });
     }
 
-    /// Runs a user action, then refreshes. Errors become a snackbar. The task
-    /// belongs to the app, not to the button's component: sheets close right
-    /// after the click, and a task owned by a closed component is cancelled.
-    pub fn run<T: 'static>(self, action: impl std::future::Future<Output = Result<T>> + 'static) {
+    /// Runs what a person asked for, then refreshes. A failure becomes a
+    /// snackbar. The task belongs to the app, not to the button's component:
+    /// sheets close right after the click, and a task owned by a closed
+    /// component is cancelled.
+    fn act<Fut>(self, action: impl FnOnce(SharedDevice) -> Fut + 'static)
+    where
+        Fut: std::future::Future<Output = Result<()>> + 'static,
+    {
         spawn_forever(async move {
-            if let Err(error) = action.await {
-                self.clone().say(format!("{error:#}"));
+            if let Err(error) = action(self.device()).await {
+                self.say(format!("{error:#}"));
             }
             self.refresh().await;
         });
     }
 
-    /// Starts live sync once: events from the relay refresh the screens.
-    pub fn start_sync(&self) {
-        if *self.started.peek() {
+    // ---- what a person can do -------------------------------------------------
+
+    pub fn add_task(self, title: String, emoji: String) {
+        self.act(move |device| async move {
+            device.lock().await.add_task(&title, &emoji).await?;
+            Ok(())
+        });
+    }
+
+    pub fn start_task(self, task: Uuid) {
+        self.act(move |device| async move { device.lock().await.start_task(task).await });
+    }
+
+    pub fn complete_task(self, task: Uuid, note: String, location: Option<GeoPoint>) {
+        self.act(move |device| async move {
+            device
+                .lock()
+                .await
+                .complete_task(task, Some(note), location)
+                .await
+        });
+    }
+
+    pub fn reopen_task(self, task: Uuid) {
+        self.act(move |device| async move { device.lock().await.reopen_task(task).await });
+    }
+
+    pub fn resolve_conflict(self, task: Uuid, keep_completion: Uuid) {
+        self.act(move |device| async move {
+            device
+                .lock()
+                .await
+                .resolve_conflict(task, keep_completion)
+                .await
+        });
+    }
+
+    pub fn approve_join(self, ticket: InviteTicket, joining_device: Uuid) {
+        self.act(move |device| async move {
+            device
+                .lock()
+                .await
+                .approve_join(&ticket, joining_device)
+                .await
+        });
+    }
+
+    pub fn leave_family(self) {
+        self.act(move |device| async move { device.lock().await.logout() });
+    }
+
+    // ---- live sync -------------------------------------------------------------
+
+    /// Starts keeping this phone in sync, once: whatever arrives from the
+    /// relay refreshes the screens.
+    pub fn start_sync(self) {
+        let mut started = self.sync_started;
+        if started.replace(true) {
             return;
         }
-        let mut started = self.started;
-        started.set(true);
         let (changed, mut wake) = tokio::sync::mpsc::unbounded_channel::<()>();
-        let device = self.device.clone();
+        let device = self.device();
         spawn(async move {
             run_live(device, move || {
+                // The receiver lives as long as the app does.
                 let _ = changed.send(());
             })
             .await;
         });
-        let state = self.clone();
         spawn(async move {
+            let periodic = std::time::Duration::from_secs(REFRESH_SECONDS);
             loop {
                 tokio::select! {
-                    got = wake.recv() => if got.is_none() { break },
-                    () = tokio::time::sleep(std::time::Duration::from_secs(20)) => {}
+                    update = wake.recv() => if update.is_none() { break },
+                    () = tokio::time::sleep(periodic) => {}
                 }
-                state.clone().refresh().await;
+                self.refresh().await;
             }
         });
     }

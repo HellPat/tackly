@@ -3,16 +3,13 @@
 //! then this device's pending ones. Commits only append locally; the upload
 //! trigger wakes the sync loop.
 
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, sync::Arc};
 
 use cqrs_es::{Aggregate, AggregateError, EventEnvelope, EventStore as CqrsEventStore, Query};
 use tackly_protocol::{Family, FamilyEvent};
 use tokio::sync::Notify;
 
-use crate::store::EventStore;
+use crate::store::SharedStore;
 
 type StoreResult<T> = Result<T, AggregateError<<Family as Aggregate>::Error>>;
 
@@ -24,11 +21,11 @@ fn unexpected(
 
 #[derive(Clone)]
 pub struct DeviceStore {
-    events: Arc<Mutex<EventStore>>,
+    events: SharedStore,
 }
 
 impl DeviceStore {
-    pub fn new(events: Arc<Mutex<EventStore>>) -> Self {
+    pub fn new(events: SharedStore) -> Self {
         Self { events }
     }
 
@@ -68,12 +65,7 @@ impl CqrsEventStore<Family> for DeviceStore {
     type AC = DeviceContext;
 
     async fn load_events(&self, aggregate_id: &str) -> StoreResult<Vec<EventEnvelope<Family>>> {
-        let events = self
-            .events
-            .lock()
-            .unwrap()
-            .read_events()
-            .map_err(unexpected)?;
+        let events = self.events.lock().read_events().map_err(unexpected)?;
         Ok(Self::envelopes(aggregate_id, events, 1))
     }
 
@@ -96,7 +88,7 @@ impl CqrsEventStore<Family> for DeviceStore {
         _metadata: HashMap<String, String>,
     ) -> StoreResult<Vec<EventEnvelope<Family>>> {
         {
-            let store = self.events.lock().unwrap();
+            let store = self.events.lock();
             for event in &events {
                 store.insert(event, None).map_err(unexpected)?;
             }

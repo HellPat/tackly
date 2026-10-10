@@ -89,24 +89,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
-name = "android-native-keyring-store"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48c6349ddff23194f8fdce2ea8849380f5a4868c1648965b70e801e104cba9b3"
-dependencies = [
- "base64 0.22.1",
- "jni 0.21.1",
- "keyring-core",
- "log",
- "ndk-context",
- "regex",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tracing",
-]
-
-[[package]]
 name = "android_system_properties"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3112,15 +3094,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "keyring-core"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb1e621458ca9c51aa110bd0339d4751a056b9576bf1253aee1aa560dda0fc9d"
-dependencies = [
- "log",
-]
-
-[[package]]
 name = "konst"
 version = "0.2.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5857,12 +5830,12 @@ dependencies = [
 name = "tackly-acceptance"
 version = "0.2.0"
 dependencies = [
- "axum",
+ "anyhow",
  "base64 0.22.1",
  "cucumber",
  "rqrr",
  "serde_json",
- "tackly-sync",
+ "tackly-testkit",
  "tokio",
  "uuid",
 ]
@@ -5887,15 +5860,12 @@ name = "tackly-client"
 version = "0.2.0"
 dependencies = [
  "aes-gcm",
- "android-native-keyring-store",
  "anyhow",
  "async-trait",
- "axum",
  "base64 0.22.1",
  "chrono",
  "cqrs-es",
  "futures-util",
- "keyring-core",
  "qrcode",
  "rand 0.8.8",
  "reqwest",
@@ -5905,7 +5875,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tackly-protocol",
- "tackly-sync",
+ "tackly-testkit",
  "tokio",
  "uuid",
 ]
@@ -5914,10 +5884,12 @@ dependencies = [
 name = "tackly-protocol"
 version = "0.2.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "cqrs-es",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.21",
  "tokio",
  "uuid",
@@ -5930,13 +5902,23 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "futures-util",
- "rand 0.8.8",
+ "serde",
  "serde_json",
  "sha2",
  "sqlx",
  "tackly-protocol",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "tackly-testkit"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "tackly-sync",
+ "tokio",
 ]
 
 [[package]]

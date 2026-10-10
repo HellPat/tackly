@@ -10,9 +10,12 @@ publish = false
 name = "acceptance"
 harness = false
 
+[lints]
+workspace = true
+
 [dev-dependencies]
-tackly-sync = { path = "../../server" }
-axum = "0.8"
+tackly-testkit = { path = "../testkit" }
+anyhow.workspace = true
 base64.workspace = true
 cucumber = "0.23"
 rqrr = "0.11"

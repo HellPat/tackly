@@ -1,0 +1,16 @@
+[package]
+name = "tackly-testkit"
+description = "Test helpers shared by the end-to-end and acceptance suites: a real relay that can be stopped and started"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+tackly-sync = { path = "../../server" }
+anyhow.workspace = true
+axum = "0.8"
+tokio.workspace = true

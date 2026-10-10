@@ -23,6 +23,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+      - name: Clippy on everything, unwrap and expect denied
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo build --locked --release -p tackly-sync -p tackly-app
       - uses: actions/upload-artifact@v4
         with:
@@ -32,7 +34,7 @@ jobs:
             target/release/tackly-app
 
   acceptance-macos:
-    # Real app windows, so it needs a desktop session. Not verified on a runner yet.
+    # Real app windows: the macOS runner has a desktop session.
     runs-on: macos-latest
     timeout-minutes: 60
     steps:

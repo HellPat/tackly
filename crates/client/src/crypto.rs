@@ -28,9 +28,12 @@ pub fn decode(value: &str) -> Result<Vec<u8>> {
     URL_SAFE_NO_PAD.decode(value).context("decode base64url")
 }
 
+fn cipher(key: &[u8]) -> Result<Aes256Gcm> {
+    Aes256Gcm::new_from_slice(key).map_err(|_| anyhow::anyhow!("AES-256 key must be 32 bytes"))
+}
+
 pub fn seal(key: &[u8], plaintext: &[u8], aad: &str) -> Result<SealedData> {
-    ensure!(key.len() == 32, "AES-256 key must be 32 bytes");
-    let cipher = Aes256Gcm::new_from_slice(key).expect("checked length");
+    let cipher = cipher(key)?;
     let nonce = random_bytes::<12>();
     let mut body = plaintext.to_vec();
     let mac = cipher
@@ -44,7 +47,7 @@ pub fn seal(key: &[u8], plaintext: &[u8], aad: &str) -> Result<SealedData> {
 }
 
 pub fn open(key: &[u8], sealed: &SealedData, aad: &str) -> Result<Vec<u8>> {
-    ensure!(key.len() == 32, "AES-256 key must be 32 bytes");
+    let cipher = cipher(key)?;
     let nonce = decode(&sealed.nonce)?;
     let mut body = decode(&sealed.ciphertext)?;
     let mac = decode(&sealed.mac)?;
@@ -52,7 +55,6 @@ pub fn open(key: &[u8], sealed: &SealedData, aad: &str) -> Result<Vec<u8>> {
         nonce.len() == 12 && mac.len() == 16,
         "invalid AES-GCM envelope"
     );
-    let cipher = Aes256Gcm::new_from_slice(key).expect("checked length");
     cipher
         .decrypt_in_place_detached(
             Nonce::from_slice(&nonce),

@@ -5,11 +5,15 @@ Shared family tasks that work offline and sync live. Written in Rust: a
 Axum sync relay, SQLite on both sides, and a Nix dev shell.
 
 ```
-crates/protocol   shared by app and server: the Family aggregate, its commands
-                  and events (cqrs-es), and the HTTP/SSE wire types
-crates/client     the device core: encrypted SQLite event log, pairing, sync
-crates/app        the Dioxus app
-server            the relay: stores encrypted events, pushes them over SSE
+crates/protocol    shared by app and server: the Family aggregate, its commands
+                   and events (cqrs-es), and the HTTP/SSE wire types
+crates/client      the device core: encrypted SQLite event log, pairing, sync
+crates/app         the Dioxus app (desktop windows and Android)
+server             the relay: stores encrypted events, pushes them over SSE
+crates/testkit     a stoppable real relay, shared by the test suites
+crates/acceptance  Cucumber scenarios clicked through real app windows
+android-e2e        Playwright on an Android emulator (a spike, see below)
+scripts            what the just recipes run
 ```
 
 ## Try it
@@ -35,13 +39,26 @@ This builds everything, starts the relay and opens **three app windows**
    other windows update live.
 
 `just start 1` opens one window; `just reset` forgets all test data;
-`just test` runs the suites; `just server` runs only the relay. The desktop
-build fakes the GPS with `TACKLY_LOCATION` (each window gets its own).
-`just android` runs the same app in an emulator (Android SDK/NDK required; not
-covered by CI).
+`just server` runs only the relay. The desktop build fakes the GPS with
+`TACKLY_LOCATION` (each window gets its own).
 
-Without Nix, install Rust and run `cargo run -p tackly-sync` and
-`cargo run -p tackly-app` yourself.
+| Recipe | |
+| --- | --- |
+| `just test` | unit tests and the device-level end-to-end suite |
+| `just acceptance` | the Cucumber suite in real windows |
+| `just lint` | clippy on everything |
+| `just android-build` | debug APK (Android SDK and NDK needed; the Nix shell has the rest) |
+| `just android` | build, install and start it on the emulator or device, booting the first AVD if none runs |
+| `just android-test` | the Playwright-on-Android suite |
+
+Without Nix, install Rust (with the clippy component), and for Android the SDK,
+NDK, JDK 21 and `dioxus-cli`, then run the scripts in `scripts/` or
+`cargo run -p tackly-sync` and `cargo run -p tackly-app` yourself.
+
+**No unwrap.** Errors are handled, not unwrapped: `unwrap` and `expect` are
+denied by clippy (tests may use them). `.cargo/config.toml` runs clippy on every
+workspace build, so a stray `unwrap()` fails plain `cargo build`, not only
+`cargo clippy`.
 
 ## How it works
 
@@ -92,10 +109,24 @@ runs; let it finish. CI runs it on macOS.
 which runs the same flows through the device core directly. It is fast and is
 what CI runs on Linux.
 
+**`just android-test`: Playwright on Android (spike).** `android-e2e/spike.mjs`
+drives the app in an emulator: Playwright's `Page` on the app's WebView for
+locators and assertions, and `AndroidInput` over adb for real touches and real
+keyboard input. It runs one scenario (create a family, add a task by keyboard
+and Enter, start and finish it) against a real relay on the host. It is an
+alternative next to the desktop suite, not a replacement, and is not in CI.
+Known limits: `AndroidInput.type` drops capital letters, attaching while the app
+is still starting crashes the debug build (the script waits a moment first), and
+Playwright's Android driver APK must be installed (`npx playwright install
+android`, done by the recipe).
+
 Server details are in [server/README.md](server/README.md).
 
 ## Status
 
 Not done, by decision: there is no restore process. A lost phone means
 leaving and rejoining with a new invitation. Also missing: device revocation,
-key rotation, real GPS on Android; the Android build is unverified.
+key rotation, real GPS on Android, scanning the QR code with the camera, and
+keeping secrets in the Android Keystore (they sit in the app-private storage
+for now). The Android app builds and runs in the emulator, and its Playwright
+spike passes.

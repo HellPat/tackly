@@ -1,0 +1,5 @@
+# Run clippy (with the lints in Cargo.toml) on every workspace build, so that
+# `cargo build` and `cargo test` fail on an unwrap, not only `cargo clippy`.
+# Needs the clippy component: `rustup component add clippy` (the Nix shell has it).
+[build]
+rustc-workspace-wrapper = "clippy-driver"

@@ -1,7 +1,13 @@
 [workspace]
 resolver = "3"
-members = ["crates/protocol", "crates/client", "server", "crates/app", "crates/acceptance"]
+members = ["crates/protocol", "crates/client", "server", "crates/app", "crates/acceptance", "crates/testkit"]
 default-members = ["crates/protocol", "crates/client", "server"]
+
+[workspace.lints.clippy]
+# Errors are handled, not unwrapped. `.cargo/config.toml` runs clippy on every
+# build, so a stray unwrap or expect fails `cargo build`, not only `cargo clippy`.
+unwrap_used = "deny"
+expect_used = "deny"
 
 [workspace.package]
 version = "0.2.0"

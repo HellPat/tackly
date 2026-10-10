@@ -9,5 +9,5 @@ pub mod qr;
 pub mod secrets;
 pub mod store;
 
-pub use device::{Device, InviteProgress, InviteTicket, JoinRequest, Membership};
+pub use device::{Device, InviteProgress, InviteTicket, JoinRequest, LiveTarget, Membership};
 pub use live::{SharedDevice, run_live};

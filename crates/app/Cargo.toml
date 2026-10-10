@@ -11,6 +11,9 @@ mobile = ["dioxus/mobile"]
 # Remote control of the web view for the acceptance tests. Never in release builds.
 ui-test = ["dep:serde_json"]
 
+[lints]
+workspace = true
+
 [dependencies]
 tackly-client.workspace = true
 tackly-protocol.workspace = true

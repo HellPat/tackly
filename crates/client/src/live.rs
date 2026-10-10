@@ -13,7 +13,7 @@ use futures_util::StreamExt;
 use reqwest_eventsource::Event;
 use tokio::sync::Mutex;
 
-use crate::device::Device;
+use crate::device::{Device, LiveTarget};
 
 pub type SharedDevice = Arc<Mutex<Device>>;
 
@@ -51,11 +51,17 @@ async fn sync_loop(
             let _ = device.flush().await;
             device.live_target()
         };
-        let Some((api, family, token, cursor)) = target else {
+        let Some(LiveTarget {
+            api,
+            family_id,
+            token,
+            cursor,
+        }) = target
+        else {
             tokio::time::sleep(Duration::from_secs(1)).await;
             continue;
         };
-        match api.event_source(family, &token, cursor) {
+        match api.event_source(family_id, &token, cursor) {
             Ok(mut source) => {
                 while let Some(event) = source.next().await {
                     match event {

@@ -1,6 +1,8 @@
 //! HTTP and SSE payloads. Binary values are unpadded base64url strings.
 
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 /// SSE event name for a batch of [`SequencedEvent`]s in an [`EventsPage`].
@@ -10,17 +12,20 @@ pub const MAX_APPEND_BATCH: usize = 8;
 /// Maximum events per GET page and per SSE message.
 pub const MAX_PAGE: i64 = 20;
 
+/// What the relay keeps of a device token: the token itself stays on the phone,
+/// which chooses it. Base64url of the SHA-256 of the token's text.
+pub fn token_hash(token: &str) -> String {
+    URL_SAFE_NO_PAD.encode(Sha256::digest(token.as_bytes()))
+}
+
+/// Registers a family and its first device. The phone chose the token and
+/// sends only its hash, so repeating the request (the answer may have been
+/// lost) is harmless.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CreateFamily {
     pub family_id: Uuid,
     pub device_id: Uuid,
-    pub recovery_verifier: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DeviceToken {
-    pub device_token: String,
-    pub owner: bool,
+    pub token_hash: String,
 }
 
 /// An event as the server stores it. The server can read only the IDs.
@@ -118,13 +123,12 @@ pub struct ApproveJoin {
 pub struct ClaimInvite {
     pub verifier: String,
     pub device_id: Uuid,
-    pub recovery_verifier: String,
+    pub token_hash: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClaimedInvite {
     pub family_id: Uuid,
-    pub device_token: String,
     pub package_nonce: String,
     pub package_ciphertext: String,
     pub package_mac: String,

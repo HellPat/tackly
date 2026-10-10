@@ -17,9 +17,10 @@ pub fn install() {
         let Ok(port) = std::env::var("TACKLY_UI_TEST_PORT") else {
             return;
         };
-        let listener = TcpListener::bind(format!("127.0.0.1:{port}"))
-            .await
-            .expect("bind the UI test port");
+        let Ok(listener) = TcpListener::bind(format!("127.0.0.1:{port}")).await else {
+            eprintln!("ui-test: could not listen on port {port}");
+            return;
+        };
         loop {
             let Ok((socket, _)) = listener.accept().await else {
                 continue;

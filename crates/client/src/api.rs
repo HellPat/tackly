@@ -23,6 +23,13 @@ impl std::fmt::Display for HttpError {
 }
 impl std::error::Error for HttpError {}
 
+impl HttpError {
+    /// 410: an invitation that expired, was used or was cancelled.
+    pub fn is_gone(error: &anyhow::Error) -> bool {
+        matches!(error.downcast_ref::<Self>(), Some(Self(status, _)) if status.as_u16() == 410)
+    }
+}
+
 async fn parse<T: DeserializeOwned>(response: Response) -> Result<T> {
     let status = response.status();
     if status.is_success() {
@@ -84,8 +91,16 @@ impl Api {
         Ok(())
     }
 
-    pub async fn create_family(&self, body: &CreateFamily) -> Result<DeviceToken> {
-        self.send(self.post("/v1/families", None, body)).await
+    /// Registers the family. Repeating it with the same token is harmless.
+    pub async fn create_family(&self, family_id: Uuid, device_id: Uuid, token: &str) -> Result<()> {
+        let body = CreateFamily {
+            family_id,
+            device_id,
+            token_hash: token_hash(token),
+        };
+        self.send::<serde_json::Value>(self.post("/v1/families", None, &body))
+            .await?;
+        Ok(())
     }
 
     pub async fn append(

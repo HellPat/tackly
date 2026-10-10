@@ -1,7 +1,10 @@
 //! The device's append-only event log in SQLite. Event bodies are encrypted
 //! under a device-local key; visible state is rebuilt by replaying them.
 
-use std::path::Path;
+use std::{
+    path::Path,
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
+};
 
 use anyhow::{Context, Result, bail, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -12,6 +15,23 @@ use crate::{
     crypto::{SealedData, open, random_bytes, seal},
     secrets::Secrets,
 };
+
+/// The event log shared between the device and its `cqrs-es` store.
+#[derive(Clone)]
+pub struct SharedStore(Arc<Mutex<EventStore>>);
+
+impl SharedStore {
+    pub fn new(store: EventStore) -> Self {
+        Self(Arc::new(Mutex::new(store)))
+    }
+
+    /// A poisoned lock means another thread panicked while holding it. Each
+    /// operation on the store is one SQLite statement or transaction, so the
+    /// data is intact and work continues.
+    pub fn lock(&self) -> MutexGuard<'_, EventStore> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
 
 pub struct EventStore {
     db: Connection,
