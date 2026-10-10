@@ -43,7 +43,12 @@
 
     <header id="header" class="relative z-10 shrink-0 flex items-center gap-1 px-2 h-16">
       <button id="backBtn" class="hidden size-12 grid place-items-center rounded-full text-stone-700 hover:bg-stone-200" aria-label="Back"><span class="material-symbols-rounded" aria-hidden="true">arrow_back</span></button>
-      <h1 id="title" class="flex-1 px-2 text-2xl font-semibold tracking-tight truncate">Tasks</h1>
+      <h1 class="flex-1 min-w-0 px-2 text-2xl font-semibold tracking-tight">
+        <span id="title" class="block truncate">Tasks</span>
+        <button id="listBtn" class="hidden max-w-full items-center gap-1 -ml-1 pl-1 pr-2 h-10 rounded-md hover:bg-stone-200/60" aria-haspopup="dialog">
+          <span id="listName" class="truncate"></span><span class="material-symbols-rounded text-stone-500" aria-hidden="true">expand_more</span>
+        </button>
+      </h1>
       <button id="editBtn" class="hidden size-12 place-items-center rounded-full text-stone-700 hover:bg-stone-200" aria-label="Edit place"><span class="material-symbols-rounded" aria-hidden="true">edit</span></button>
       <span id="offline" class="hidden mr-2 items-center gap-1 h-8 px-3 rounded-full bg-stone-200 text-sm text-stone-700"><span class="material-symbols-rounded !text-[18px]" aria-hidden="true">cloud_off</span>Offline</span>
     </header>
@@ -101,6 +106,8 @@ const TINTS = ['bg-sky-100 text-sky-900', 'bg-pink-100 text-pink-900', 'bg-teal-
 
 const state = {
   tab: 'tasks', filter: 'mine', placeView: null, personView: null, editPlace: false, chosen: new Set(), detail: null,
+  lists: [{ id: 'home', name: 'Household' }, { id: 'shop', name: 'Shopping' }, { id: 'garden', name: 'Garden' }],
+  list: 'all', // which list Tasks shows; 'all' shows every list in sections
   groups: [{ id: 'g1', name: 'Grocery Store' }, { id: 'g2', name: 'Hardware' }],
   places: [
     { id: 'lidl', group: 'g1', name: 'LIDL', locations: [{ name: 'LIDL Winnenden', address: 'Marbacher Straße 1, Winnenden' }, { name: 'LIDL Backnang', address: 'Stuttgarter Straße 3, Backnang' }] },
@@ -114,14 +121,14 @@ const state = {
   ],
   // Work sessions since the task was (re)opened; reopening starts over.
   tasks: [
-    { id: 4, title: 'Water the plants', places: [], status: 'open', on: 'mo', sessions: [{ from: now() - 4 * MIN }] },
-    { id: 8, title: 'Vacuum the stairs', places: [], status: 'open', on: 'ma', sessions: [{ from: now() - 30 * MIN, to: now() - 12 * MIN }] },
-    { id: 9, title: 'Book the holiday', places: [], status: 'open', on: 'mo', sessions: [] },
-    { id: 6, title: 'Call the dentist', places: [], status: 'open', sessions: [{ from: now() - 26 * 60 * MIN, to: now() - 25.6 * 60 * MIN }, { from: now() - 50 * MIN, to: now() - 38 * MIN }] },
-    { id: 1, title: 'Milk', places: ['lidl', 'aldi'], status: 'open', sessions: [] },
-    { id: 2, title: 'Bread', places: ['lidl'], status: 'open', sessions: [] },
-    { id: 3, title: 'Light bulbs', places: ['bauhaus'], status: 'open', sessions: [] },
-    { id: 7, title: 'Pick up the parcel', places: [], status: 'open', sessions: [] },
+    { id: 4, title: 'Water the plants', list: 'home', places: [], status: 'open', on: 'mo', sessions: [{ from: now() - 4 * MIN }] },
+    { id: 8, title: 'Vacuum the stairs', list: 'home', places: [], status: 'open', on: 'ma', sessions: [{ from: now() - 30 * MIN, to: now() - 12 * MIN }] },
+    { id: 9, title: 'Book the holiday', list: 'home', places: [], status: 'open', on: 'mo', sessions: [] },
+    { id: 6, title: 'Call the dentist', list: 'home', places: [], status: 'open', sessions: [{ from: now() - 26 * 60 * MIN, to: now() - 25.6 * 60 * MIN }, { from: now() - 50 * MIN, to: now() - 38 * MIN }] },
+    { id: 1, title: 'Milk', list: 'shop', places: ['lidl', 'aldi'], status: 'open', sessions: [] },
+    { id: 2, title: 'Bread', list: 'shop', places: ['lidl'], status: 'open', sessions: [] },
+    { id: 3, title: 'Light bulbs', list: 'shop', places: ['bauhaus'], status: 'open', sessions: [] },
+    { id: 7, title: 'Pick up the parcel', list: 'home', places: [], status: 'open', sessions: [] },
   ],
   recent: ['Altglas leeren', 'Feed the cat'],
 };
@@ -132,6 +139,11 @@ const FOUND = [
   { name: 'dm', address: 'Marktstraße 41, Winnenden' },
 ];
 const placeById = (id) => state.places.find((p) => p.id === id);
+const listById = (id) => state.lists.find((l) => l.id === id);
+/* A section heading with a quiet edit button, for lists (in "All lists") and place groups. */
+const editableHeading = (text, kind, id) => `<div class="flex items-center justify-between pl-2 pt-4 pb-1">
+  <h2 class="text-sm font-semibold text-stone-600">${text}</h2>
+  <button class="size-10 grid place-items-center rounded-full text-stone-500 hover:bg-stone-200/60" data-rename="${kind}" data-id="${id}" aria-label="Rename ${text}">${icon('edit', '!text-[18px]')}</button></div>`;
 const member = (id) => state.members.find((m) => m.id === id);
 const find = (id) => state.tasks.find((t) => t.id == id);
 const visible = () => state.tasks.filter((t) => t.status === 'open');
@@ -253,7 +265,7 @@ const FILTERS = {
   all:  { label: 'All', keep: () => true },
 };
 function renderTasks() {
-  const all = visible();
+  const all = visible().filter((t) => state.list === 'all' || t.list === state.list);
   if (!all.length) return emptyState('celebration', 'All done', 'Nothing left to do. Enjoy it.');
   const tasks = all.filter(FILTERS[state.filter].keep);
   const chips = Object.entries(FILTERS).map(([id, { label, keep }]) => {
@@ -261,7 +273,11 @@ function renderTasks() {
     return `<button data-filter="${id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-stone-800 text-stone-50' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${label}<span class="${on ? 'text-stone-300' : 'text-stone-500'} font-normal">${n}</span></button>`;
   }).join('');
   const head = `<div class="flex gap-2 pt-1 pb-3" role="group" aria-label="Filter">${chips}</div>`;
-  if (tasks.length) return `${head}<ul>${tasks.map(taskCard).join('')}</ul>`;
+  if (tasks.length && state.list !== 'all') return `${head}<ul>${tasks.map(taskCard).join('')}</ul>`;
+  if (tasks.length) return head + state.lists.map((l) => {
+    const mine = tasks.filter((t) => t.list === l.id);
+    return mine.length ? editableHeading(l.name, 'list', l.id) + `<ul>${mine.map(taskCard).join('')}</ul>` : '';
+  }).join('');
   if (state.filter === 'mine') return head + nothingMine();
   return `${head}<p class="py-16 text-center text-stone-600">Every task has someone on it.</p>`;
 }
@@ -270,7 +286,7 @@ function renderTasks() {
 function nothingMine() {
   const someone = others()[happy % others().length];
   return `<div id="toAll" class="mt-24 flex flex-col items-center text-center">
-      <p class="font-['Caveat'] text-2xl leading-none text-stone-700">No tasks on your list.</p>
+      <p class="font-['Caveat'] text-2xl leading-none text-stone-700">Nothing on your plate.</p>
       <div id="happy" class="mt-5 flex flex-col items-center gap-2 transition-opacity duration-300">
         <span class="-rotate-3">${avatar(someone, 'size-12')}</span>
         <p class="font-['Caveat'] text-[34px] leading-none font-bold text-stone-800">Make ${someone.name} happy</p>
@@ -301,7 +317,7 @@ function renderPlaces() {
   return groups.map((g) => {
     const places = state.places.filter((p) => (p.group ?? null) === g.id).sort((a, b) => openAt(b).length - openAt(a).length);
     if (!places.length) return '';
-    return heading(g.name) + `<ul class="${CARD} overflow-hidden">${places.map((p) => {
+    return (g.id ? editableHeading(g.name, 'group', g.id) : heading(g.name)) + `<ul class="${CARD} overflow-hidden">${places.map((p) => {
       const n = openAt(p).length;
       return `<li><button class="w-full flex items-center gap-3 px-4 min-h-14 text-left hover:bg-stone-50 active:bg-stone-100" data-place="${p.id}">
         <span class="size-9 shrink-0 rounded-full grid place-items-center bg-stone-100 text-stone-600">${icon('storefront', '!text-[18px]')}</span>
@@ -361,6 +377,36 @@ function renderFamily() {
       ${n ? `<span class="text-sm text-stone-600">${n} ${n === 1 ? 'task' : 'tasks'}</span>` : ''}
       ${icon('chevron_right', 'text-stone-500')}</button></li>`;
   }).join('')}</ul>`;
+}
+
+/* The list switcher: every list with its open count, "All lists", and a way to add one. */
+function listSheet() {
+  const row = (id, name) => {
+    const n = visible().filter((t) => id === 'all' || t.list === id).length, on = state.list === id;
+    return `<li><button class="w-full flex items-center gap-3 px-3 min-h-14 rounded-lg text-left ${on ? 'bg-stone-100 font-semibold' : 'hover:bg-stone-50'}" data-pick-list="${id}" aria-current="${on}">
+      ${icon(id === 'all' ? 'stacks' : 'list', 'text-stone-500')}<span class="flex-1">${name}</span><span class="text-sm text-stone-600 font-normal">${n}</span></button></li>`;
+  };
+  sheet(`<h2 class="text-xl font-semibold">Lists</h2>
+    <ul class="mt-3 -mx-3">${row('all', 'All lists')}${state.lists.map((l) => row(l.id, l.name)).join('')}</ul>
+    <form id="newListForm" class="mt-4 flex gap-2">
+      <input id="newList" aria-label="New list" placeholder="New list, e.g. Garden" class="flex-1 min-w-0 h-10 px-3 rounded-md bg-[#fffdfb] border border-stone-300 shadow-sm outline-none focus:ring-2 focus:ring-accent-700">
+      <button class="${SECONDARY}">${icon('add', '!text-[18px]')}Add</button>
+    </form>`);
+}
+
+/* Renaming a list or a group; deleting only when nothing is in it. */
+function renameSheet(kind, id) {
+  const bucket = kind === 'list' ? listById(id) : state.groups.find((g) => g.id === id);
+  const empty = kind === 'list' ? !state.tasks.some((t) => t.list === id && t.status === 'open') : !state.places.some((p) => p.group === id);
+  const what = kind === 'list' ? 'list' : 'group';
+  sheet(`<form id="renameForm" data-kind="${kind}" data-id="${id}">
+    <h2 class="text-xl font-semibold">Rename ${what}</h2>
+    <input id="renameInput" aria-label="Name" value="${bucket.name}" class="mt-4 w-full h-12 px-4 rounded-md bg-[#fffdfb] border border-stone-300 shadow-sm text-base outline-none focus:ring-2 focus:ring-accent-700">
+    <div class="mt-5 flex items-center gap-2">
+      ${empty && !(kind === 'list' && state.lists.length === 1) ? `<button type="button" class="mr-auto text-sm text-stone-600 underline underline-offset-4 hover:text-stone-900" data-delete="${kind}" data-id="${id}">Delete ${what}</button>` : '<span class="mr-auto text-sm text-stone-600">' + (kind === 'list' ? 'Lists with open tasks can’t be deleted.' : 'Groups with places can’t be deleted.') + '</span>'}
+      <button type="button" class="${SECONDARY}" data-close-sheet>Cancel</button>
+      <button class="${PRIMARY}">Save</button>
+    </div></form>`);
 }
 
 /* The picture: an icon on a tint, or a photo. Always round. */
@@ -459,6 +505,11 @@ function render() {
   const titles = { tasks: 'Tasks', places: 'Places', family: 'The Smiths' };
   const inPlace = state.tab === 'places' && state.placeView;
   const inPerson = state.tab === 'family' && state.personView;
+  const onTasks = state.tab === 'tasks';
+  $('#title').classList.toggle('hidden', onTasks);
+  $('#listBtn').classList.toggle('hidden', !onTasks); $('#listBtn').classList.toggle('inline-flex', onTasks);
+  $('#listName').textContent = state.list === 'all' ? 'All lists' : listById(state.list).name;
+  $('#listBtn').setAttribute('aria-label', `List: ${$('#listName').textContent}. Switch list`);
   $('#title').textContent = inPlace ? (state.editPlace ? 'Edit place' : placeById(state.placeView).name) : inPerson ? member(state.personView).name : titles[state.tab];
   // Edit lives in the top bar: for a place, and for yourself.
   const canEdit = (inPlace && !state.editPlace) || (inPerson && member(state.personView).me);
@@ -482,11 +533,12 @@ $('#composer').addEventListener('mousedown', (e) => { if (e.target.closest('#ext
 $('#addInput').addEventListener('input', (e) => { const has = !!e.target.value.trim(); $('#addBtn').classList.toggle('hidden', !has); $('#addBtn').classList.toggle('grid', has); if (barMode() !== 'task') renderExtras(); });
 
 function addTask(title) {
-  const t = { id: now(), title, places: [...state.chosen], status: 'open', sessions: [] };
+  const list = state.list === 'all' ? state.lists[0].id : state.list;
+  const t = { id: now(), title, list, places: [...state.chosen], status: 'open', sessions: [] };
   state.tasks.push(t);
   state.chosen = new Set(state.placeView ? [state.placeView] : []);
   render();
-  toast(`Added ${title}`, 'Undo', () => { state.tasks.splice(state.tasks.indexOf(t), 1); render(); });
+  toast(state.list === 'all' ? `Added ${title} to ${listById(list).name}` : `Added ${title}`, 'Undo', () => { state.tasks.splice(state.tasks.indexOf(t), 1); render(); });
 }
 function addPlace(name, address) {
   const p = { id: `p${now()}`, group: null, name, locations: [{ name, address: address ?? name }] };
@@ -519,6 +571,18 @@ function finish(t, card) {
 
 document.addEventListener('input', (e) => { if (e.target.id === 'placeName') { placeById(state.placeView).name = e.target.value; } });
 document.addEventListener('submit', (e) => {
+  if (e.target.id === 'newListForm') {
+    e.preventDefault();
+    const name = $('#newList').value.trim(); if (!name) return;
+    const l = { id: `l${now()}`, name }; state.lists.push(l); state.list = l.id;
+    $('#sheet').close(); render(); return;
+  }
+  if (e.target.id === 'renameForm') {
+    e.preventDefault();
+    const name = $('#renameInput').value.trim(), { kind, id } = e.target.dataset;
+    if (name) (kind === 'list' ? listById(id) : state.groups.find((g) => g.id === id)).name = name;
+    $('#sheet').close(); render(); return;
+  }
   if (e.target.id !== 'newGroupForm') return;
   e.preventDefault();
   const name = $('#newGroup').value.trim();
@@ -537,6 +601,15 @@ document.addEventListener('click', (e) => {
   else if (b.id === 'editBtn' && state.personView) { avatarSheet(); return; }
   else if (b.id === 'editBtn' || 'editPlace' in d) { state.editPlace = true; }
   else if (d.person) { state.personView = d.person; }
+  else if (b.id === 'listBtn') { listSheet(); return; }
+  else if (d.pickList) { state.list = d.pickList; $('#sheet').close(); }
+  else if (d.rename) { renameSheet(d.rename, d.id); return; }
+  else if ('closeSheet' in d) { $('#sheet').close(); return; }
+  else if (d.delete) {
+    if (d.delete === 'list') { state.lists = state.lists.filter((l) => l.id !== d.id); if (state.list === d.id) state.list = 'all'; }
+    else state.groups = state.groups.filter((g) => g.id !== d.id);
+    $('#sheet').close();
+  }
   else if ('group' in d && state.editPlace) { placeById(state.placeView).group = d.group || null; }
   else if ('newGroup' in d) { state.newGroup = true; render(); $('#newGroup').focus(); return; }
   else if (d.assign) {
@@ -590,6 +663,9 @@ state.offline = query.has('offline');
 if (query.has('empty')) { state.tasks = []; state.places = []; }
 if (query.get('task')) { state.detail = +query.get('task'); if (query.get('run')) { find(state.detail).sessions.push({ from: now() - 7 * MIN }); find(state.detail).on = 'p'; } }
 if (query.get('filter')) state.filter = query.get('filter');
+if (query.get('list')) state.list = query.get('list');
+if (query.has('lists')) { render(); listSheet(); }
+if (query.get('rename')) { render(); renameSheet(...query.get('rename').split(':')); }
 if (query.has('assign')) { state.filter = 'all'; render(); document.querySelector('[data-assign]').click(); }
 if (query.has('mine')) { const t = find(6); t.on = 'p'; t.sessions.push({ from: now() - 3 * MIN }); }
 render();
