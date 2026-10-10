@@ -245,9 +245,14 @@ pub fn Home() -> Element {
 fn TasksTab(open_finish: EventHandler<Uuid>) -> Element {
     let state = use_context::<AppState>();
     let family = (state.family)();
+    let conflicts: Vec<&Task> = family.tasks.values().filter(|t| t.has_conflict()).collect();
     let mut todo: Vec<&Task> = family.tasks.values().filter(|t| !t.is_done()).collect();
     todo.sort_by_key(|t| !matches!(t.status, TaskStatus::InProgress { .. }));
-    let mut done: Vec<&Task> = family.tasks.values().filter(|t| t.is_done()).collect();
+    let mut done: Vec<&Task> = family
+        .tasks
+        .values()
+        .filter(|t| t.is_done() && !t.has_conflict())
+        .collect();
     done.sort_by_key(|t| match &t.status {
         TaskStatus::Done { at, .. } => std::cmp::Reverse(*at),
         _ => std::cmp::Reverse(DateTime::<Utc>::MIN_UTC),
@@ -256,8 +261,8 @@ fn TasksTab(open_finish: EventHandler<Uuid>) -> Element {
         return rsx! { div { class: "empty", div { class: "big", "🌱" } p { "No tasks yet. Add the first one." } } };
     }
     rsx! {
-        for task in todo.iter().filter(|t| t.has_conflict()) {
-            ConflictCard { key: "{task.id}", task: (*task).clone() }
+        for task in conflicts {
+            ConflictCard { key: "{task.id}", task: task.clone() }
         }
         if !todo.is_empty() {
             div { class: "section", "To do" }
@@ -269,9 +274,7 @@ fn TasksTab(open_finish: EventHandler<Uuid>) -> Element {
             div { class: "section", "Done" }
         }
         for task in done {
-            if !task.has_conflict() {
-                TaskCard { key: "{task.id}", task: task.clone(), open_finish }
-            }
+            TaskCard { key: "{task.id}", task: task.clone(), open_finish }
         }
     }
 }
@@ -516,7 +519,10 @@ fn FamilyTab() -> Element {
                 let made = state.device.lock().await.create_invite().await;
                 let new = match made {
                     Ok(new) => new,
-                    Err(error) => return state.say(format!("Sharing needs the server: {error:#}")),
+                    Err(error) => {
+                        eprintln!("invite: could not create: {error:#}");
+                        return state.say(format!("Sharing needs the server: {error:#}"));
+                    }
                 };
                 let id = new.invite_id;
                 progress.set(InviteProgress::Waiting);
@@ -526,7 +532,10 @@ fn FamilyTab() -> Element {
                     if ticket.peek().as_ref().map(|t| t.invite_id) != Some(id) {
                         return;
                     }
-                    match state.device.lock().await.invite_progress(&new).await {
+                    // Not in the `match` head: its temporary guard would live
+                    // through the arms, and `refresh` locks the device again.
+                    let progress_now = state.device.lock().await.invite_progress(&new).await;
+                    match progress_now {
                         Ok(InviteProgress::Approved | InviteProgress::Gone) => {
                             ticket.set(None);
                             state.clone().refresh().await;

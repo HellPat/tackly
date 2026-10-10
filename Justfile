@@ -55,7 +55,7 @@ start members="3":
 reset:
     rm -rf .dev
 
-# Unit and end-to-end tests: real server, three phones, live SSE, outages.
+# Fast tests without windows: unit tests and the device-level end-to-end suite.
 test:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -64,6 +64,18 @@ test:
     fi
     cd '{{ justfile_directory() }}'
     cargo test --locked -p tackly-protocol -p tackly-client -p tackly-sync
+
+# Cucumber acceptance tests: three real app windows (Patrick, Mona, Mara) are
+# opened per scenario and clicked through, against a real server. Windows pop
+# up and move on their own while this runs; let it finish.
+acceptance:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -z "${TACKLY_DEV_SHELL:-}" ]] && command -v nix >/dev/null 2>&1; then
+      exec nix develop '{{ justfile_directory() }}' --command just acceptance
+    fi
+    cd '{{ justfile_directory() }}'
+    cargo test --locked -p tackly-acceptance --test acceptance
 
 # Run only the sync server on 127.0.0.1:3000.
 server:

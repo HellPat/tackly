@@ -1,7 +1,7 @@
 use std::sync::{Arc, atomic::Ordering};
 
 use anyhow::Result;
-use dioxus::prelude::*;
+use dioxus::{core::spawn_forever, prelude::*};
 use tackly_client::{Device, Membership, SharedDevice, run_live};
 use tackly_protocol::Family;
 use tokio::sync::Mutex;
@@ -62,9 +62,11 @@ impl AppState {
         self.toast.set(Some(message.into()));
     }
 
-    /// Runs a user action, then refreshes. Errors become a snackbar.
+    /// Runs a user action, then refreshes. Errors become a snackbar. The task
+    /// belongs to the app, not to the button's component: sheets close right
+    /// after the click, and a task owned by a closed component is cancelled.
     pub fn run<T: 'static>(self, action: impl std::future::Future<Output = Result<T>> + 'static) {
-        spawn(async move {
+        spawn_forever(async move {
             if let Err(error) = action.await {
                 self.clone().say(format!("{error:#}"));
             }

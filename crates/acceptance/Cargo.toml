@@ -1,0 +1,19 @@
+[package]
+name = "tackly-acceptance"
+description = "Cucumber acceptance tests that click through real Tackly app windows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[test]]
+name = "acceptance"
+harness = false
+
+[dev-dependencies]
+tackly-sync = { path = "../../server" }
+axum = "0.8"
+cucumber = "0.23"
+serde_json.workspace = true
+tokio.workspace = true
+uuid.workspace = true

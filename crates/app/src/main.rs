@@ -3,6 +3,8 @@
 mod platform;
 mod screens;
 mod state;
+#[cfg(feature = "ui-test")]
+mod uitest;
 
 use dioxus::prelude::*;
 use state::AppState;
@@ -31,6 +33,8 @@ fn main() {
 
 #[component]
 fn App() -> Element {
+    #[cfg(feature = "ui-test")]
+    uitest::install();
     let state = use_hook(|| AppState::open().expect("open Tackly data"));
     use_context_provider(|| state.clone());
     state.start_sync();

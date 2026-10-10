@@ -60,15 +60,27 @@ Without Nix, install Rust and run `cargo run -p tackly-sync` and
 
 ## Tests
 
-`crates/client/tests/e2e.rs` runs a real server (SQLite file, real HTTP/SSE)
-and real devices:
+Two layers, both against a real server with a SQLite file:
 
-| Test | Covers |
+**`just acceptance`: Cucumber, real clicking.** `crates/acceptance/tests/features/*.feature`
+are plain-language scenarios. For each one the suite opens three real app
+windows (Patrick, Mona, Mara) and does everything by clicking and typing in
+them: creating the family, inviting and confirming the six digits, adding,
+starting and finishing tasks, going offline. A click is a hit-tested pointer
+click: if a button is covered, disabled or missing, the step fails the way it
+would for a person. The app exposes this only in a `ui-test` build
+(`crates/app/src/uitest.rs`), never in `just start` or release builds.
+Windows open and close by themselves while it runs; let it finish.
+
+| Feature | Scenarios |
 | --- | --- |
-| `three_members_share_tasks_and_see_each_other_live` | create family, two members join with code confirmation, task list sync, start/finish with metadata, reopen, identical state on all three |
-| `double_completion_is_settled_by_a_member_who_took_part` | concurrent finish, conflict visible everywhere, outsider refused, participant resolves |
-| `everything_works_without_a_server_and_syncs_later` | family and tasks created with the server down, registers and uploads later, a new member receives the history |
-| `a_server_outage_does_not_stop_members_and_they_converge_afterwards` | server killed mid-session, all three keep working, converge after restart |
+| `family.feature` | create a family and connect two members; the task list syncs, others watch a start live, finishing records duration, note and location; someone else finishes a started task and the head reopens it |
+| `offline.feature` | the whole flow with no server, shared later; a server outage while three members keep working, then everyone catches up |
+| `conflict.feature` | two finish the same task, only they may decide, the winner is shown everywhere |
+
+**`just test`: no windows.** Unit tests plus `crates/client/tests/e2e.rs`,
+which runs the same flows through the device core directly. It is fast and is
+what CI runs on Linux.
 
 Server details are in [server/README.md](server/README.md).
 
