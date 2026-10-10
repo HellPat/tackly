@@ -302,7 +302,7 @@ function renderLists() {
 function filterBar(all) {
   const chips = Object.entries(FILTERS).map(([id, { label, keep }]) => {
     const on = state.filter === id, n = all.filter(keep).length;
-    return `<button data-filter="${id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-stone-800 text-stone-50' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${label}<span class="${on ? 'text-stone-300' : 'text-stone-500'} font-normal">${n}</span></button>`;
+    return `<button data-filter="${id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-accent-100 text-accent-900 ring-1 ring-inset ring-accent-700' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${label}<span class="${on ? 'text-accent-800' : 'text-stone-500'} font-normal">${n}</span></button>`;
   }).join('');
   return `<div class="flex gap-2 pt-1 pb-3" role="group" aria-label="Filter">${chips}</div>`;
 }
@@ -351,7 +351,7 @@ const CHIP = 'shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full te
 function groupPicker(p) {
   const chip = (id, label) => {
     const on = (p.group ?? null) === id;
-    return `<button data-group="${id ?? ''}" aria-pressed="${on}" class="${CHIP} ${on ? 'bg-stone-800 text-stone-50' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${label}</button>`;
+    return `<button data-group="${id ?? ''}" aria-pressed="${on}" class="${CHIP} ${on ? 'bg-accent-100 text-accent-900 ring-1 ring-inset ring-accent-700' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${label}</button>`;
   };
   return `<div class="px-1 pt-5">
     <span class="block text-sm font-semibold text-stone-600" id="groupLabel">Group</span>
@@ -491,7 +491,7 @@ function renderExtras() {
   return;
   const pills = state.places.slice(0, 5).map((p) => {
     const on = state.chosen.has(p.id);
-    return `<button type="button" data-chip="${p.id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-stone-800 text-stone-50' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${p.name}</button>`;
+    return `<button type="button" data-chip="${p.id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-accent-100 text-accent-900 ring-1 ring-inset ring-accent-700' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${p.name}</button>`;
   }).join('');
   const again = state.recent.slice(0, 5).map((s) => `<button type="button" data-suggest="${s}" class="shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full bg-[#fffdfb] text-sm shadow-sm">${icon('add', '!text-[18px] text-accent-700')}${s}</button>`).join('');
   $('#extras').innerHTML = `<div class="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Where">${pills}</div><div class="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Add again">${again}</div>`;
@@ -659,113 +659,67 @@ document.addEventListener('click', (e) => {
   render();
 });
 
-/* Page backgrounds: soft CSS skies and patterns, and calm nature drawings (inline SVG, no photos). */
+/* Page backgrounds: a strong pastel sky over a simple drawn landscape (inline SVG, no photos, no sun).
+   Waves and clouds drift slowly; motion-safe, so they stop when the phone asks for less motion. */
 const W = (d, fill, op = 1) => `<path d="${d}" fill="${fill}" opacity="${op}"/>`;
-const pines = (y, h, n, fill, op, seed) => Array.from({ length: n }, (_, i) => {
-  const x = (i + 0.5) * (430 / n) + ((i * seed) % 17) - 8, t = h * (0.75 + ((i * seed) % 5) / 10);
-  return W(`M${x} ${y - t} L${x + t * 0.32} ${y} L${x - t * 0.32} ${y} Z`, fill, op);
-}).join('');
 const svg = (body) => `<svg viewBox="0 0 430 320" preserveAspectRatio="xMidYMax slice" class="size-full">${body}</svg>`;
-const SCENES = {
-  hills: svg(`<circle cx="330" cy="95" r="36" fill="#fde68a" opacity=".85"/>`
-    + W('M0 200 C80 150 160 160 240 190 S380 170 430 150 V320 H0Z', '#ecfccb')
-    + W('M0 240 C90 200 200 210 270 235 S390 225 430 210 V320 H0Z', '#d9f99d', .8)
-    + W('M0 285 C120 255 220 262 300 282 S400 272 430 266 V320 H0Z', '#bef264', .5)),
-  mountains: svg(W('M0 230 L70 140 L120 190 L190 90 L260 180 L310 130 L430 230 V320 H0Z', '#ede9fe')
-    + W('M190 90 L212 118 L200 114 L190 124 L180 113 L170 116Z', '#ffffff', .9)
-    + W('M0 260 L90 190 L160 240 L240 170 L330 245 L380 210 L430 250 V320 H0Z', '#ddd6fe', .85)
-    + W('M0 290 C110 265 220 275 430 280 V320 H0Z', '#c4b5fd', .45)),
-  sea: svg(`<circle cx="300" cy="120" r="34" fill="#fed7aa" opacity=".9"/>`
-    + `<path d="M90 70 q8 -7 16 0 q8 -7 16 0 M140 50 q6 -5 12 0 q6 -5 12 0" fill="none" stroke="#a8a29e" stroke-width="2" stroke-linecap="round"/>`
-    + W('M0 190 C60 180 120 200 180 190 S300 180 430 192 V320 H0Z', '#e0f2fe')
-    + W('M0 230 C70 215 140 240 210 228 S340 215 430 232 V320 H0Z', '#bae6fd', .8)
-    + W('M0 275 C80 260 160 285 240 272 S360 262 430 278 V320 H0Z', '#7dd3fc', .45)),
-  forest: svg(pines(250, 110, 9, '#d1fae5', 1, 7) + pines(285, 95, 11, '#a7f3d0', .8, 5) + pines(320, 80, 13, '#6ee7b7', .45, 3)),
-  dunes: svg(`<circle cx="110" cy="100" r="40" fill="#fde68a" opacity=".8"/>`
-    + W('M0 215 C110 170 200 230 300 200 S400 175 430 185 V320 H0Z', '#ffedd5')
-    + W('M0 255 C90 230 190 270 280 245 S390 230 430 240 V320 H0Z', '#fed7aa', .85)
-    + W('M0 295 C120 275 230 300 330 285 S410 280 430 284 V320 H0Z', '#fdba74', .45)),
-  meadow: svg(W('M0 215 C120 190 300 205 430 190 V320 H0Z', '#ecfccb')
-    + W('M0 255 C140 235 280 250 430 238 V320 H0Z', '#d9f99d', .85)
-    + Array.from({ length: 16 }, (_, i) => { const x = (i * 29) % 420 + 6, y = 250 + (i * 23) % 62; return `<path d="M${x} ${y} l4 -14 M${x + 5} ${y} l0 -17 M${x + 10} ${y} l-3 -13" stroke="#86efac" stroke-width="2" stroke-linecap="round"/>`; }).join('')
-    + Array.from({ length: 18 }, (_, i) => { const x = (i * 47) % 420 + 10, y = 232 + (i * 19) % 80, c = ['#fbcfe8', '#ddd6fe', '#fecaca'][i % 3];
-        return `<g transform="translate(${x} ${y})">${[0, 72, 144, 216, 288].map((r) => `<circle cx="0" cy="-4" r="3" fill="${c}" transform="rotate(${r})"/>`).join('')}<circle r="2" fill="#fde68a"/></g>`; }).join('')),
-  dusk: svg(W('M0 205 L60 160 L110 185 L170 140 L230 180 L290 150 L360 190 L430 165 V215 H0Z', '#ddd6fe', .8)
-    + W('M0 215 H430 V320 H0Z', '#ede9fe')
-    + `<g stroke="#f5d0fe" stroke-width="3" stroke-linecap="round"><path d="M150 240 h120"/><path d="M175 262 h70"/><path d="M195 282 h30"/></g>`),
-  leaves: `<svg viewBox="0 0 430 320" preserveAspectRatio="xMidYMax slice" class="size-full" fill="none" stroke-linecap="round">
-    <g stroke="#a8a29e" stroke-width="1.6"><path d="M-10 330 C60 260 90 210 170 170"/><path d="M440 330 C380 270 360 240 300 215"/></g>
-    <g stroke="#86efac" stroke-width="1.6">${Array.from({ length: 7 }, (_, i) => { const x = 10 + i * 24, y = 312 - i * 22; return `<ellipse cx="${x + 8}" cy="${y - 14}" rx="7" ry="15" transform="rotate(${-40 + i * 4} ${x + 8} ${y - 14})"/><ellipse cx="${x + 22}" cy="${y + 2}" rx="6" ry="13" transform="rotate(${50 - i * 3} ${x + 22} ${y + 2})"/>`; }).join('')}
-    ${Array.from({ length: 5 }, (_, i) => { const x = 420 - i * 24, y = 315 - i * 20; return `<ellipse cx="${x - 10}" cy="${y - 12}" rx="6" ry="13" transform="rotate(${35 - i * 4} ${x - 10} ${y - 12})"/>`; }).join('')}</g></svg>`,
-  clouds: svg(`<g fill="#ffffff" opacity=".95">${[[70, 90, 1], [300, 60, .8], [220, 170, 1.2], [60, 230, .9], [360, 250, 1]].map(([x, y, k]) =>
-    `<g transform="translate(${x} ${y}) scale(${k})"><circle cx="0" cy="0" r="18"/><circle cx="20" cy="-8" r="22"/><circle cx="42" cy="0" r="16"/><rect x="0" y="-2" width="42" height="18" rx="9"/></g>`).join('')}</g>`),
-};
-/* Waves and clouds drift slowly; motion-safe, so it stops when the phone asks for less motion. */
 const drift = (speed, body) => `<g class="motion-safe:animate-drift-${speed}">${body}</g>`;
-const seaScene = (sun, birds, a, b, c) => svg(`<circle cx="300" cy="120" r="34" fill="${sun}"/>`
-  + drift('far', `<path d="M90 70 q8 -7 16 0 q8 -7 16 0 M140 50 q6 -5 12 0 q6 -5 12 0" fill="none" stroke="${birds}" stroke-width="2" stroke-linecap="round"/>`)
+const waves = (a, b, c) => svg(
+    drift('far', `<path d="M90 70 q8 -7 16 0 q8 -7 16 0 M140 50 q6 -5 12 0 q6 -5 12 0" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity=".8"/>`)
   + drift('far', W('M-40 190 C30 178 110 200 180 190 S320 178 470 192 V320 H-40Z', a))
   + drift('mid', W('M-40 230 C40 213 140 240 210 228 S360 213 470 232 V320 H-40Z', b, .8))
   + drift('near', W('M-40 275 C60 258 160 285 240 272 S380 260 470 278 V320 H-40Z', c, .6)));
-const cloudScene = (fill) => svg([[70, 90, 1, 'far'], [300, 60, .8, 'mid'], [220, 170, 1.2, 'near'], [60, 230, .9, 'mid'], [360, 250, 1, 'far']].map(([x, y, k, speed]) =>
-  drift(speed, `<g transform="translate(${x} ${y}) scale(${k})" fill="${fill}"><circle cx="0" cy="0" r="18"/><circle cx="20" cy="-8" r="22"/><circle cx="42" cy="0" r="16"/><rect x="0" y="-2" width="42" height="18" rx="9"/></g>`)).join(''));
-SCENES.sea = seaScene('#fed7aa', '#a8a29e', '#e0f2fe', '#bae6fd', '#7dd3fc');
-SCENES.clouds = cloudScene('#ffffff');
-
-/* The same scenes in stronger colours, so white cards stand out more. */
-const slopes = (sun, a, b, c) => svg(`<circle cx="110" cy="100" r="40" fill="${sun}"/>`
-  + W('M0 215 C110 170 200 230 300 200 S400 175 430 185 V320 H0Z', a)
+const slopes = (a, b, c) => svg(
+    W('M0 215 C110 170 200 230 300 200 S400 175 430 185 V320 H0Z', a)
   + W('M0 255 C90 230 190 270 280 245 S390 230 430 240 V320 H0Z', b, .85)
   + W('M0 295 C120 275 230 300 330 285 S410 280 430 284 V320 H0Z', c, .6));
 const peaks = (a, b, c) => svg(W('M0 230 L70 140 L120 190 L190 90 L260 180 L310 130 L430 230 V320 H0Z', a)
   + W('M190 90 L212 118 L200 114 L190 124 L180 113 L170 116Z', '#ffffff', .95)
   + W('M0 260 L90 190 L160 240 L240 170 L330 245 L380 210 L430 250 V320 H0Z', b, .85)
   + W('M0 290 C110 265 220 275 430 280 V320 H0Z', c, .6));
-Object.assign(SCENES, {
-  ocean: seaScene('#fef08a', '#ffffff', '#7dd3fc', '#38bdf8', '#0ea5e9'),
-  sunset: slopes('#fef9c3', '#fdba74', '#fb923c', '#f97316'),
-  lavender: peaks('#c4b5fd', '#a78bfa', '#8b5cf6'),
-  pinewood: svg(pines(250, 110, 9, '#6ee7b7', 1, 7) + pines(285, 95, 11, '#34d399', .85, 5) + pines(320, 80, 13, '#10b981', .6, 3)),
-  spring: slopes('#fef9c3', '#bef264', '#a3e635', '#84cc16'),
-  blossom: cloudScene('#ffffff'),
-});
+const pines = (y, h, n, fill, op, seed) => Array.from({ length: n }, (_, i) => {
+  const x = (i + 0.5) * (430 / n) + ((i * seed) % 17) - 8, t = h * (0.75 + ((i * seed) % 5) / 10);
+  return W(`M${x} ${y - t} L${x + t * 0.32} ${y} L${x - t * 0.32} ${y} Z`, fill, op);
+}).join('');
+const woods = (a, b, c) => svg(pines(250, 110, 9, a, 1, 7) + pines(285, 95, 11, b, .85, 5) + pines(320, 80, 13, c, .6, 3));
+const fjord = (a, b, water) => svg(W('M0 210 L60 120 L110 170 L180 80 L250 160 L320 110 L430 200 V250 H0Z', a)
+  + W('M180 80 L200 106 L189 102 L180 112 L171 101 L162 104Z', '#ffffff', .95)
+  + W('M0 235 L80 180 L150 225 L230 165 L320 230 L430 210 V260 H0Z', b, .85)
+  + drift('mid', W('M-40 250 H470 V320 H-40Z', water, .8))
+  + drift('near', `<g stroke="#ffffff" stroke-width="3" stroke-linecap="round" opacity=".7"><path d="M150 272 h120"/><path d="M175 292 h70"/></g>`));
+const clouds = (fill) => svg([[70, 90, 1, 'far'], [300, 60, .8, 'mid'], [220, 170, 1.2, 'near'], [60, 230, .9, 'mid'], [360, 250, 1, 'far']].map(([x, y, k, speed]) =>
+  drift(speed, `<g transform="translate(${x} ${y}) scale(${k})" fill="${fill}"><circle cx="0" cy="0" r="18"/><circle cx="20" cy="-8" r="22"/><circle cx="42" cy="0" r="16"/><rect x="0" y="-2" width="42" height="18" rx="9"/></g>`)).join(''));
 
 const BACKGROUNDS = {
-  ocean:     { sky: 'bg-linear-to-b from-sky-200 to-cyan-100', scene: 'ocean' },
-  sunset:    { sky: 'bg-linear-to-b from-orange-200 to-rose-200', scene: 'sunset' },
-  lavender:  { sky: 'bg-linear-to-b from-violet-200 to-indigo-100', scene: 'lavender' },
-  pinewood:  { sky: 'bg-linear-to-b from-emerald-200 to-teal-100', scene: 'pinewood' },
-  spring:    { sky: 'bg-linear-to-b from-lime-200 to-emerald-100', scene: 'spring' },
-  blossom:   { sky: 'bg-linear-to-b from-pink-200 to-rose-100', scene: 'blossom' },
-  sea:       { sky: 'bg-linear-to-b from-sky-50 to-orange-50', scene: 'sea' },
-  hills:     { sky: 'bg-linear-to-b from-sky-50 to-lime-50', scene: 'hills' },
-  mountains: { sky: 'bg-linear-to-b from-indigo-50 to-violet-50', scene: 'mountains' },
-  forest:    { sky: 'bg-linear-to-b from-teal-50 to-emerald-50', scene: 'forest' },
-  dunes:     { sky: 'bg-linear-to-b from-amber-50 to-orange-50', scene: 'dunes' },
-  meadow:    { sky: 'bg-linear-to-b from-sky-50 to-lime-50', scene: 'meadow' },
-  dusk:      { sky: 'bg-linear-to-b from-pink-50 to-violet-100', scene: 'dusk' },
-  leaves:    { sky: 'bg-stone-50', scene: 'leaves' },
-  clouds:    { sky: 'bg-linear-to-b from-sky-100 to-sky-50', scene: 'clouds' },
-  aurora:    { sky: 'bg-stone-50 bg-[radial-gradient(at_15%_0%,#fae8ff_0,transparent_55%),radial-gradient(at_95%_10%,#e0f2fe_0,transparent_50%),radial-gradient(at_60%_100%,#fef3c7_0,transparent_55%)]' },
-  dawn:      { sky: 'bg-linear-to-b from-fuchsia-50 to-pink-50' },
-  peach:     { sky: 'bg-stone-50 bg-[radial-gradient(at_100%_0%,#ffedd5_0,transparent_60%),radial-gradient(at_0%_100%,#fce7f3_0,transparent_60%)]' },
-  dots:      { sky: 'bg-stone-50 bg-[radial-gradient(#d6d3d1_1px,transparent_1.2px)] bg-size-[18px_18px]' },
-  paper:     { sky: 'bg-stone-50 bg-[linear-gradient(#e7e5e4_1px,transparent_1px),linear-gradient(90deg,#e7e5e4_1px,transparent_1px)] bg-size-[24px_24px]' },
-  plain:     { sky: 'bg-stone-100' },
+  ocean:      { sky: 'bg-linear-to-b from-sky-200 to-cyan-100',       scene: waves('#7dd3fc', '#38bdf8', '#0ea5e9') },
+  sunset:     { sky: 'bg-linear-to-b from-orange-200 to-rose-200',    scene: slopes('#fdba74', '#fb923c', '#f97316') },
+  lavender:   { sky: 'bg-linear-to-b from-violet-200 to-indigo-100',  scene: peaks('#c4b5fd', '#a78bfa', '#8b5cf6') },
+  pinewood:   { sky: 'bg-linear-to-b from-emerald-200 to-teal-100',   scene: woods('#6ee7b7', '#34d399', '#10b981') },
+  spring:     { sky: 'bg-linear-to-b from-lime-200 to-emerald-100',   scene: slopes('#bef264', '#a3e635', '#84cc16') },
+  lagoon:     { sky: 'bg-linear-to-b from-teal-200 to-cyan-100',      scene: waves('#5eead4', '#2dd4bf', '#14b8a6') },
+  glacier:    { sky: 'bg-linear-to-b from-sky-200 to-indigo-100',     scene: peaks('#bae6fd', '#7dd3fc', '#38bdf8') },
+  heather:    { sky: 'bg-linear-to-b from-fuchsia-200 to-pink-100',   scene: slopes('#f0abfc', '#e879f9', '#d946ef') },
+  fjord:      { sky: 'bg-linear-to-b from-indigo-200 to-sky-100',     scene: fjord('#a5b4fc', '#818cf8', '#7dd3fc') },
+  jungle:     { sky: 'bg-linear-to-b from-lime-200 to-green-100',     scene: woods('#86efac', '#4ade80', '#22c55e') },
+  canyon:     { sky: 'bg-linear-to-b from-amber-200 to-orange-100',   scene: peaks('#fcd34d', '#fbbf24', '#f59e0b') },
+  rose:       { sky: 'bg-linear-to-b from-rose-200 to-pink-100',      scene: slopes('#fda4af', '#fb7185', '#f43f5e') },
+  seafoam:    { sky: 'bg-linear-to-b from-emerald-200 to-cyan-100',   scene: waves('#6ee7b7', '#34d399', '#10b981') },
+  clouds:     { sky: 'bg-linear-to-b from-sky-100 to-sky-50',         scene: clouds('#ffffff') },
+  blueclouds: { sky: 'bg-linear-to-b from-sky-300 to-sky-100',        scene: clouds('#ffffff') },
 };
 const APP = 'fixed inset-0 mx-auto max-w-[430px] flex flex-col overflow-hidden';
 function setBackground(name) {
-  const bg = BACKGROUNDS[name] ?? BACKGROUNDS.sea;
+  const bg = BACKGROUNDS[name] ?? BACKGROUNDS.ocean;
   $('#app').className = `${APP} ${bg.sky}`;
-  $('#scene').innerHTML = bg.scene ? SCENES[bg.scene] : '';
+  $('#scene').innerHTML = bg.scene;
   try { localStorage.setItem('tackly-bg', name); } catch {}
   $('#bgSwitcher [role=radiogroup]').innerHTML = Object.entries(BACKGROUNDS).map(([n, b]) => `
     <button role="radio" aria-checked="${n === name}" data-bg="${n}" class="flex flex-col items-center gap-1 text-xs">
-      <span class="relative w-16 h-20 rounded-lg overflow-hidden border ${n === name ? 'ring-2 ring-stone-800 ring-offset-1' : 'border-stone-200'} ${b.sky}">${b.scene ? `<span class="absolute inset-x-0 bottom-0 h-1/2">${SCENES[b.scene]}</span>` : ''}</span>${n}</button>`).join('');
+      <span class="relative w-16 h-20 rounded-lg overflow-hidden border ${n === name ? 'ring-2 ring-stone-800 ring-offset-1' : 'border-stone-200'} ${b.sky}"><span class="absolute inset-x-0 bottom-0 h-1/2">${b.scene}</span></span>${n}</button>`).join('');
 }
 $('#bgSwitcher').addEventListener('click', (e) => { const b = e.target.closest('[data-bg]'); if (b) setBackground(b.dataset.bg); });
 let savedBg = null; try { savedBg = localStorage.getItem('tackly-bg'); } catch {}
-setBackground(new URLSearchParams(location.search).get('bg') || savedBg || 'sea');
+setBackground(new URLSearchParams(location.search).get('bg') || savedBg || 'ocean');
 
 // ?bg=dots, ?tab=places, ?tab=places&place=lidl, ?offline=1, ?empty=1, ?typing=text, ?task=6, ?task=6&run=1, ?sheet=invite|avatar, ?toasts=3, ?fan=1
 const query = new URLSearchParams(location.search);
