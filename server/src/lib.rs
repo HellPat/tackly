@@ -167,35 +167,6 @@ async fn create_family(
     }))
 }
 
-async fn recover_device(
-    State(state): State<AppState>,
-    Path(family_id): Path<Uuid>,
-    Json(input): Json<RecoverDevice>,
-) -> ApiResult<DeviceToken> {
-    let verifier = decode(&input.recovery_verifier, Some(32))?;
-    let token = random_token();
-    let inserted = sqlx::query(
-        "INSERT OR IGNORE INTO devices (id, family_id, token_hash, recovery_verifier, is_owner) \
-         SELECT ?, family_id, ?, recovery_verifier, is_owner FROM devices \
-         WHERE family_id=? AND recovery_verifier=? AND revoked_at IS NULL \
-         LIMIT 1 RETURNING is_owner",
-    )
-    .bind(input.device_id.to_string())
-    .bind(token_hash(&token))
-    .bind(family_id.to_string())
-    .bind(verifier)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(internal)?;
-    let Some(inserted) = inserted else {
-        return Err(ApiError(StatusCode::UNAUTHORIZED, "invalid recovery key"));
-    };
-    Ok(Json(DeviceToken {
-        device_token: token,
-        owner: inserted.get::<i64, _>("is_owner") != 0,
-    }))
-}
-
 async fn append_events(
     State(state): State<AppState>,
     Path(family_id): Path<Uuid>,
@@ -596,7 +567,6 @@ pub fn router(pool: SqlitePool) -> Router {
     Router::new()
         .route("/health", get(|| async { StatusCode::NO_CONTENT }))
         .route("/v1/families", post(create_family))
-        .route("/v1/families/{family_id}/recover", post(recover_device))
         .route(
             "/v1/families/{family_id}/events",
             get(list_events).post(append_events),

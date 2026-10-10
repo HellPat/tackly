@@ -34,7 +34,7 @@ raw HTTP API against a running server: `python3 tests/transport_smoke.py` and
 `python3 tests/api_e2e.py`.
 The latter covers every current HTTP endpoint, authorization and tenant
 isolation, event validation/paging/idempotency, concurrent writes, one-use
-joining, invitation expiry, cancellation, and owner/member recovery. Set
+joining, invitation expiry, cancellation. (The recovery endpoint it also exercised has been removed; there is no restore process.) Set
 `TACKLY_TEST_DB_PATH=/path/to/test.db` to include the expiry test
 against the disposable database. Run
 `python3 tests/retention.py` with the same variable only against a disposable
@@ -55,9 +55,9 @@ app.
 
 - A phone can create one family locally without a server. Once a server is
   configured, it registers that family and receives a random device bearer token. The
-  server stores only its SHA-256 hash. Each phone generates its own recovery
-  secret; the server stores only a verifier for that device's role. The full
-  recovery code also includes the family data key and stays on the phone.
+  server stores only its SHA-256 hash. There is no restore: a lost phone
+  rejoins through a new invitation. A legacy per-device recovery verifier is
+  still stored but unused.
 - An owner creates a single-use invitation that expires after five minutes.
   The QR contains a random secret that is never uploaded. The joining phone
   requests access, and the owner confirms a matching code on both phones. The owner's phone
@@ -83,10 +83,7 @@ The server sees family, device, aggregate and event UUIDs, payload sizes,
 upload times, IP addresses, and access patterns. The original action time is
 inside the ciphertext. AES-256-GCM protects event contents and authenticates
 the routing IDs as associated data.
-The server does not have the family key. Someone holding an owner's full
-recovery code can recover an owner device and decrypt family data; a member's
-code recovers only member access. Store these codes in a password manager and
-do not put them in server configuration or logs.
+The server does not have the family key.
 
 Indefinite retention also needs durable SQLite file backups that include the
 write-ahead log, plus periodic restore checks; this repository does not deploy

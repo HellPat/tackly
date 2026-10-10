@@ -23,12 +23,6 @@ pub struct DeviceToken {
     pub owner: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct RecoverDevice {
-    pub device_id: Uuid,
-    pub recovery_verifier: String,
-}
-
 /// An event as the server stores it. The server can read only the IDs.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EncryptedEvent {
