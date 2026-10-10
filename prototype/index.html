@@ -21,6 +21,7 @@
       --color-accent-700: #4338ca;
       --color-accent-800: #3730a3;
       --color-accent-900: #312e81;
+      --color-accent-ink: #ffffff;    /* text and icons on a filled accent */
       --animate-pop: pop .3s ease-out;
       --animate-breathe: breathe 2.4s ease-in-out infinite;
       @keyframes pop { 40% { transform: scale(1.3); } }
@@ -29,14 +30,17 @@
   </style>
   <style>
     [data-theme=light] { --color-base-100: #fffdfb; --color-base-content: #292524; }
-    [data-accent=indigo] { --color-accent-50: #eef2ff; --color-accent-100: #e0e7ff; --color-accent-200: #c7d2fe; --color-accent-700: #4338ca; --color-accent-800: #3730a3; --color-accent-900: #312e81; }
-    [data-accent=violet] { --color-accent-50: #f5f3ff; --color-accent-100: #ede9fe; --color-accent-200: #ddd6fe; --color-accent-700: #6d28d9; --color-accent-800: #5b21b6; --color-accent-900: #4c1d95; }
-    [data-accent=blue] { --color-accent-50: #eff6ff; --color-accent-100: #dbeafe; --color-accent-200: #bfdbfe; --color-accent-700: #1d4ed8; --color-accent-800: #1e40af; --color-accent-900: #1e3a8a; }
-    [data-accent=sky] { --color-accent-50: #f0f9ff; --color-accent-100: #e0f2fe; --color-accent-200: #bae6fd; --color-accent-700: #0369a1; --color-accent-800: #075985; --color-accent-900: #0c4a6e; }
-    [data-accent=teal] { --color-accent-50: #f0fdfa; --color-accent-100: #ccfbf1; --color-accent-200: #99f6e4; --color-accent-700: #0f766e; --color-accent-800: #115e59; --color-accent-900: #134e4a; }
-    [data-accent=emerald] { --color-accent-50: #ecfdf5; --color-accent-100: #d1fae5; --color-accent-200: #a7f3d0; --color-accent-700: #047857; --color-accent-800: #065f46; --color-accent-900: #064e3b; }
-    [data-accent=fuchsia] { --color-accent-50: #fdf4ff; --color-accent-100: #fae8ff; --color-accent-200: #f5d0fe; --color-accent-700: #a21caf; --color-accent-800: #86198f; --color-accent-900: #701a75; }
-    [data-accent=orange] { --color-accent-50: #fff7ed; --color-accent-100: #ffedd5; --color-accent-200: #fed7aa; --color-accent-700: #c2410c; --color-accent-800: #9a3412; --color-accent-900: #7c2d12; }
+    [data-accent=indigo] { --color-accent-ink: #ffffff; --color-accent-50: #eef2ff; --color-accent-100: #e0e7ff; --color-accent-200: #c7d2fe; --color-accent-700: #4338ca; --color-accent-800: #3730a3; --color-accent-900: #312e81; }
+    [data-accent=violet] { --color-accent-ink: #ffffff; --color-accent-50: #f5f3ff; --color-accent-100: #ede9fe; --color-accent-200: #ddd6fe; --color-accent-700: #6d28d9; --color-accent-800: #5b21b6; --color-accent-900: #4c1d95; }
+    [data-accent=blue] { --color-accent-ink: #ffffff; --color-accent-50: #eff6ff; --color-accent-100: #dbeafe; --color-accent-200: #bfdbfe; --color-accent-700: #1d4ed8; --color-accent-800: #1e40af; --color-accent-900: #1e3a8a; }
+    [data-accent=sky] { --color-accent-ink: #ffffff; --color-accent-50: #f0f9ff; --color-accent-100: #e0f2fe; --color-accent-200: #bae6fd; --color-accent-700: #0369a1; --color-accent-800: #075985; --color-accent-900: #0c4a6e; }
+    [data-accent=teal] { --color-accent-ink: #ffffff; --color-accent-50: #f0fdfa; --color-accent-100: #ccfbf1; --color-accent-200: #99f6e4; --color-accent-700: #0f766e; --color-accent-800: #115e59; --color-accent-900: #134e4a; }
+    [data-accent=emerald] { --color-accent-ink: #ffffff; --color-accent-50: #ecfdf5; --color-accent-100: #d1fae5; --color-accent-200: #a7f3d0; --color-accent-700: #047857; --color-accent-800: #065f46; --color-accent-900: #064e3b; }
+    [data-accent=fuchsia] { --color-accent-ink: #ffffff; --color-accent-50: #fdf4ff; --color-accent-100: #fae8ff; --color-accent-200: #f5d0fe; --color-accent-700: #a21caf; --color-accent-800: #86198f; --color-accent-900: #701a75; }
+    [data-accent=lime] { --color-accent-50: #f7fee7; --color-accent-100: #ecfccb; --color-accent-200: #d9f99d; --color-accent-700: #65a30d; --color-accent-800: #4d7c0f; --color-accent-900: #3f6212; --color-accent-ink: #1a2e05; }
+    [data-accent=pink] { --color-accent-ink: #ffffff; --color-accent-50: #fdf2f8; --color-accent-100: #fce7f3; --color-accent-200: #fbcfe8; --color-accent-700: #be185d; --color-accent-800: #9d174d; --color-accent-900: #831843; }
+    [data-accent=rose] { --color-accent-ink: #ffffff; --color-accent-50: #fff1f2; --color-accent-100: #ffe4e6; --color-accent-200: #fecdd3; --color-accent-700: #be123c; --color-accent-800: #9f1239; --color-accent-900: #881337; }
+    [data-accent=orange] { --color-accent-ink: #ffffff; --color-accent-50: #fff7ed; --color-accent-100: #ffedd5; --color-accent-200: #fed7aa; --color-accent-700: #c2410c; --color-accent-800: #9a3412; --color-accent-900: #7c2d12; }
   </style>
 </head>
 <body class="bg-stone-300 text-stone-800 antialiased">
@@ -45,6 +49,7 @@
     <header class="shrink-0 flex items-center gap-1 px-2 h-16">
       <button id="backBtn" class="hidden size-12 grid place-items-center rounded-full text-stone-700 hover:bg-stone-200" aria-label="Back"><span class="material-symbols-rounded" aria-hidden="true">arrow_back</span></button>
       <h1 id="title" class="flex-1 px-2 text-2xl font-semibold tracking-tight truncate">Tasks</h1>
+      <button id="editBtn" class="hidden size-12 place-items-center rounded-full text-stone-700 hover:bg-stone-200" aria-label="Edit place"><span class="material-symbols-rounded" aria-hidden="true">edit</span></button>
       <span id="offline" class="hidden mr-2 items-center gap-1 h-8 px-3 rounded-full bg-stone-200 text-sm text-stone-700"><span class="material-symbols-rounded !text-[18px]" aria-hidden="true">cloud_off</span>Offline</span>
     </header>
 
@@ -54,11 +59,11 @@
     <section id="composer" aria-label="Add" class="shrink-0 px-3 pb-3 pt-2 flex flex-col gap-2">
       <div id="extras" class="hidden flex-col gap-2"></div>
       <form id="addForm" class="flex items-center gap-2">
-        <label class="flex-1 flex items-center gap-2 h-12 px-4 rounded-full bg-[#fffdfb] shadow-sm focus-within:outline-2 focus-within:outline-accent-700">
-          <span class="material-symbols-rounded text-accent-700" aria-hidden="true">add</span>
+        <label class="flex-1 flex items-center gap-3 h-12 pl-2 pr-4 rounded-full bg-[#fffdfb] ring-1 ring-stone-300 shadow-sm focus-within:ring-2 focus-within:ring-accent-700">
+          <span class="size-8 shrink-0 rounded-full grid place-items-center bg-accent-700 text-accent-ink" aria-hidden="true"><span class="material-symbols-rounded !text-[20px]">add</span></span>
           <input id="addInput" aria-label="Add a task" placeholder="Add a task" autocomplete="off" class="flex-1 min-w-0 border-0 bg-transparent p-0 text-base outline-none focus:outline-none placeholder:text-stone-500">
         </label>
-        <button id="addBtn" aria-label="Add" class="hidden size-12 place-items-center rounded-md border border-accent-800 bg-accent-700 text-white shadow-sm inset-shadow-[0_1px_0_rgb(255_255_255/.18)] hover:bg-accent-800"><span class="material-symbols-rounded" aria-hidden="true">arrow_upward</span></button>
+        <button id="addBtn" aria-label="Add" class="hidden size-12 place-items-center rounded-md border border-accent-800 bg-accent-700 text-accent-ink shadow-sm inset-shadow-[0_1px_0_rgb(255_255_255/.18)] hover:bg-accent-800"><span class="material-symbols-rounded" aria-hidden="true">arrow_upward</span></button>
       </form>
     </section>
 
@@ -83,7 +88,7 @@
   </div>
 
   <!-- Prototype tool, not part of the app: try accent colours. -->
-  <details id="switcher" class="fixed top-3 right-3 z-[60] rounded-xl bg-white shadow-lg text-sm text-stone-800 open:p-3 [&:not([open])]:p-0">
+  <details id="switcher" class="max-[600px]:hidden fixed top-3 right-3 z-[60] rounded-xl bg-white shadow-lg text-sm text-stone-800 open:p-3 [&:not([open])]:p-0">
     <summary class="list-none cursor-pointer size-10 grid place-items-center rounded-xl" aria-label="Accent colour"><span class="material-symbols-rounded" aria-hidden="true">palette</span></summary>
     <div class="mt-2 grid grid-cols-4 gap-2" role="radiogroup" aria-label="Accent colour"></div>
   </details>
@@ -96,19 +101,19 @@ const MIN = 60_000, now = () => Date.now();
 
 /* Buttons, GitHub style: primary filled, secondary neutral. */
 const BTN = 'inline-flex items-center justify-center gap-2 h-10 px-4 rounded-md border font-semibold shadow-sm transition-colors active:shadow-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-700';
-const PRIMARY = `${BTN} border-accent-800 bg-accent-700 text-white inset-shadow-[0_1px_0_rgb(255_255_255/.18)] hover:bg-accent-800`;
+const PRIMARY = `${BTN} border-accent-800 bg-accent-700 text-accent-ink inset-shadow-[0_1px_0_rgb(255_255_255/.18)] hover:bg-accent-800`;
 const SECONDARY = `${BTN} border-stone-300 bg-stone-50 text-stone-800 inset-shadow-[0_1px_0_white] hover:bg-stone-100`;
 const PILL = 'inline-flex items-center h-6 px-2.5 rounded-full bg-stone-100 text-stone-700 text-[13px] font-semibold';
 const CARD = 'bg-[#fffdfb] rounded-2xl shadow-sm';
 const TINTS = ['bg-sky-100 text-sky-900', 'bg-pink-100 text-pink-900', 'bg-teal-100 text-teal-900', 'bg-amber-100 text-amber-900', 'bg-violet-100 text-violet-900'];
 
 const state = {
-  tab: 'tasks', placeView: null, chosen: new Set(), detail: null,
+  tab: 'tasks', placeView: null, personView: null, editPlace: false, chosen: new Set(), detail: null,
   groups: [{ id: 'g1', name: 'Grocery Store' }, { id: 'g2', name: 'Hardware' }],
   places: [
-    { id: 'lidl', group: 'g1', name: 'LIDL', locations: ['Marbacher Straße 1, Winnenden', 'Stuttgarter Straße 3, Backnang'] },
-    { id: 'aldi', group: 'g1', name: 'Aldi', locations: ['Aldi Waiblingen'] },
-    { id: 'bauhaus', group: 'g2', name: 'Bauhaus', locations: ['Stuttgarter Straße 9, Backnang'] },
+    { id: 'lidl', group: 'g1', name: 'LIDL', locations: [{ name: 'LIDL Winnenden', address: 'Marbacher Straße 1, Winnenden' }, { name: 'LIDL Backnang', address: 'Stuttgarter Straße 3, Backnang' }] },
+    { id: 'aldi', group: 'g1', name: 'Aldi', locations: [{ name: 'Aldi Waiblingen', address: 'Bahnhofstraße 50, Waiblingen' }] },
+    { id: 'bauhaus', group: 'g2', name: 'Bauhaus', locations: [{ name: 'Bauhaus Backnang', address: 'Stuttgarter Straße 9, Backnang' }] },
   ],
   members: [
     { id: 'p', name: 'Patrick', me: true, avatar: { icon: 'sailing', tint: 0 } },
@@ -118,6 +123,8 @@ const state = {
   // Work sessions since the task was (re)opened; reopening starts over.
   tasks: [
     { id: 4, title: 'Water the plants', places: [], status: 'open', on: 'mo', sessions: [{ from: now() - 4 * MIN }] },
+    { id: 8, title: 'Vacuum the stairs', places: [], status: 'open', on: 'ma', sessions: [{ from: now() - 30 * MIN, to: now() - 12 * MIN }] },
+    { id: 9, title: 'Book the holiday', places: [], status: 'open', on: 'mo', sessions: [] },
     { id: 6, title: 'Call the dentist', places: [], status: 'open', sessions: [{ from: now() - 26 * 60 * MIN, to: now() - 25.6 * 60 * MIN }, { from: now() - 50 * MIN, to: now() - 38 * MIN }] },
     { id: 1, title: 'Milk', places: ['lidl', 'aldi'], status: 'open', sessions: [] },
     { id: 2, title: 'Bread', places: ['lidl'], status: 'open', sessions: [] },
@@ -139,7 +146,8 @@ const visible = () => state.tasks.filter((t) => t.status === 'open');
 const openAt = (p) => visible().filter((t) => t.places.includes(p.id));
 const pill = (p) => `<span class="${PILL}">${p.name}</span>`;
 const heading = (text) => `<h2 class="px-2 pt-6 pb-2 text-sm font-semibold text-stone-600">${text}</h2>`;
-const addingPlace = () => state.tab === 'places' && !state.placeView;
+/* What the bottom bar adds here: a task, a place, or a location of the place being edited. */
+const barMode = () => state.tab === 'places' && state.editPlace ? 'location' : state.tab === 'places' && !state.placeView ? 'place' : 'task';
 /* A person's picture: an icon on a soft tint, or a photo; round, with an inner ring so photos never bleed. */
 const avatar = (m, size = 'size-10') => `<span class="relative ${size} shrink-0 rounded-full overflow-hidden grid place-items-center ${TINTS[m.avatar.tint]} after:absolute after:inset-0 after:rounded-full after:ring-1 after:ring-inset after:ring-black/10">
   ${m.avatar.photo ? `<img src="${m.avatar.photo}" alt="" class="size-full object-cover">` : icon(m.avatar.icon, size === 'size-24' ? '!text-[40px]' : size === 'size-8' ? '!text-[18px]' : '')}</span>`;
@@ -152,18 +160,25 @@ function worked(t) {
   return { total, today };
 }
 const running = (t) => t.sessions.some((s) => !s.to);
+/* Someone on a task is working now, paused, or has only picked it. */
+const progress = (t) => !t.on ? null : running(t) ? 'working' : t.sessions.length ? 'paused' : 'picked';
+const PROGRESS = {
+  working: { icon: 'play_arrow', left: 'bg-accent-700 text-accent-ink', me: 'You’re working on it', other: (n) => `${n} is working on it` },
+  paused:  { icon: 'pause',      left: 'bg-stone-200 text-stone-700',                  me: 'You paused it',          other: (n) => `${n} paused it` },
+  picked:  { icon: 'flag',       left: 'border-2 border-dashed border-stone-400 text-stone-600',           me: 'You picked it',          other: (n) => `${n} picked it` },
+};
 const clock = (ms) => { const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return `${h}:${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
 const short = (ms) => { const m = Math.round(ms / MIN); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
 
 /* ---- Toasts (Sonner-like) ---------------------------------------------------------------- */
 const toasts = []; // newest first: { id, text, action, onAction, left, el }
 let fanned = false;
-const TOAST_MS = 4000, TOAST_GAP = 64, TOAST_SHOWN = 3;
+const TOAST_MS = 4000, TOAST_GAP = 72, TOAST_SHOWN = 3;
 function toast(text, action, onAction) {
   const t = { id: now() + Math.random(), text, action, onAction, left: TOAST_MS };
   t.el = document.createElement('div');
   t.el.setAttribute('role', 'status');
-  t.el.innerHTML = `<span class="flex-1 min-w-0 truncate">${text}</span>${action ? `<button class="h-7 px-2.5 rounded-md bg-stone-900 text-white text-xs font-semibold hover:bg-stone-700">${action}</button>` : ''}`;
+  t.el.innerHTML = `<span class="flex-1 min-w-0 truncate">${text}</span>${action ? `<button class="${SECONDARY} !h-10 !px-3">${icon('undo', '!text-[20px]')}${action}</button>` : ''}`;
   t.el.querySelector('button')?.addEventListener('click', () => { onAction(); dismiss(t); });
   t.el.className = toastClass(-1);
   $('#toasts').prepend(t.el);
@@ -179,7 +194,7 @@ function dismiss(t) {
 }
 /* -1: entering from below; -2: leaving; 0..: position in the stack. */
 function toastClass(i) {
-  const base = 'absolute inset-x-0 bottom-0 mx-auto max-w-[360px] flex items-center gap-3 h-14 pl-4 pr-2 rounded-xl bg-white border border-stone-200 shadow-lg text-sm text-stone-800 origin-bottom transition-all duration-300 ease-out';
+  const base = 'absolute inset-x-0 bottom-0 mx-auto max-w-[360px] flex items-center gap-3 h-16 pl-4 pr-3 rounded-xl bg-white border border-stone-200 shadow-lg text-sm text-stone-800 origin-bottom transition-all duration-300 ease-out';
   if (i === -1) return `${base} translate-y-full opacity-0`;
   if (i === -2) return `${base} translate-y-4 opacity-0 pointer-events-none`;
   const z = ['z-30', 'z-20', 'z-10'][i] ?? 'z-0';
@@ -198,24 +213,29 @@ function sheet(html) { $('#sheetBody').innerHTML = html; $('#sheet').showModal()
 /* A task card: the circle finishes it, the rest opens it.
    When someone else is on it, their picture takes the circle's place and the card is locked. */
 function taskCard(t) {
-  const who = t.on && member(t.on);
+  const who = t.on && member(t.on), how = progress(t);
   const mine = who?.me, taken = who && !mine;
+  const st = how && PROGRESS[how];
+  // Left: what state it is in. The finish circle when I can act; the other person's state when I can't.
   const lead = taken
-    ? `<span class="size-12 shrink-0 grid place-items-center">${avatar(who, 'size-8')}</span>`
+    ? `<span class="size-12 shrink-0 grid place-items-center" role="img" aria-label="${st.other(who.name)}"><span class="size-6 rounded-full grid place-items-center ${st.left}">${icon(st.icon, `!text-[16px] ${FILL}`)}</span></span>`
     : `<label class="size-12 shrink-0 grid place-items-center cursor-pointer">
         <input type="checkbox" class="peer sr-only" data-check="${t.id}" aria-label="Done: ${t.title}">
         <span class="size-6 rounded-full border-2 border-stone-400 grid place-items-center transition-colors hover:border-accent-700 peer-checked:bg-accent-700 peer-checked:border-accent-700 peer-checked:animate-pop peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent-700">
-          ${icon('check', '!text-[16px] text-white')}
+          ${icon('check', '!text-[16px] text-accent-ink')}
         </span>
       </label>`;
-  const line = taken ? `${who.name} is on it` : mine ? 'You are on it' : '';
-  return `<li class="${CARD} mb-2 max-h-40 overflow-hidden transition-all duration-300 ${mine ? 'border-l-4 border-accent-700' : ''} ${taken ? 'bg-stone-50 shadow-none' : ''}" data-card="${t.id}" ${taken ? 'aria-disabled="true"' : ''}>
-    <div class="flex items-center gap-1 pl-1 pr-4 min-h-16">
+  const line = st && (mine ? st.me : st.other(who.name));
+  // Right: who has it.
+  const assignee = who ? `<span class="shrink-0 pl-2">${avatar(who, 'size-8')}</span>` : '';
+  return `<li class="${CARD} mb-2 max-h-40 overflow-hidden transition-all duration-300 ${mine && how === 'working' ? 'border-l-4 border-accent-700' : ''} ${taken ? 'bg-stone-50 shadow-none' : ''}" data-card="${t.id}" ${taken ? 'aria-disabled="true"' : ''}>
+    <div class="flex items-center gap-1 pl-1 pr-3 min-h-16">
       ${lead}
       <button class="flex-1 min-w-0 text-left py-3 flex flex-col gap-0.5 disabled:cursor-default" data-open="${t.id}" ${taken ? 'disabled' : ''}>
         <span class="text-base truncate ${taken ? 'text-stone-600' : ''}">${t.title}</span>
         ${line ? `<span class="text-sm text-stone-600">${line}</span>` : ''}
       </button>
+      ${assignee}
     </div>
   </li>`;
 }
@@ -234,11 +254,12 @@ function renderTasks() {
 }
 
 function renderPlaces() {
+  if (state.placeView && state.editPlace) return renderPlaceEdit(placeById(state.placeView));
   if (state.placeView) {
     const p = placeById(state.placeView);
     const tasks = openAt(p);
-    return `<div class="flex flex-col gap-1 px-2 pb-3">
-        ${p.locations.map((l) => `<div class="flex items-center gap-2 text-sm text-stone-600">${icon('location_on', '!text-[18px] text-stone-500')}${l}</div>`).join('')}</div>
+    const n = p.locations.length;
+    return `<button class="flex items-center gap-1.5 px-2 pb-3 text-sm text-stone-600 hover:text-stone-800" data-edit-place>${icon('location_on', '!text-[18px] text-stone-500')}${n} ${n === 1 ? 'location' : 'locations'}</button>
       ${tasks.length ? `<ul>${tasks.map(taskCard).join('')}</ul>` : `<p class="py-16 text-center text-stone-600">Nothing to get here.</p>`}`;
   }
   if (!state.places.length) return emptyState('storefront', 'No places yet', 'Add the shops you go to, then see what to get where.');
@@ -257,11 +278,36 @@ function renderPlaces() {
   }).join('');
 }
 
-function renderFamily() {
-  return `<ul class="${CARD} overflow-hidden mt-1">${state.members.map((m) => `<li>
-      ${m.me ? `<button class="w-full flex items-center gap-4 px-4 min-h-16 text-left hover:bg-stone-50" data-avatar aria-label="Change your picture">${avatar(m)}<span class="flex-1 text-base">${m.name}</span>${icon('edit', '!text-[18px] text-stone-500')}</button>`
-             : `<div class="flex items-center gap-4 px-4 min-h-16">${avatar(m)}<span class="flex-1 text-base">${m.name}</span></div>`}
+/* Editing a place: its name, and its locations as a plain list. New locations come from the bottom bar. */
+function renderPlaceEdit(p) {
+  const only = p.locations.length === 1;
+  return `<label class="block px-1 pt-1">
+      <span class="text-sm font-semibold text-stone-600">Name</span>
+      <input id="placeName" value="${p.name}" class="mt-1.5 w-full h-12 px-4 rounded-md bg-[#fffdfb] border border-stone-300 shadow-sm text-base outline-none focus:ring-2 focus:ring-accent-700">
+    </label>
+    ${heading('Locations')}
+    <ul class="${CARD} overflow-hidden">${p.locations.map((l, i) => `<li class="flex items-center gap-3 pl-4 pr-1 min-h-16">
+      ${icon('location_on', 'text-stone-500')}
+      <span class="flex-1 min-w-0"><span class="block truncate">${l.name}</span><span class="block text-sm text-stone-600 truncate">${l.address}</span></span>
+      <button class="size-12 grid place-items-center rounded-full text-stone-600 hover:bg-stone-100 disabled:opacity-40 disabled:hover:bg-transparent" data-remove-location="${i}" aria-label="Remove ${l.name}" ${only ? 'disabled title="A place needs at least one location"' : ''}>${icon('close')}</button>
     </li>`).join('')}</ul>`;
+}
+
+/* Family: everyone, with how many tasks they are on. Open a person to see those tasks. */
+function renderFamily() {
+  if (state.personView) {
+    const m = member(state.personView);
+    const tasks = visible().filter((t) => t.on === m.id);
+    return tasks.length ? `<ul class="pt-1">${tasks.map(taskCard).join('')}</ul>`
+      : `<p class="py-16 text-center text-stone-600">${m.me ? 'You are' : `${m.name} is`} not on any task.</p>`;
+  }
+  return `<ul class="${CARD} overflow-hidden mt-1">${state.members.map((m) => {
+    const n = visible().filter((t) => t.on === m.id).length;
+    return `<li><button class="w-full flex items-center gap-4 px-4 min-h-16 text-left hover:bg-stone-50 active:bg-stone-100" data-person="${m.id}">
+      ${avatar(m)}<span class="flex-1 text-base">${m.name}</span>
+      ${n ? `<span class="text-sm text-stone-600">${n} ${n === 1 ? 'task' : 'tasks'}</span>` : ''}
+      ${icon('chevron_right', 'text-stone-500')}</button></li>`;
+  }).join('')}</ul>`;
 }
 
 /* The picture: an icon on a tint, or a photo. Always round. */
@@ -331,7 +377,7 @@ function renderDock() {
 /* Above the bar while typing: for a task, place pills and add-again chips; for a place, only the address search. */
 function renderExtras() {
   const typed = $('#addInput').value.trim();
-  if (addingPlace()) {
+  if (barMode() !== 'task') {
     const found = typed.length >= 3 ? FOUND.filter((f) => `${f.name} ${f.address}`.toLowerCase().includes(typed.toLowerCase().split(' ')[0])) : [];
     $('#extras').innerHTML = found.length ? `<ul class="${CARD} shadow-md overflow-hidden" aria-label="Addresses">${found.map((f, i) => `
       <li><button type="button" class="w-full flex items-center gap-3 px-4 min-h-14 text-left hover:bg-stone-50" data-found="${i}">
@@ -348,7 +394,7 @@ function renderExtras() {
 
 function renderComposer() {
   $('#composer').classList.toggle('hidden', !(state.tab === 'tasks' || state.tab === 'places'));
-  const label = addingPlace() ? 'Add a place' : 'Add a task';
+  const label = { task: 'Add a task', place: 'Add a place', location: 'Add a location' }[barMode()];
   $('#addInput').placeholder = label; $('#addInput').setAttribute('aria-label', label);
   renderExtras();
 }
@@ -356,12 +402,18 @@ function renderComposer() {
 function render() {
   const titles = { tasks: 'Tasks', places: 'Places', family: 'The Smiths' };
   const inPlace = state.tab === 'places' && state.placeView;
-  $('#title').textContent = inPlace ? placeById(state.placeView).name : titles[state.tab];
-  $('#backBtn').classList.toggle('hidden', !inPlace); $('#backBtn').classList.toggle('grid', !!inPlace);
+  const inPerson = state.tab === 'family' && state.personView;
+  $('#title').textContent = inPlace ? (state.editPlace ? 'Edit place' : placeById(state.placeView).name) : inPerson ? member(state.personView).name : titles[state.tab];
+  // Edit lives in the top bar: for a place, and for yourself.
+  const canEdit = (inPlace && !state.editPlace) || (inPerson && member(state.personView).me);
+  $('#editBtn').setAttribute('aria-label', inPerson ? 'Edit your picture' : 'Edit place');
+  $('#editBtn').classList.toggle('hidden', !canEdit); $('#editBtn').classList.toggle('grid', !!canEdit);
+  const back = inPlace || inPerson;
+  $('#backBtn').classList.toggle('hidden', !back); $('#backBtn').classList.toggle('grid', !!back);
   $('#main').innerHTML = { tasks: renderTasks, places: renderPlaces, family: renderFamily }[state.tab]();
   $('#offline').classList.toggle('hidden', !state.offline); $('#offline').classList.toggle('inline-flex', !!state.offline);
-  $('#familyBar').classList.toggle('hidden', state.tab !== 'family');
-  $('#familyBar').innerHTML = `<button class="${PRIMARY} w-full !h-12 text-base" data-invite>${icon('person_add')}Invite someone</button>`;
+  $('#familyBar').classList.toggle('hidden', state.tab !== 'family' || !!state.personView);
+  $('#familyBar').innerHTML = `<button class="${PRIMARY} w-full !h-12 text-base" data-invite>${icon('person_add')}Invite member</button>`;
   renderDock(); renderComposer(); renderDetail();
 }
 
@@ -370,7 +422,7 @@ function setExtras(open) { $('#extras').classList.toggle('hidden', !open); $('#e
 $('#addInput').addEventListener('focus', () => setExtras(true));
 $('#addInput').addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== $('#addInput')) setExtras(false); }, 150));
 $('#composer').addEventListener('mousedown', (e) => { if (e.target.closest('#extras')) e.preventDefault(); });
-$('#addInput').addEventListener('input', (e) => { const has = !!e.target.value.trim(); $('#addBtn').classList.toggle('hidden', !has); $('#addBtn').classList.toggle('grid', has); if (addingPlace()) renderExtras(); });
+$('#addInput').addEventListener('input', (e) => { const has = !!e.target.value.trim(); $('#addBtn').classList.toggle('hidden', !has); $('#addBtn').classList.toggle('grid', has); if (barMode() !== 'task') renderExtras(); });
 
 function addTask(title) {
   const t = { id: now(), title, places: [...state.chosen], status: 'open', sessions: [] };
@@ -380,14 +432,19 @@ function addTask(title) {
   toast(`Added ${title}`, 'Undo', () => { state.tasks.splice(state.tasks.indexOf(t), 1); render(); });
 }
 function addPlace(name, address) {
-  const p = { id: `p${now()}`, group: null, name, locations: [address ?? name] };
+  const p = { id: `p${now()}`, group: null, name, locations: [{ name, address: address ?? name }] };
   state.places.push(p); render();
   toast(`Added ${name}`, 'Undo', () => { state.places.splice(state.places.indexOf(p), 1); render(); });
+}
+function addLocation(name, address) {
+  const p = placeById(state.placeView), l = { name, address: address ?? name };
+  p.locations.push(l); render();
+  toast(`Added ${name}`, 'Undo', () => { p.locations.splice(p.locations.indexOf(l), 1); render(); });
 }
 function clearBar() { $('#addInput').value = ''; $('#addBtn').classList.add('hidden'); $('#addBtn').classList.remove('grid'); renderExtras(); $('#addInput').focus(); }
 $('#addForm').addEventListener('submit', (e) => {
   e.preventDefault(); const v = $('#addInput').value.trim(); if (!v) return;
-  addingPlace() ? addPlace(v) : addTask(v); clearBar();
+  ({ task: addTask, place: addPlace, location: addLocation })[barMode()](v); clearBar();
 });
 
 /* Finishing: the check pops, the card slides away and folds up, the toast offers Undo. */
@@ -403,6 +460,7 @@ function finish(t, card) {
   toast(`${t.title} done`, 'Undo', () => { t.status = 'open'; render(); });
 }
 
+document.addEventListener('input', (e) => { if (e.target.id === 'placeName') { placeById(state.placeView).name = e.target.value; } });
 document.addEventListener('change', (e) => {
   const id = e.target.dataset.check; if (!id) return;
   finish(find(id), e.target.closest('[data-card]'));
@@ -410,24 +468,31 @@ document.addEventListener('change', (e) => {
 document.addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b || b.closest('#toasts')) return;
   const d = b.dataset;
-  if (b.id === 'backBtn') { state.placeView = null; state.chosen = new Set(); }
-  else if (d.tab) { state.tab = d.tab; state.placeView = null; state.chosen = new Set(); }
+  if (b.id === 'backBtn') { if (state.personView) state.personView = null; else if (state.editPlace) state.editPlace = false; else { state.placeView = null; state.chosen = new Set(); } }
+  else if (b.id === 'editBtn' && state.personView) { avatarSheet(); return; }
+  else if (b.id === 'editBtn' || 'editPlace' in d) { state.editPlace = true; }
+  else if (d.person) { state.personView = d.person; }
+  else if (d.removeLocation) {
+    const p = placeById(state.placeView), [l] = p.locations.splice(+d.removeLocation, 1);
+    toast(`Removed ${l.name}`, 'Undo', () => { p.locations.splice(+d.removeLocation, 0, l); render(); });
+  }
+  else if (d.tab) { state.tab = d.tab; state.placeView = null; state.personView = null; state.editPlace = false; state.chosen = new Set(); }
   else if (d.place) { state.placeView = d.place; state.chosen = new Set([d.place]); }
   else if (d.chip) { state.chosen.has(d.chip) ? state.chosen.delete(d.chip) : state.chosen.add(d.chip); renderExtras(); return; }
   else if (d.suggest) { addTask(d.suggest); return; }
-  else if (d.found) { const f = FOUND[+d.found]; addPlace(f.name, f.address); clearBar(); return; }
+  else if (d.found) { const f = FOUND[+d.found]; (barMode() === 'location' ? addLocation : addPlace)(f.name, f.address); clearBar(); return; }
   else if (d.open) { state.detail = +d.open; }
   else if ('closeDetail' in d) { state.detail = null; }
   else if (d.toggleRun) {
     const t = find(d.toggleRun);
-    if (running(t)) { t.sessions.forEach((s) => (s.to ??= now())); t.on = null; }
+    if (running(t)) { t.sessions.forEach((s) => (s.to ??= now())); }
     else { t.sessions.push({ from: now() }); t.on = 'p'; }
   }
   else if (d.finishDetail) { state.detail = null; finish(find(d.finishDetail)); return; }
   else if ('avatar' in d) { avatarSheet(); return; }
   else if (d.pick) { const me = state.members.find((m) => m.me); me.avatar = { icon: d.pick, tint: +d.tint }; $('#sheet').close(); }
   else if ('invite' in d) {
-    sheet(`<div class="flex flex-col items-center gap-5 text-center"><h2 class="text-xl font-semibold">Invite someone</h2>${qrSvg()}
+    sheet(`<div class="flex flex-col items-center gap-5 text-center"><h2 class="text-xl font-semibold">Invite member</h2>${qrSvg()}
       <p class="text-sm text-stone-600">Scan with the other phone, or send the link.<br>Works once, for 5 minutes.</p>
       <button class="${PRIMARY}" data-copy>${icon('content_copy', '!text-[18px]')}Copy link</button></div>`); return;
   }
@@ -437,7 +502,7 @@ document.addEventListener('click', (e) => {
 });
 
 /* Colour switcher: remembers the choice in this browser; ?accent=teal also works. */
-const ACCENTS = { indigo: '#4338ca', violet: '#6d28d9', blue: '#1d4ed8', sky: '#0369a1', teal: '#0f766e', emerald: '#047857', fuchsia: '#a21caf', orange: '#c2410c' };
+const ACCENTS = { indigo: '#4338ca', violet: '#6d28d9', blue: '#1d4ed8', sky: '#0369a1', teal: '#0f766e', emerald: '#047857', fuchsia: '#a21caf', pink: '#be185d', rose: '#be123c', lime: '#65a30d', orange: '#c2410c' };
 function setAccent(name) {
   document.documentElement.dataset.accent = name;
   try { localStorage.setItem('tackly-accent', name); } catch {}
@@ -452,14 +517,16 @@ setAccent(new URLSearchParams(location.search).get('accent') || savedAccent || '
 // ?accent=teal, ?tab=places, ?tab=places&place=lidl, ?offline=1, ?empty=1, ?typing=text, ?task=6, ?task=6&run=1, ?sheet=invite|avatar, ?toasts=3, ?fan=1
 const query = new URLSearchParams(location.search);
 if (query.get('tab')) state.tab = query.get('tab');
-if (query.get('place')) { state.placeView = query.get('place'); state.chosen = new Set([state.placeView]); }
+if (query.get('place')) { state.placeView = query.get('place'); state.chosen = new Set([state.placeView]); state.editPlace = query.has('edit'); }
 state.offline = query.has('offline');
 if (query.has('empty')) { state.tasks = []; state.places = []; }
 if (query.get('task')) { state.detail = +query.get('task'); if (query.get('run')) { find(state.detail).sessions.push({ from: now() - 7 * MIN }); find(state.detail).on = 'p'; } }
+if (query.has('mine')) { const t = find(6); t.on = 'p'; t.sessions.push({ from: now() - 3 * MIN }); }
 render();
 if (query.has('typing')) { $('#addInput').value = query.get('typing'); $('#addInput').focus(); $('#addInput').dispatchEvent(new Event('input')); }
 if (query.get('sheet') === 'invite') { state.tab = 'family'; render(); document.querySelector('[data-invite]').click(); }
 if (query.get('sheet') === 'avatar') { state.tab = 'family'; render(); avatarSheet(); }
+if (query.get('person')) { state.tab = 'family'; state.personView = query.get('person'); render(); }
 if (query.get('toasts')) {
   ['Milk', 'Bread', 'Light bulbs'].slice(0, +query.get('toasts')).forEach((title) => finish(find(state.tasks.find((t) => t.title === title).id)));
   toasts.forEach((t) => (t.left = 1e9));
