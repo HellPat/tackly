@@ -4,26 +4,16 @@ ADHD optimized task management. Shared family tasks that work offline and sync l
 
 ## What it does
 
-- **One list for the whole family.** Anyone adds a task; everyone sees it.
-- **Start and finish.** Tap *Start* when you begin, *Finish* when you're done.
-  Tackly records who did it, how long it took, and, if you like, a note and
-  where you were.
-- **Live.** When Mona starts the laundry, Patrick sees it right away.
-- **Works without internet.** Add and finish tasks anywhere. Tackly shares
-  everything as soon as you're back online.
-- **Easy to join.** The head of the family shows a QR code or sends a link
-  (Signal, any messenger). The new member opens it, and both phones show the
-  same six digits for the head to confirm. The invitation works once and
-  expires after five minutes.
-- **No arguments about who did it.** If two people finish the same task while
-  offline and one of them didn't add anything new, Tackly just keeps the
-  better entry. If they really disagree (two different notes), only the two of
-  them can decide which one counts.
-- **Private.** Everything is encrypted on your phone. The server only passes
-  on data it can't read.
+- One task list for the whole family.
+- Tap *Start*, tap *Finish*. Tackly keeps who, how long, a note and the place.
+- Others see changes live.
+- Works offline. Syncs when back online.
+- Join with a QR code or a link. Both phones show six digits; the head confirms.
+- Two people finish the same task? Tackly keeps the better entry. If they
+  disagree, only those two decide.
+- Encrypted on the phone. The server cannot read your tasks.
 
-Android is the main target; iOS may follow. A lost phone can't be restored:
-leave the family and join again with a new invitation.
+Android first, iOS maybe later. No restore: lost phone means join again.
 
 ---
 
@@ -108,44 +98,21 @@ workspace build, so a stray `unwrap()` fails plain `cargo build`, not only
 
 ### Tests
 
-Two layers, both against a real server with a SQLite file:
+All run against a real server with a SQLite file.
 
-**`just acceptance`: Cucumber, real windows.** `crates/acceptance/tests/features/*.feature`
-are plain-language scenarios. For each one the suite opens three real app
-windows (Patrick, Mona, Mara) and does everything the way a person does:
-typing key by key, clicking, pasting the invitation link, even scanning the QR
-code (the test draws the on-screen SVG and decodes the pixels, like a camera,
-and checks it matches the link shown). The API is Playwright's: lazy, strict
-locators (`get_by_role`, `get_by_label`, `filter`), actions that auto-wait for
-an element to be visible, enabled, stable and not covered, `press_sequentially`,
-`press`, and retrying `expect(...).to_have_text(...)` assertions. The embedded
-web view has no Playwright/CDP protocol, so the engine runs inside the page
-(`tests/support/driver.js`) and is reached through the app's `ui-test` bridge
-(`crates/app/src/uitest.rs`), which exists only in that build, never in
-`just start` or release builds. Windows open and close by themselves while it
-runs; let it finish. CI runs it on macOS.
-
-| Feature | Scenarios |
-| --- | --- |
-| `family.feature` | create a family and connect two members (one by QR code, one by link); the task list syncs, others watch a start live, finishing records duration, note and location; someone else finishes a started task and the head reopens it |
-| `offline.feature` | the whole flow with no server, shared later; a server outage while three members keep working, then everyone catches up |
-| `typing.feature` | the Add button follows each typed key, Backspace and Enter work |
-| `conflict.feature` | two finish the same task, only they may decide, the winner is shown everywhere |
-
-**`just test`: no windows.** Unit tests plus `crates/client/tests/e2e.rs`,
-which runs the same flows through the device core directly. It is fast and is
-what CI runs on Linux.
-
-**`just android-test`: Playwright on Android (spike).** `android-e2e/spike.mjs`
-drives the app in an emulator: Playwright's `Page` on the app's WebView for
-locators and assertions, and `AndroidInput` over adb for real touches and real
-keyboard input. It runs one scenario (create a family, add a task by keyboard
-and Enter, start and finish it) against a real relay on the host. It is an
-alternative next to the desktop suite, not a replacement, and is not in CI.
-Known limits: `AndroidInput.type` drops capital letters, attaching while the app
-is still starting crashes the debug build (the script waits a moment first), and
-Playwright's Android driver APK must be installed (`npx playwright install
-android`, done by the recipe).
+- `just test`: unit tests and device-level end-to-end tests. No windows. CI runs
+  it on Linux.
+- `just acceptance`: Cucumber scenarios in
+  `crates/acceptance/tests/features/`. Three real app windows (Patrick, Mona,
+  Mara); typing key by key, clicking, pasting the link, decoding the on-screen
+  QR code. Playwright-style API: strict locators, auto-waiting actions,
+  retrying `expect`. The engine runs inside the page (`tests/support/driver.js`)
+  via the `ui-test` bridge, which exists only in test builds. Windows open and
+  close alone; let it finish. CI runs it on macOS.
+- `just android-test`: Playwright on an emulator (`android-e2e/spike.mjs`), one
+  scenario. Runs next to the desktop suite, not in CI. Limits:
+  `AndroidInput.type` drops capitals; attach only after the app has started;
+  needs Playwright's driver APK (the recipe installs it).
 
 Server details are in [server/README.md](server/README.md).
 
