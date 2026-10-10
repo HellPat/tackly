@@ -1,0 +1,17 @@
+[application]
+name = "Tackly"
+default_platform = "android"
+
+[bundle]
+identifier = "dev.tackly.tackly"
+publisher = "Tackly"
+short_description = "Offline family tasks"
+
+[bundle.android]
+min_sdk_version = 26
+target_sdk_version = 35
+
+[bundle.android.permissions]
+"android.permission.INTERNET" = true
+"android.permission.ACCESS_FINE_LOCATION" = true
+"android.permission.ACCESS_COARSE_LOCATION" = true

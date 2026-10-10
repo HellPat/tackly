@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - run: cargo fmt --all --check
+      - name: Unit and end-to-end tests (real server, three phones, SSE, outages)
+        run: cargo test --locked -p tackly-protocol -p tackly-client -p tackly-sync
+
+  app-macos:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - run: cargo build --locked --release -p tackly-sync -p tackly-app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tackly-macos
+          path: |
+            target/release/tackly-sync
+            target/release/tackly-app

@@ -1,0 +1,32 @@
+[package]
+name = "tackly-client"
+description = "Tackly device core: encrypted local event log, family pairing, and live sync"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tackly-protocol.workspace = true
+aes-gcm.workspace = true
+anyhow.workspace = true
+async-trait = "0.1"
+cqrs-es = "0.5"
+base64.workspace = true
+chrono.workspace = true
+futures-util.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-native-keyring-store = "1.0"
+keyring-core = "1.0"
+
+[dev-dependencies]
+tackly-sync = { path = "../../server" }
+axum = "0.8"

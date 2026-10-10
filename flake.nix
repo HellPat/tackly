@@ -1,29 +1,37 @@
 {
-  description = "Tackly Android and sync server development shell";
+  description = "Tackly: shared family tasks (Rust, Dioxus, SQLite)";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
   outputs = { nixpkgs, ... }:
     let
-      system = "aarch64-darwin";
-      pkgs = import nixpkgs { inherit system; };
+      systems = [ "aarch64-darwin" "x86_64-darwin" "x86_64-linux" "aarch64-linux" ];
+      forAll = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
     in
     {
-      devShells.${system}.default = pkgs.mkShellNoCC {
-        packages = with pkgs; [
-          cargo
-          jdk21
-          just
-          python3
-          rustc
-        ];
+      devShells = forAll (pkgs: {
+        default = pkgs.mkShell {
+          packages = with pkgs; [
+            cargo
+            clippy
+            dioxus-cli
+            just
+            pkg-config
+            rustc
+            rustfmt
+            sqlite
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux (with pkgs; [
+            gtk3
+            libsoup_3
+            openssl
+            webkitgtk_4_1
+            xdotool
+          ]);
 
-        shellHook = ''
-          export ANDROID_HOME="''${ANDROID_HOME:-$HOME/Library/Android/sdk}"
-          export ANDROID_SDK_ROOT="$ANDROID_HOME"
-          export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
-          export FLUTTER_BIN="''${FLUTTER_BIN:-/opt/homebrew/bin/flutter}"
-        '';
-      };
+          shellHook = ''
+            export TACKLY_DEV_SHELL=1
+          '';
+        };
+      });
     };
 }

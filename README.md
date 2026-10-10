@@ -1,92 +1,80 @@
 # Tackly
 
-An Android Flutter task app with a headless encrypted sync server. Lists contain
-tasks. Each task can be checked off; its completion event records the time and
-available phone coordinates. Saved changes are append-only events in an
-app-private SQLite database, and visible state is rebuilt by replaying them.
-The optional SQLite server relays encrypted events between two phones in
-one family. A family and its tasks can be created without a server; enter a
-server URL later from the invitation screen when ready to share. New task names
-search existing tasks locally, and selecting a completed match reopens it.
+Shared family tasks that work offline and sync live. Written in Rust: a
+[Dioxus](https://dioxuslabs.com) app with an Android-style (Material) UI, an
+Axum sync relay, SQLite on both sides, and a Nix dev shell.
 
-The app and data model are documented in [app/README.md](app/README.md), and
-server setup and security limits in [server/README.md](server/README.md).
-
-## Run locally
-
-On Apple Silicon macOS, install Nix, direnv, and Flutter (`brew install --cask
-flutter`), then run `direnv allow` once in the repository root. The pinned
-shell supplies Rust, Java, Python, and `just`; Flutter stays a macOS host tool
-because the current Nix Flutter package omits the Android integration-test
-plugin used by this app. Keep an Android SDK and AVD installed in Android
-Studio; by default the shell uses `~/Library/Android/sdk`. Set `FLUTTER_BIN`
-if Flutter is installed somewhere other than `/opt/homebrew/bin/flutter`.
-
-Run `just start` from the repository root. It reuses a local Tackly server on ports 3000–3010
-or starts one on a free port with `server/tackly-sync.db`, opens an Android
-emulator, and passes the selected host address to the debug app. Set
-`TACKLY_SERVER_PORT` to use a specific port. New family dialogs use this address;
-an existing owner family without a server connects to it on launch. A family
-already connected to another server keeps its existing address. The app still
-works when the server is unavailable. Set `TACKLY_AVD` to select a different
-emulator. Stop `just start` with Ctrl-C; a server it started stops with it.
-
-## Install a build from GitHub
-
-1. Open [GitHub Releases](https://github.com/HellPat/tackly/releases) and
-   download the APK from the latest release.
-2. Open the APK on an Android phone. Android may ask you to allow installs
-   from the app you used to open it.
-
-Alternatively, with Android Debug Bridge connected:
-
-```sh
-adb install tackly-android-<release-number>.apk
+```
+crates/protocol   shared by app and server: the Family aggregate, its commands
+                  and events (cqrs-es), and the HTTP/SSE wire types
+crates/client     the device core: encrypted SQLite event log, pairing, sync
+crates/app        the Dioxus app
+server            the relay: stores encrypted events, pushes them over SSE
 ```
 
-The current releases use a stable signing key. The earlier debug preview APK
-cannot be upgraded in place to a release APK; uninstalling the debug version
-deletes its local data because Android backup is disabled. Save the recovery
-key before replacing an installation with important data.
+## Try it
 
-## Continuous GitHub releases
-
-After the four signing secrets below are configured, each push to `main` runs
-the emulator suite, builds a signed release APK with a new Android version code,
-and publishes it at [GitHub Releases](https://github.com/HellPat/tackly/releases).
-The release job fails clearly if signing is not configured. The existing debug
-APK cannot be upgraded to the first release APK because its signing key differs;
-uninstalling it deletes the local SQLite database. Keep the release key backed
-up: future APKs need the same signing key to update in place.
-
-The required repository Actions secrets are:
-
-- `TACKLY_KEYSTORE_BASE64`: base64 encoding of a private Android keystore
-- `TACKLY_STORE_PASSWORD`: keystore password
-- `TACKLY_KEY_ALIAS`: key alias in that keystore
-- `TACKLY_KEY_PASSWORD`: key password
-
-The keystore and passwords must not be committed. `app/android/key.properties`
-is ignored locally. GitHub Releases do not automatically install updates on a
-phone. Google Play internal testing can do that later; moving a GitHub install
-to Play without losing app data requires the same Android app signing identity.
-
-## Build and test locally
-
-Use Flutter 3.47.7, Android SDK, and JDK 21:
+Install [Nix](https://nixos.org/download) (flakes enabled), then:
 
 ```sh
-cd app
-flutter pub get
-flutter analyze
-flutter test integration_test/current_slice_test.dart -d <android-device-id>
-flutter build apk --debug
+just start
 ```
 
-The emulator suite covers local task flows, controlled camera results, offline
-conflicts, and a Flutter-to-Rust-to-SQLite live relay. Android location
-integration runs both disabled-service and captured-coordinate cases; the
-captured case uses a temporary Android GPS test provider. The server workflow
-also checks every current HTTP endpoint and append-only retention. See
-[current end-to-end coverage](acceptance/CURRENT-SCOPE-E2E.md) for the exact
-drivers and remaining device-level gaps.
+This builds everything, starts the relay and opens **three app windows**
+(Anna, Ben, Caro), each with its own database under `.dev/`.
+
+1. In Anna's window: *Create a family*.
+2. Anna: *Family → Invite someone*, copy the code.
+3. Ben: *Join with an invitation*, paste the code, *Ask to join*. Both phones
+   show the same six digits; Anna confirms. Repeat for Caro.
+4. Add tasks, tap *Start* or *Finish* (optional note and location) and watch the
+   other windows update live.
+
+`just start 1` opens one window; `just reset` forgets all test data;
+`just test` runs the suites; `just server` runs only the relay. The desktop
+build fakes the GPS with `TACKLY_LOCATION` (each window gets its own).
+`just android` runs the same app in an emulator (Android SDK/NDK required; not
+covered by CI).
+
+Without Nix, install Rust and run `cargo run -p tackly-sync` and
+`cargo run -p tackly-app` yourself.
+
+## How it works
+
+- **CQRS / event sourcing** with [`cqrs-es`](https://doc.rust-cqrs.org). The
+  family is one aggregate (`crates/protocol/src/aggregate.rs`): commands such as
+  `StartTask` or `CompleteTask` are validated against the replayed state and
+  produce `FamilyEvent`s. Completion events carry metadata: who, when, how
+  long since the start, an optional note and location.
+- **Offline first.** Every command commits to the phone's SQLite log first.
+  A family can be created and used with no server; the phone registers and
+  uploads later. Pairing needs the server.
+- **Live updates.** The app keeps an SSE connection
+  (`GET /v1/families/{id}/stream`) and reconnects from its cursor with backoff.
+- **Conflicts.** If two members finish the same task while apart, both
+  completions are kept and shown. Either of them can pick the winner; others
+  cannot.
+- **Encrypted.** Events are encrypted on the phone with a family key
+  (AES-256-GCM). The server stores ciphertext and routing IDs only. The family
+  key travels to a new member sealed under the invitation secret.
+
+## Tests
+
+`crates/client/tests/e2e.rs` runs a real server (SQLite file, real HTTP/SSE)
+and real devices:
+
+| Test | Covers |
+| --- | --- |
+| `three_members_share_tasks_and_see_each_other_live` | create family, two members join with code confirmation, task list sync, start/finish with metadata, reopen, identical state on all three |
+| `double_completion_is_settled_by_a_member_who_took_part` | concurrent finish, conflict visible everywhere, outsider refused, participant resolves |
+| `everything_works_without_a_server_and_syncs_later` | family and tasks created with the server down, registers and uploads later, a new member receives the history |
+| `a_server_outage_does_not_stop_members_and_they_converge_afterwards` | server killed mid-session, all three keep working, converge after restart |
+
+Server details are in [server/README.md](server/README.md).
+
+## Status
+
+Not done: device revocation, key rotation, recovery-key restore (the endpoint
+exists, the app does not use it), real GPS on Android, and the Android build
+is unverified. The Flutter app in `app/` is the previous implementation and is
+no longer built or tested.

@@ -11,10 +11,11 @@ Choose a private, writable location for the SQLite database and apply the
 migration explicitly. The database file is created if needed:
 
 ```sh
-cd server
-DATABASE_URL=sqlite:///var/lib/tackly/tackly-sync.db cargo run -- migrate
-DATABASE_URL=sqlite:///var/lib/tackly/tackly-sync.db cargo run --release
+DATABASE_URL=sqlite:///var/lib/tackly/tackly-sync.db cargo run --release -p tackly-sync
 ```
+
+Migrations are embedded and applied on start; `tackly-sync migrate` applies
+them and exits.
 
 The server binds to `127.0.0.1:3000` by default. Set `TACKLY_BIND` to another
 socket address if needed. Put a TLS reverse proxy in front of it and enter the
@@ -27,8 +28,10 @@ The server and database are not deployed by this repository. A public HTTPS
 endpoint must be supplied before two phones can
 pair or synchronize outside a local development network.
 
-With a disposable local database and the server running, run
-`python3 tests/transport_smoke.py` and `python3 tests/api_e2e.py`.
+The end-to-end suite in `crates/client/tests/e2e.rs` starts this server
+in-process (`just test`). The older Python scripts below still exercise the
+raw HTTP API against a running server: `python3 tests/transport_smoke.py` and
+`python3 tests/api_e2e.py`.
 The latter covers every current HTTP endpoint, authorization and tenant
 isolation, event validation/paging/idempotency, concurrent writes, one-use
 joining, invitation expiry, cancellation, and owner/member recovery. Set
@@ -38,6 +41,15 @@ against the disposable database. Run
 database to verify the append-only triggers. These API tests use
 synthetic payload bytes; the Android live-relay suite covers actual client
 encryption against this server. Neither is a two-physical-phone test.
+
+## Live stream
+
+`GET /v1/families/{id}/stream?after=<sequence>` (bearer token; or the
+`Last-Event-ID` header) is a Server-Sent Events stream. It first replays events
+after the cursor, then pushes each newly accepted batch as an `events` message
+whose data is an `EventsPage` and whose `id` is the last sequence. Keep-alives
+are sent every 15 seconds. Wire types live in `crates/protocol`, shared with the
+app.
 
 ## Protocol
 
