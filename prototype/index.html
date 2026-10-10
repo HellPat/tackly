@@ -103,6 +103,7 @@ const state = {
   tab: 'tasks', filter: 'mine', placeView: null, personView: null, editPlace: false, chosen: new Set(), detail: null,
   lists: [{ id: 'home', name: 'Household' }, { id: 'shop', name: 'Shopping' }, { id: 'garden', name: 'Garden' }],
   listView: null, // the list you stepped into on Tasks
+  groupView: null, // the group you stepped into on Places
   groups: [{ id: 'g1', name: 'Grocery Store' }, { id: 'g2', name: 'Hardware' }],
   places: [
     { id: 'lidl', group: 'g1', name: 'LIDL', locations: [{ name: 'LIDL Winnenden', address: 'Marbacher Straße 1, Winnenden' }, { name: 'LIDL Backnang', address: 'Stuttgarter Straße 3, Backnang' }] },
@@ -135,10 +136,6 @@ const FOUND = [
 ];
 const placeById = (id) => state.places.find((p) => p.id === id);
 const listById = (id) => state.lists.find((l) => l.id === id);
-/* A section heading with a quiet edit button, for lists (in "All lists") and place groups. */
-const editableHeading = (text, kind, id) => `<div class="flex items-center justify-between pl-2 pt-4 pb-1">
-  <h2 class="text-sm font-semibold text-stone-600">${text}</h2>
-  <button class="size-10 grid place-items-center rounded-full text-stone-500 hover:bg-stone-200/60" data-rename="${kind}" data-id="${id}" aria-label="Rename ${text}">${icon('edit', '!text-[18px]')}</button></div>`;
 const member = (id) => state.members.find((m) => m.id === id);
 const find = (id) => state.tasks.find((t) => t.id == id);
 const visible = () => state.tasks.filter((t) => t.status === 'open');
@@ -146,8 +143,8 @@ const openAt = (p) => visible().filter((t) => t.places.includes(p.id));
 const pill = (p) => `<span class="${PILL}">${p.name}</span>`;
 const heading = (text) => `<h2 class="px-2 pt-6 pb-2 text-sm font-semibold text-stone-600">${text}</h2>`;
 /* What the bottom bar adds here: a task, a place, or a location of the place being edited. */
-const barMode = () => state.tab === 'tasks' && !state.listView ? 'list'
-  : state.tab === 'places' && state.editPlace ? 'location' : state.tab === 'places' && !state.placeView ? 'place' : 'task';
+const barMode = () => state.tab === 'tasks' ? (state.listView ? 'task' : 'list')
+  : state.editPlace ? 'location' : state.placeView ? 'task' : state.groupView ? 'place' : 'group';
 /* A person's picture: an icon on a soft tint, or a photo. Round, with a white border and a small shadow,
    so any photo (too light, too busy, badly cropped) still sits cleanly on the page. */
 const avatar = (m, size = 'size-10') => `<span class="relative ${size} shrink-0 rounded-full overflow-hidden grid place-items-center ${TINTS[m.avatar.tint]} ${{ 'size-24': 'border-4', 'size-12': 'border-[3px]', 'size-10': 'border-[3px]' }[size] ?? 'border-2'} border-white shadow-[0_1px_3px_rgb(41_37_36/.3)]">
@@ -261,16 +258,18 @@ const FILTERS = {
   all:  { label: 'All', keep: () => true },
 };
 /* Tasks, parent level: the lists, like places. Step into one to see its tasks. */
+/* One row of an overview (lists, groups, places): icon, name, a count, chevron. */
+const overviewRow = (data, ic, name, count, sub = '') => `<li><button class="w-full flex items-center gap-3 px-4 min-h-16 text-left hover:bg-stone-50 active:bg-stone-100" ${data}>
+  <span class="size-9 shrink-0 rounded-full grid place-items-center bg-stone-100 text-stone-600">${icon(ic, '!text-[18px]')}</span>
+  <span class="flex-1 min-w-0"><span class="block text-base truncate">${name}</span>${sub ? `<span class="block text-sm text-stone-600">${sub}</span>` : ''}</span>
+  ${count ? `<span class="text-sm text-stone-600">${count}</span>` : ''}
+  ${icon('chevron_right', 'text-stone-500')}</button></li>`;
+
 function renderLists() {
   if (!state.lists.length) return emptyState('checklist', 'No lists yet', 'Start one below, for example Household or Garden.');
   return `<ul class="${CARD} overflow-hidden mt-1">${state.lists.map((l) => {
     const open = visible().filter((t) => t.list === l.id), mine = open.filter((t) => t.on === 'p').length;
-    return `<li><button class="w-full flex items-center gap-3 px-4 min-h-16 text-left hover:bg-stone-50 active:bg-stone-100" data-open-list="${l.id}">
-      <span class="size-9 shrink-0 rounded-full grid place-items-center bg-stone-100 text-stone-600">${icon('checklist', '!text-[18px]')}</span>
-      <span class="flex-1 min-w-0"><span class="block text-base truncate">${l.name}</span>
-        ${mine ? `<span class="block text-sm text-stone-600">${mine} yours</span>` : ''}</span>
-      ${open.length ? `<span class="text-sm text-stone-600">${open.length} open</span>` : ''}
-      ${icon('chevron_right', 'text-stone-500')}</button></li>`;
+    return overviewRow(`data-open-list="${l.id}"`, 'checklist', l.name, open.length ? `${open.length} open` : '', mine ? `${mine} yours` : '');
   }).join('')}</ul>`;
 }
 
@@ -319,24 +318,23 @@ function renderPlaces() {
     return `<button class="flex items-center gap-1.5 px-2 pb-3 text-sm text-stone-600 hover:text-stone-800" data-edit-place>${icon('location_on', '!text-[18px] text-stone-500')}${n} ${n === 1 ? 'location' : 'locations'}</button>
       ${tasks.length ? `<ul>${tasks.map(taskCard).join('')}</ul>` : `<p class="py-16 text-center text-stone-600">Nothing to get here.</p>`}`;
   }
-  if (!state.places.length) return emptyState('storefront', 'No places yet', 'Add the shops you go to, then see what to get where.');
-  const groups = [...state.groups, { id: null, name: 'Other' }];
-  return groups.map((g) => {
-    const places = state.places.filter((p) => (p.group ?? null) === g.id).sort((a, b) => openAt(b).length - openAt(a).length);
-    if (!places.length) return '';
-    return (g.id ? editableHeading(g.name, 'group', g.id) : heading(g.name)) + `<ul class="${CARD} overflow-hidden">${places.map((p) => {
-      const n = openAt(p).length;
-      return `<li><button class="w-full flex items-center gap-3 px-4 min-h-14 text-left hover:bg-stone-50 active:bg-stone-100" data-place="${p.id}">
-        <span class="size-9 shrink-0 rounded-full grid place-items-center bg-stone-100 text-stone-600">${icon('storefront', '!text-[18px]')}</span>
-        <span class="flex-1 text-base">${p.name}</span>
-        ${n ? `<span class="text-sm text-stone-600">${n} to get</span>` : ''}
-        ${icon('chevron_right', 'text-stone-500')}</button></li>`;
-    }).join('')}</ul>`;
-  }).join('');
+  // Inside a group: its places, the one with the most to get first.
+  if (state.groupView) {
+    const places = state.places.filter((p) => p.group === state.groupView).sort((a, b) => openAt(b).length - openAt(a).length);
+    if (!places.length) return emptyState('storefront', 'No places here yet', 'Add one below, for example LIDL.');
+    return `<ul class="${CARD} overflow-hidden mt-1">${places.map((p) => { const n = openAt(p).length; return overviewRow(`data-place="${p.id}"`, 'storefront', p.name, n ? `${n} to get` : ''); }).join('')}</ul>`;
+  }
+  // Overview: the groups.
+  if (!state.groups.length) return emptyState('storefront', 'No places yet', 'Start with a group below, for example Grocery Store.');
+  return `<ul class="${CARD} overflow-hidden mt-1">${state.groups.map((g) => {
+    const places = state.places.filter((p) => p.group === g.id);
+    const n = places.reduce((sum, p) => sum + openAt(p).length, 0);
+    return overviewRow(`data-open-group="${g.id}"`, 'category', g.name, n ? `${n} to get` : '', `${places.length} ${places.length === 1 ? 'place' : 'places'}`);
+  }).join('')}</ul>`;
 }
 
 /* Editing a place: its name, and its locations as a plain list. New locations come from the bottom bar. */
-/* A place's group: pick one, none, or type a new one. Groups without places simply disappear. */
+/* A place's group: move it to another one, or to a new one. */
 const CHIP = 'shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors';
 function groupPicker(p) {
   const chip = (id, label) => {
@@ -346,7 +344,7 @@ function groupPicker(p) {
   return `<div class="px-1 pt-5">
     <span class="block text-sm font-semibold text-stone-600" id="groupLabel">Group</span>
     <div class="mt-2 flex flex-wrap gap-2" role="group" aria-labelledby="groupLabel">
-      ${state.groups.map((g) => chip(g.id, g.name)).join('')}${chip(null, 'None')}
+      ${state.groups.map((g) => chip(g.id, g.name)).join('')}
       ${state.newGroup
         ? `<form id="newGroupForm" class="inline-flex"><input id="newGroup" aria-label="New group" placeholder="Group name" class="h-9 w-40 px-3.5 rounded-full bg-[#fffdfb] text-sm shadow-sm ring-2 ring-accent-700 outline-none"></form>`
         : `<button data-new-group class="${CHIP} border border-dashed border-stone-400 text-stone-700">${icon('add', '!text-[18px]')}New group</button>`}
@@ -488,7 +486,7 @@ function renderExtras() {
 
 function renderComposer() {
   $('#composer').classList.toggle('hidden', !(state.tab === 'tasks' || state.tab === 'places'));
-  const label = { list: 'Add a list', task: 'Add a task', place: 'Add a place', location: 'Add a location' }[barMode()];
+  const label = { list: 'Add a list', group: 'Add a group', task: 'Add a task', place: 'Add a place', location: 'Add a location' }[barMode()];
   $('#addInput').placeholder = label; $('#addInput').setAttribute('aria-label', label);
   renderExtras();
 }
@@ -498,12 +496,13 @@ function render() {
   const inPlace = state.tab === 'places' && state.placeView;
   const inPerson = state.tab === 'family' && state.personView;
   const inList = state.tab === 'tasks' && state.listView;
-  $('#title').textContent = inList ? listById(state.listView).name : inPlace ? (state.editPlace ? 'Edit place' : placeById(state.placeView).name) : inPerson ? member(state.personView).name : titles[state.tab];
+  const inGroup = state.tab === 'places' && state.groupView && !state.placeView;
+  $('#title').textContent = inList ? listById(state.listView).name : inGroup ? state.groups.find((g) => g.id === state.groupView).name : inPlace ? (state.editPlace ? 'Edit place' : placeById(state.placeView).name) : inPerson ? member(state.personView).name : titles[state.tab];
   // Edit lives in the top bar: for a place, and for yourself.
-  const canEdit = inList || (inPlace && !state.editPlace) || (inPerson && member(state.personView).me);
-  $('#editBtn').setAttribute('aria-label', inList ? 'Edit list' : inPerson ? 'Edit your picture' : 'Edit place');
+  const canEdit = inList || inGroup || (inPlace && !state.editPlace) || (inPerson && member(state.personView).me);
+  $('#editBtn').setAttribute('aria-label', inList ? 'Edit list' : inGroup ? 'Edit group' : inPerson ? 'Edit your picture' : 'Edit place');
   $('#editBtn').classList.toggle('hidden', !canEdit); $('#editBtn').classList.toggle('grid', !!canEdit);
-  const back = inList || inPlace || inPerson;
+  const back = inList || inGroup || inPlace || inPerson;
   $('#backBtn').classList.toggle('hidden', !back); $('#backBtn').classList.toggle('grid', !!back);
   $('#main').innerHTML = { tasks: renderTasks, places: renderPlaces, family: renderFamily }[state.tab]();
   $('#offline').classList.toggle('hidden', !state.offline); $('#offline').classList.toggle('inline-flex', !!state.offline);
@@ -521,7 +520,7 @@ $('#composer').addEventListener('mousedown', (e) => { if (e.target.closest('#ext
 $('#addInput').addEventListener('input', (e) => { const has = !!e.target.value.trim(); $('#addBtn').classList.toggle('hidden', !has); $('#addBtn').classList.toggle('grid', has); if (barMode() === 'place' || barMode() === 'location') renderExtras(); });
 
 function addTask(title) {
-  const list = state.listView;
+  const list = state.listView ?? state.lists[0]?.id;
   const t = { id: now(), title, list, places: [...state.chosen], status: 'open', sessions: [] };
   state.tasks.push(t);
   state.chosen = new Set(state.placeView ? [state.placeView] : []);
@@ -533,8 +532,13 @@ function addList(name) {
   state.lists.push(l); render();
   toast(`Added ${name}`, 'Undo', () => { state.lists.splice(state.lists.indexOf(l), 1); render(); });
 }
+function addGroup(name) {
+  const g = { id: `g${now()}`, name };
+  state.groups.push(g); render();
+  toast(`Added ${name}`, 'Undo', () => { state.groups.splice(state.groups.indexOf(g), 1); render(); });
+}
 function addPlace(name, address) {
-  const p = { id: `p${now()}`, group: null, name, locations: [{ name, address: address ?? name }] };
+  const p = { id: `p${now()}`, group: state.groupView, name, locations: [{ name, address: address ?? name }] };
   state.places.push(p); render();
   toast(`Added ${name}`, 'Undo', () => { state.places.splice(state.places.indexOf(p), 1); render(); });
 }
@@ -546,7 +550,7 @@ function addLocation(name, address) {
 function clearBar() { $('#addInput').value = ''; $('#addBtn').classList.add('hidden'); $('#addBtn').classList.remove('grid'); renderExtras(); $('#addInput').focus(); }
 $('#addForm').addEventListener('submit', (e) => {
   e.preventDefault(); const v = $('#addInput').value.trim(); if (!v) return;
-  ({ list: addList, task: addTask, place: addPlace, location: addLocation })[barMode()](v); clearBar();
+  ({ list: addList, group: addGroup, task: addTask, place: addPlace, location: addLocation })[barMode()](v); clearBar();
 });
 
 /* Finishing: the check pops, the card slides away and folds up, the toast offers Undo. */
@@ -584,8 +588,10 @@ document.addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b || b.closest('#toasts')) return;
   const d = b.dataset;
   if (b.id === 'backBtn') { state.newGroup = false; }
-  if (b.id === 'backBtn') { if (state.listView && state.tab === 'tasks') state.listView = null; else if (state.personView) state.personView = null; else if (state.editPlace) state.editPlace = false; else { state.placeView = null; state.chosen = new Set(); } }
+  if (b.id === 'backBtn') { if (state.listView && state.tab === 'tasks') state.listView = null; else if (state.personView) state.personView = null; else if (state.editPlace) state.editPlace = false; else if (state.placeView) { state.placeView = null; state.chosen = new Set(); } else state.groupView = null; }
   else if (b.id === 'editBtn' && state.tab === 'tasks' && state.listView) { renameSheet('list', state.listView); return; }
+  else if (b.id === 'editBtn' && state.tab === 'places' && state.groupView && !state.placeView) { renameSheet('group', state.groupView); return; }
+  else if (d.openGroup) { state.groupView = d.openGroup; }
   else if (b.id === 'editBtn' && state.personView) { avatarSheet(); return; }
   else if (b.id === 'editBtn' || 'editPlace' in d) { state.editPlace = true; }
   else if (d.person) { state.personView = d.person; }
@@ -594,7 +600,7 @@ document.addEventListener('click', (e) => {
   else if ('closeSheet' in d) { $('#sheet').close(); return; }
   else if (d.delete) {
     if (d.delete === 'list') { state.lists = state.lists.filter((l) => l.id !== d.id); state.listView = null; }
-    else state.groups = state.groups.filter((g) => g.id !== d.id);
+    else { state.groups = state.groups.filter((g) => g.id !== d.id); state.groupView = null; }
     $('#sheet').close();
   }
   else if ('group' in d && state.editPlace) { placeById(state.placeView).group = d.group || null; }
@@ -617,7 +623,7 @@ document.addEventListener('click', (e) => {
     const p = placeById(state.placeView), [l] = p.locations.splice(+d.removeLocation, 1);
     toast(`Removed ${l.name}`, 'Undo', () => { p.locations.splice(+d.removeLocation, 0, l); render(); });
   }
-  else if (d.tab) { state.tab = d.tab; state.listView = null; state.placeView = null; state.personView = null; state.editPlace = false; state.chosen = new Set(); }
+  else if (d.tab) { state.tab = d.tab; state.listView = null; state.groupView = null; state.placeView = null; state.personView = null; state.editPlace = false; state.chosen = new Set(); }
   else if (d.place) { state.placeView = d.place; state.chosen = new Set([d.place]); }
   else if (d.chip) { state.chosen.has(d.chip) ? state.chosen.delete(d.chip) : state.chosen.add(d.chip); renderExtras(); return; }
   else if (d.suggest) { addTask(d.suggest); return; }
@@ -645,9 +651,10 @@ document.addEventListener('click', (e) => {
 // ?tab=places, ?tab=places&place=lidl, ?offline=1, ?empty=1, ?typing=text, ?task=6, ?task=6&run=1, ?sheet=invite|avatar, ?toasts=3, ?fan=1
 const query = new URLSearchParams(location.search);
 if (query.get('tab')) state.tab = query.get('tab');
-if (query.get('place')) { state.placeView = query.get('place'); state.chosen = new Set([state.placeView]); state.editPlace = query.has('edit'); }
+if (query.get('group')) state.groupView = query.get('group');
+if (query.get('place')) { state.groupView = placeById(query.get('place')).group; state.placeView = query.get('place'); state.chosen = new Set([state.placeView]); state.editPlace = query.has('edit'); }
 state.offline = query.has('offline');
-if (query.has('empty')) { state.tasks = []; state.places = []; }
+if (query.has('empty')) { state.tasks = []; state.places = []; state.groups = []; }
 if (query.get('task')) { state.detail = +query.get('task'); if (query.get('run')) { find(state.detail).sessions.push({ from: now() - 7 * MIN }); find(state.detail).on = 'p'; } }
 if (query.get('filter')) state.filter = query.get('filter');
 if (query.get('list')) state.listView = query.get('list');
