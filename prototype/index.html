@@ -108,7 +108,7 @@ const CARD = 'bg-[#fffdfb] rounded-2xl shadow-sm';
 const TINTS = ['bg-sky-100 text-sky-900', 'bg-pink-100 text-pink-900', 'bg-teal-100 text-teal-900', 'bg-amber-100 text-amber-900', 'bg-violet-100 text-violet-900'];
 
 const state = {
-  tab: 'tasks', placeView: null, personView: null, editPlace: false, chosen: new Set(), detail: null,
+  tab: 'tasks', filter: null, placeView: null, personView: null, editPlace: false, chosen: new Set(), detail: null,
   groups: [{ id: 'g1', name: 'Grocery Store' }, { id: 'g2', name: 'Hardware' }],
   places: [
     { id: 'lidl', group: 'g1', name: 'LIDL', locations: [{ name: 'LIDL Winnenden', address: 'Marbacher Straße 1, Winnenden' }, { name: 'LIDL Backnang', address: 'Stuttgarter Straße 3, Backnang' }] },
@@ -247,10 +247,20 @@ function emptyState(ic, title, line) {
     <span class="text-lg font-semibold">${title}</span><span class="text-stone-600">${line}</span></div>`;
 }
 
+/* Two filters: only mine, or only nobody's. Tap again to see everything. */
+const FILTERS = { mine: { label: 'Mine', keep: (t) => t.on === 'p' }, free: { label: 'Unassigned', keep: (t) => !t.on } };
 function renderTasks() {
-  const tasks = visible();
-  if (!tasks.length) return emptyState('celebration', 'All done', 'Nothing left to do. Enjoy it.');
-  return `<ul class="pt-1">${tasks.map(taskCard).join('')}</ul>`;
+  const all = visible();
+  if (!all.length) return emptyState('celebration', 'All done', 'Nothing left to do. Enjoy it.');
+  const f = FILTERS[state.filter];
+  const tasks = f ? all.filter(f.keep) : all;
+  const chips = Object.entries(FILTERS).map(([id, { label, keep }]) => {
+    const on = state.filter === id, n = all.filter(keep).length;
+    return `<button data-filter="${id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-stone-800 text-stone-50' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${on ? icon('check', '!text-[18px]') : ''}${label}<span class="${on ? 'text-stone-300' : 'text-stone-500'} font-normal">${n}</span></button>`;
+  }).join('');
+  const none = { mine: 'You are not on any task. Pick one below.', free: 'Every task has someone on it.' }[state.filter];
+  return `<div class="flex gap-2 pt-1 pb-3" role="group" aria-label="Filter">${chips}</div>
+    ${tasks.length ? `<ul>${tasks.map(taskCard).join('')}</ul>` : `<p class="py-16 text-center text-stone-600">${none}</p>`}`;
 }
 
 function renderPlaces() {
@@ -472,6 +482,7 @@ document.addEventListener('click', (e) => {
   else if (b.id === 'editBtn' && state.personView) { avatarSheet(); return; }
   else if (b.id === 'editBtn' || 'editPlace' in d) { state.editPlace = true; }
   else if (d.person) { state.personView = d.person; }
+  else if (d.filter) { state.filter = state.filter === d.filter ? null : d.filter; }
   else if (d.removeLocation) {
     const p = placeById(state.placeView), [l] = p.locations.splice(+d.removeLocation, 1);
     toast(`Removed ${l.name}`, 'Undo', () => { p.locations.splice(+d.removeLocation, 0, l); render(); });
@@ -521,6 +532,7 @@ if (query.get('place')) { state.placeView = query.get('place'); state.chosen = n
 state.offline = query.has('offline');
 if (query.has('empty')) { state.tasks = []; state.places = []; }
 if (query.get('task')) { state.detail = +query.get('task'); if (query.get('run')) { find(state.detail).sessions.push({ from: now() - 7 * MIN }); find(state.detail).on = 'p'; } }
+if (query.get('filter')) state.filter = query.get('filter');
 if (query.has('mine')) { const t = find(6); t.on = 'p'; t.sessions.push({ from: now() - 3 * MIN }); }
 render();
 if (query.has('typing')) { $('#addInput').value = query.get('typing'); $('#addInput').focus(); $('#addInput').dispatchEvent(new Event('input')); }
