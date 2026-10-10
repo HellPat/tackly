@@ -43,12 +43,7 @@
 
     <header id="header" class="relative z-10 shrink-0 flex items-center gap-1 px-2 h-16">
       <button id="backBtn" class="hidden size-12 grid place-items-center rounded-full text-stone-700 hover:bg-stone-200" aria-label="Back"><span class="material-symbols-rounded" aria-hidden="true">arrow_back</span></button>
-      <h1 class="flex-1 min-w-0 px-2 text-2xl font-semibold tracking-tight">
-        <span id="title" class="block truncate">Tasks</span>
-        <button id="listBtn" class="hidden max-w-full items-center gap-1 -ml-1 pl-1 pr-2 h-10 rounded-md hover:bg-stone-200/60" aria-haspopup="dialog">
-          <span id="listName" class="truncate"></span><span class="material-symbols-rounded text-stone-500" aria-hidden="true">expand_more</span>
-        </button>
-      </h1>
+      <h1 id="title" class="flex-1 px-2 text-2xl font-semibold tracking-tight truncate">Tasks</h1>
       <button id="editBtn" class="hidden size-12 place-items-center rounded-full text-stone-700 hover:bg-stone-200" aria-label="Edit place"><span class="material-symbols-rounded" aria-hidden="true">edit</span></button>
       <span id="offline" class="hidden mr-2 items-center gap-1 h-8 px-3 rounded-full bg-stone-200 text-sm text-stone-700"><span class="material-symbols-rounded !text-[18px]" aria-hidden="true">cloud_off</span>Offline</span>
     </header>
@@ -107,7 +102,7 @@ const TINTS = ['bg-sky-100 text-sky-900', 'bg-pink-100 text-pink-900', 'bg-teal-
 const state = {
   tab: 'tasks', filter: 'mine', placeView: null, personView: null, editPlace: false, chosen: new Set(), detail: null,
   lists: [{ id: 'home', name: 'Household' }, { id: 'shop', name: 'Shopping' }, { id: 'garden', name: 'Garden' }],
-  list: 'all', // which list Tasks shows; 'all' shows every list in sections
+  listView: null, // the list you stepped into on Tasks
   groups: [{ id: 'g1', name: 'Grocery Store' }, { id: 'g2', name: 'Hardware' }],
   places: [
     { id: 'lidl', group: 'g1', name: 'LIDL', locations: [{ name: 'LIDL Winnenden', address: 'Marbacher Straße 1, Winnenden' }, { name: 'LIDL Backnang', address: 'Stuttgarter Straße 3, Backnang' }] },
@@ -151,7 +146,8 @@ const openAt = (p) => visible().filter((t) => t.places.includes(p.id));
 const pill = (p) => `<span class="${PILL}">${p.name}</span>`;
 const heading = (text) => `<h2 class="px-2 pt-6 pb-2 text-sm font-semibold text-stone-600">${text}</h2>`;
 /* What the bottom bar adds here: a task, a place, or a location of the place being edited. */
-const barMode = () => state.tab === 'places' && state.editPlace ? 'location' : state.tab === 'places' && !state.placeView ? 'place' : 'task';
+const barMode = () => state.tab === 'tasks' && !state.listView ? 'list'
+  : state.tab === 'places' && state.editPlace ? 'location' : state.tab === 'places' && !state.placeView ? 'place' : 'task';
 /* A person's picture: an icon on a soft tint, or a photo. Round, with a white border and a small shadow,
    so any photo (too light, too busy, badly cropped) still sits cleanly on the page. */
 const avatar = (m, size = 'size-10') => `<span class="relative ${size} shrink-0 rounded-full overflow-hidden grid place-items-center ${TINTS[m.avatar.tint]} ${{ 'size-24': 'border-4', 'size-12': 'border-[3px]', 'size-10': 'border-[3px]' }[size] ?? 'border-2'} border-white shadow-[0_1px_3px_rgb(41_37_36/.3)]">
@@ -264,8 +260,23 @@ const FILTERS = {
   free: { label: 'Unassigned', keep: (t) => !t.on },
   all:  { label: 'All', keep: () => true },
 };
+/* Tasks, parent level: the lists, like places. Step into one to see its tasks. */
+function renderLists() {
+  if (!state.lists.length) return emptyState('checklist', 'No lists yet', 'Start one below, for example Household or Garden.');
+  return `<ul class="${CARD} overflow-hidden mt-1">${state.lists.map((l) => {
+    const open = visible().filter((t) => t.list === l.id), mine = open.filter((t) => t.on === 'p').length;
+    return `<li><button class="w-full flex items-center gap-3 px-4 min-h-16 text-left hover:bg-stone-50 active:bg-stone-100" data-open-list="${l.id}">
+      <span class="size-9 shrink-0 rounded-full grid place-items-center bg-stone-100 text-stone-600">${icon('checklist', '!text-[18px]')}</span>
+      <span class="flex-1 min-w-0"><span class="block text-base truncate">${l.name}</span>
+        ${mine ? `<span class="block text-sm text-stone-600">${mine} yours</span>` : ''}</span>
+      ${open.length ? `<span class="text-sm text-stone-600">${open.length} open</span>` : ''}
+      ${icon('chevron_right', 'text-stone-500')}</button></li>`;
+  }).join('')}</ul>`;
+}
+
 function renderTasks() {
-  const all = visible().filter((t) => state.list === 'all' || t.list === state.list);
+  if (!state.listView) return renderLists();
+  const all = visible().filter((t) => t.list === state.listView);
   if (!all.length) return emptyState('celebration', 'All done', 'Nothing left to do. Enjoy it.');
   const tasks = all.filter(FILTERS[state.filter].keep);
   const chips = Object.entries(FILTERS).map(([id, { label, keep }]) => {
@@ -273,11 +284,7 @@ function renderTasks() {
     return `<button data-filter="${id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-stone-800 text-stone-50' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${label}<span class="${on ? 'text-stone-300' : 'text-stone-500'} font-normal">${n}</span></button>`;
   }).join('');
   const head = `<div class="flex gap-2 pt-1 pb-3" role="group" aria-label="Filter">${chips}</div>`;
-  if (tasks.length && state.list !== 'all') return `${head}<ul>${tasks.map(taskCard).join('')}</ul>`;
-  if (tasks.length) return head + state.lists.map((l) => {
-    const mine = tasks.filter((t) => t.list === l.id);
-    return mine.length ? editableHeading(l.name, 'list', l.id) + `<ul>${mine.map(taskCard).join('')}</ul>` : '';
-  }).join('');
+  if (tasks.length) return `${head}<ul>${tasks.map(taskCard).join('')}</ul>`;
   if (state.filter === 'mine') return head + nothingMine();
   return `${head}<p class="py-16 text-center text-stone-600">Every task has someone on it.</p>`;
 }
@@ -379,21 +386,6 @@ function renderFamily() {
   }).join('')}</ul>`;
 }
 
-/* The list switcher: every list with its open count, "All lists", and a way to add one. */
-function listSheet() {
-  const row = (id, name) => {
-    const n = visible().filter((t) => id === 'all' || t.list === id).length, on = state.list === id;
-    return `<li><button class="w-full flex items-center gap-3 px-3 min-h-14 rounded-lg text-left ${on ? 'bg-stone-100 font-semibold' : 'hover:bg-stone-50'}" data-pick-list="${id}" aria-current="${on}">
-      ${icon(id === 'all' ? 'stacks' : 'list', 'text-stone-500')}<span class="flex-1">${name}</span><span class="text-sm text-stone-600 font-normal">${n}</span></button></li>`;
-  };
-  sheet(`<h2 class="text-xl font-semibold">Lists</h2>
-    <ul class="mt-3 -mx-3">${row('all', 'All lists')}${state.lists.map((l) => row(l.id, l.name)).join('')}</ul>
-    <form id="newListForm" class="mt-4 flex gap-2">
-      <input id="newList" aria-label="New list" placeholder="New list, e.g. Garden" class="flex-1 min-w-0 h-10 px-3 rounded-md bg-[#fffdfb] border border-stone-300 shadow-sm outline-none focus:ring-2 focus:ring-accent-700">
-      <button class="${SECONDARY}">${icon('add', '!text-[18px]')}Add</button>
-    </form>`);
-}
-
 /* Renaming a list or a group; deleting only when nothing is in it. */
 function renameSheet(kind, id) {
   const bucket = kind === 'list' ? listById(id) : state.groups.find((g) => g.id === id);
@@ -476,7 +468,7 @@ function renderDock() {
 /* Above the bar while typing: for a task, place pills and add-again chips; for a place, only the address search. */
 function renderExtras() {
   const typed = $('#addInput').value.trim();
-  if (barMode() !== 'task') {
+  if (barMode() === 'place' || barMode() === 'location') {
     const found = typed.length >= 3 ? FOUND.filter((f) => `${f.name} ${f.address}`.toLowerCase().includes(typed.toLowerCase().split(' ')[0])) : [];
     $('#extras').innerHTML = found.length ? `<ul class="${CARD} shadow-md overflow-hidden" aria-label="Addresses">${found.map((f, i) => `
       <li><button type="button" class="w-full flex items-center gap-3 px-4 min-h-14 text-left hover:bg-stone-50" data-found="${i}">
@@ -496,7 +488,7 @@ function renderExtras() {
 
 function renderComposer() {
   $('#composer').classList.toggle('hidden', !(state.tab === 'tasks' || state.tab === 'places'));
-  const label = { task: 'Add a task', place: 'Add a place', location: 'Add a location' }[barMode()];
+  const label = { list: 'Add a list', task: 'Add a task', place: 'Add a place', location: 'Add a location' }[barMode()];
   $('#addInput').placeholder = label; $('#addInput').setAttribute('aria-label', label);
   renderExtras();
 }
@@ -505,17 +497,13 @@ function render() {
   const titles = { tasks: 'Tasks', places: 'Places', family: 'The Smiths' };
   const inPlace = state.tab === 'places' && state.placeView;
   const inPerson = state.tab === 'family' && state.personView;
-  const onTasks = state.tab === 'tasks';
-  $('#title').classList.toggle('hidden', onTasks);
-  $('#listBtn').classList.toggle('hidden', !onTasks); $('#listBtn').classList.toggle('inline-flex', onTasks);
-  $('#listName').textContent = state.list === 'all' ? 'All lists' : listById(state.list).name;
-  $('#listBtn').setAttribute('aria-label', `List: ${$('#listName').textContent}. Switch list`);
-  $('#title').textContent = inPlace ? (state.editPlace ? 'Edit place' : placeById(state.placeView).name) : inPerson ? member(state.personView).name : titles[state.tab];
+  const inList = state.tab === 'tasks' && state.listView;
+  $('#title').textContent = inList ? listById(state.listView).name : inPlace ? (state.editPlace ? 'Edit place' : placeById(state.placeView).name) : inPerson ? member(state.personView).name : titles[state.tab];
   // Edit lives in the top bar: for a place, and for yourself.
-  const canEdit = (inPlace && !state.editPlace) || (inPerson && member(state.personView).me);
-  $('#editBtn').setAttribute('aria-label', inPerson ? 'Edit your picture' : 'Edit place');
+  const canEdit = inList || (inPlace && !state.editPlace) || (inPerson && member(state.personView).me);
+  $('#editBtn').setAttribute('aria-label', inList ? 'Edit list' : inPerson ? 'Edit your picture' : 'Edit place');
   $('#editBtn').classList.toggle('hidden', !canEdit); $('#editBtn').classList.toggle('grid', !!canEdit);
-  const back = inPlace || inPerson;
+  const back = inList || inPlace || inPerson;
   $('#backBtn').classList.toggle('hidden', !back); $('#backBtn').classList.toggle('grid', !!back);
   $('#main').innerHTML = { tasks: renderTasks, places: renderPlaces, family: renderFamily }[state.tab]();
   $('#offline').classList.toggle('hidden', !state.offline); $('#offline').classList.toggle('inline-flex', !!state.offline);
@@ -530,15 +518,20 @@ function setExtras(open) { $('#extras').classList.toggle('hidden', !open); $('#e
 $('#addInput').addEventListener('focus', () => setExtras(true));
 $('#addInput').addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== $('#addInput')) setExtras(false); }, 150));
 $('#composer').addEventListener('mousedown', (e) => { if (e.target.closest('#extras')) e.preventDefault(); });
-$('#addInput').addEventListener('input', (e) => { const has = !!e.target.value.trim(); $('#addBtn').classList.toggle('hidden', !has); $('#addBtn').classList.toggle('grid', has); if (barMode() !== 'task') renderExtras(); });
+$('#addInput').addEventListener('input', (e) => { const has = !!e.target.value.trim(); $('#addBtn').classList.toggle('hidden', !has); $('#addBtn').classList.toggle('grid', has); if (barMode() === 'place' || barMode() === 'location') renderExtras(); });
 
 function addTask(title) {
-  const list = state.list === 'all' ? state.lists[0].id : state.list;
+  const list = state.listView;
   const t = { id: now(), title, list, places: [...state.chosen], status: 'open', sessions: [] };
   state.tasks.push(t);
   state.chosen = new Set(state.placeView ? [state.placeView] : []);
   render();
-  toast(state.list === 'all' ? `Added ${title} to ${listById(list).name}` : `Added ${title}`, 'Undo', () => { state.tasks.splice(state.tasks.indexOf(t), 1); render(); });
+  toast(`Added ${title}`, 'Undo', () => { state.tasks.splice(state.tasks.indexOf(t), 1); render(); });
+}
+function addList(name) {
+  const l = { id: `l${now()}`, name };
+  state.lists.push(l); render();
+  toast(`Added ${name}`, 'Undo', () => { state.lists.splice(state.lists.indexOf(l), 1); render(); });
 }
 function addPlace(name, address) {
   const p = { id: `p${now()}`, group: null, name, locations: [{ name, address: address ?? name }] };
@@ -553,7 +546,7 @@ function addLocation(name, address) {
 function clearBar() { $('#addInput').value = ''; $('#addBtn').classList.add('hidden'); $('#addBtn').classList.remove('grid'); renderExtras(); $('#addInput').focus(); }
 $('#addForm').addEventListener('submit', (e) => {
   e.preventDefault(); const v = $('#addInput').value.trim(); if (!v) return;
-  ({ task: addTask, place: addPlace, location: addLocation })[barMode()](v); clearBar();
+  ({ list: addList, task: addTask, place: addPlace, location: addLocation })[barMode()](v); clearBar();
 });
 
 /* Finishing: the check pops, the card slides away and folds up, the toast offers Undo. */
@@ -571,12 +564,6 @@ function finish(t, card) {
 
 document.addEventListener('input', (e) => { if (e.target.id === 'placeName') { placeById(state.placeView).name = e.target.value; } });
 document.addEventListener('submit', (e) => {
-  if (e.target.id === 'newListForm') {
-    e.preventDefault();
-    const name = $('#newList').value.trim(); if (!name) return;
-    const l = { id: `l${now()}`, name }; state.lists.push(l); state.list = l.id;
-    $('#sheet').close(); render(); return;
-  }
   if (e.target.id === 'renameForm') {
     e.preventDefault();
     const name = $('#renameInput').value.trim(), { kind, id } = e.target.dataset;
@@ -597,16 +584,16 @@ document.addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b || b.closest('#toasts')) return;
   const d = b.dataset;
   if (b.id === 'backBtn') { state.newGroup = false; }
-  if (b.id === 'backBtn') { if (state.personView) state.personView = null; else if (state.editPlace) state.editPlace = false; else { state.placeView = null; state.chosen = new Set(); } }
+  if (b.id === 'backBtn') { if (state.listView && state.tab === 'tasks') state.listView = null; else if (state.personView) state.personView = null; else if (state.editPlace) state.editPlace = false; else { state.placeView = null; state.chosen = new Set(); } }
+  else if (b.id === 'editBtn' && state.tab === 'tasks' && state.listView) { renameSheet('list', state.listView); return; }
   else if (b.id === 'editBtn' && state.personView) { avatarSheet(); return; }
   else if (b.id === 'editBtn' || 'editPlace' in d) { state.editPlace = true; }
   else if (d.person) { state.personView = d.person; }
-  else if (b.id === 'listBtn') { listSheet(); return; }
-  else if (d.pickList) { state.list = d.pickList; $('#sheet').close(); }
+  else if (d.openList) { state.listView = d.openList; state.filter = 'mine'; }
   else if (d.rename) { renameSheet(d.rename, d.id); return; }
   else if ('closeSheet' in d) { $('#sheet').close(); return; }
   else if (d.delete) {
-    if (d.delete === 'list') { state.lists = state.lists.filter((l) => l.id !== d.id); if (state.list === d.id) state.list = 'all'; }
+    if (d.delete === 'list') { state.lists = state.lists.filter((l) => l.id !== d.id); state.listView = null; }
     else state.groups = state.groups.filter((g) => g.id !== d.id);
     $('#sheet').close();
   }
@@ -630,7 +617,7 @@ document.addEventListener('click', (e) => {
     const p = placeById(state.placeView), [l] = p.locations.splice(+d.removeLocation, 1);
     toast(`Removed ${l.name}`, 'Undo', () => { p.locations.splice(+d.removeLocation, 0, l); render(); });
   }
-  else if (d.tab) { state.tab = d.tab; state.placeView = null; state.personView = null; state.editPlace = false; state.chosen = new Set(); }
+  else if (d.tab) { state.tab = d.tab; state.listView = null; state.placeView = null; state.personView = null; state.editPlace = false; state.chosen = new Set(); }
   else if (d.place) { state.placeView = d.place; state.chosen = new Set([d.place]); }
   else if (d.chip) { state.chosen.has(d.chip) ? state.chosen.delete(d.chip) : state.chosen.add(d.chip); renderExtras(); return; }
   else if (d.suggest) { addTask(d.suggest); return; }
@@ -663,10 +650,9 @@ state.offline = query.has('offline');
 if (query.has('empty')) { state.tasks = []; state.places = []; }
 if (query.get('task')) { state.detail = +query.get('task'); if (query.get('run')) { find(state.detail).sessions.push({ from: now() - 7 * MIN }); find(state.detail).on = 'p'; } }
 if (query.get('filter')) state.filter = query.get('filter');
-if (query.get('list')) state.list = query.get('list');
-if (query.has('lists')) { render(); listSheet(); }
+if (query.get('list')) state.listView = query.get('list');
 if (query.get('rename')) { render(); renameSheet(...query.get('rename').split(':')); }
-if (query.has('assign')) { state.filter = 'all'; render(); document.querySelector('[data-assign]').click(); }
+if (query.has('assign')) { state.listView ??= 'home'; state.filter = 'all'; render(); document.querySelector('[data-assign]').click(); }
 if (query.has('mine')) { const t = find(6); t.on = 'p'; t.sessions.push({ from: now() - 3 * MIN }); }
 render();
 if (query.has('typing')) { $('#addInput').value = query.get('typing'); $('#addInput').focus(); $('#addInput').dispatchEvent(new Event('input')); }
