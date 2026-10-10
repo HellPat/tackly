@@ -24,6 +24,11 @@
       --color-accent-ink: #ffffff;    /* text and icons on a filled accent */
       --animate-pop: pop .3s ease-out;
       --animate-breathe: breathe 2.4s ease-in-out infinite;
+      /* Background drift: far layers slow, near layers a little faster (parallax). */
+      --animate-drift-far: drift 40s ease-in-out infinite alternate;
+      --animate-drift-mid: drift 28s ease-in-out infinite alternate;
+      --animate-drift-near: drift 18s ease-in-out infinite alternate;
+      @keyframes drift { from { transform: translateX(-16px); } to { transform: translateX(16px); } }
       @keyframes pop { 40% { transform: scale(1.3); } }
       @keyframes breathe { 50% { box-shadow: 0 0 0 16px transparent; } 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent-700) 30%, transparent); } }
     }
@@ -695,7 +700,43 @@ const SCENES = {
   clouds: svg(`<g fill="#ffffff" opacity=".95">${[[70, 90, 1], [300, 60, .8], [220, 170, 1.2], [60, 230, .9], [360, 250, 1]].map(([x, y, k]) =>
     `<g transform="translate(${x} ${y}) scale(${k})"><circle cx="0" cy="0" r="18"/><circle cx="20" cy="-8" r="22"/><circle cx="42" cy="0" r="16"/><rect x="0" y="-2" width="42" height="18" rx="9"/></g>`).join('')}</g>`),
 };
+/* Waves and clouds drift slowly; motion-safe, so it stops when the phone asks for less motion. */
+const drift = (speed, body) => `<g class="motion-safe:animate-drift-${speed}">${body}</g>`;
+const seaScene = (sun, birds, a, b, c) => svg(`<circle cx="300" cy="120" r="34" fill="${sun}"/>`
+  + drift('far', `<path d="M90 70 q8 -7 16 0 q8 -7 16 0 M140 50 q6 -5 12 0 q6 -5 12 0" fill="none" stroke="${birds}" stroke-width="2" stroke-linecap="round"/>`)
+  + drift('far', W('M-40 190 C30 178 110 200 180 190 S320 178 470 192 V320 H-40Z', a))
+  + drift('mid', W('M-40 230 C40 213 140 240 210 228 S360 213 470 232 V320 H-40Z', b, .8))
+  + drift('near', W('M-40 275 C60 258 160 285 240 272 S380 260 470 278 V320 H-40Z', c, .6)));
+const cloudScene = (fill) => svg([[70, 90, 1, 'far'], [300, 60, .8, 'mid'], [220, 170, 1.2, 'near'], [60, 230, .9, 'mid'], [360, 250, 1, 'far']].map(([x, y, k, speed]) =>
+  drift(speed, `<g transform="translate(${x} ${y}) scale(${k})" fill="${fill}"><circle cx="0" cy="0" r="18"/><circle cx="20" cy="-8" r="22"/><circle cx="42" cy="0" r="16"/><rect x="0" y="-2" width="42" height="18" rx="9"/></g>`)).join(''));
+SCENES.sea = seaScene('#fed7aa', '#a8a29e', '#e0f2fe', '#bae6fd', '#7dd3fc');
+SCENES.clouds = cloudScene('#ffffff');
+
+/* The same scenes in stronger colours, so white cards stand out more. */
+const slopes = (sun, a, b, c) => svg(`<circle cx="110" cy="100" r="40" fill="${sun}"/>`
+  + W('M0 215 C110 170 200 230 300 200 S400 175 430 185 V320 H0Z', a)
+  + W('M0 255 C90 230 190 270 280 245 S390 230 430 240 V320 H0Z', b, .85)
+  + W('M0 295 C120 275 230 300 330 285 S410 280 430 284 V320 H0Z', c, .6));
+const peaks = (a, b, c) => svg(W('M0 230 L70 140 L120 190 L190 90 L260 180 L310 130 L430 230 V320 H0Z', a)
+  + W('M190 90 L212 118 L200 114 L190 124 L180 113 L170 116Z', '#ffffff', .95)
+  + W('M0 260 L90 190 L160 240 L240 170 L330 245 L380 210 L430 250 V320 H0Z', b, .85)
+  + W('M0 290 C110 265 220 275 430 280 V320 H0Z', c, .6));
+Object.assign(SCENES, {
+  ocean: seaScene('#fef08a', '#ffffff', '#7dd3fc', '#38bdf8', '#0ea5e9'),
+  sunset: slopes('#fef9c3', '#fdba74', '#fb923c', '#f97316'),
+  lavender: peaks('#c4b5fd', '#a78bfa', '#8b5cf6'),
+  pinewood: svg(pines(250, 110, 9, '#6ee7b7', 1, 7) + pines(285, 95, 11, '#34d399', .85, 5) + pines(320, 80, 13, '#10b981', .6, 3)),
+  spring: slopes('#fef9c3', '#bef264', '#a3e635', '#84cc16'),
+  blossom: cloudScene('#ffffff'),
+});
+
 const BACKGROUNDS = {
+  ocean:     { sky: 'bg-linear-to-b from-sky-200 to-cyan-100', scene: 'ocean' },
+  sunset:    { sky: 'bg-linear-to-b from-orange-200 to-rose-200', scene: 'sunset' },
+  lavender:  { sky: 'bg-linear-to-b from-violet-200 to-indigo-100', scene: 'lavender' },
+  pinewood:  { sky: 'bg-linear-to-b from-emerald-200 to-teal-100', scene: 'pinewood' },
+  spring:    { sky: 'bg-linear-to-b from-lime-200 to-emerald-100', scene: 'spring' },
+  blossom:   { sky: 'bg-linear-to-b from-pink-200 to-rose-100', scene: 'blossom' },
   sea:       { sky: 'bg-linear-to-b from-sky-50 to-orange-50', scene: 'sea' },
   hills:     { sky: 'bg-linear-to-b from-sky-50 to-lime-50', scene: 'hills' },
   mountains: { sky: 'bg-linear-to-b from-indigo-50 to-violet-50', scene: 'mountains' },
