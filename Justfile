@@ -26,34 +26,53 @@ start:
     done
 
     health() {
-      [[ "$(curl --silent --max-time 2 --output /dev/null --write-out '%{http_code}' http://127.0.0.1:3000/health || true)" == 204 ]]
+      [[ "$(curl --silent --max-time 2 --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:$1/health" || true)" == 204 ]]
     }
 
-    if health; then
-      echo 'Using the local Tackly server on 127.0.0.1:3000.'
+    port="${TACKLY_SERVER_PORT:-}"
+    if [[ -z "$port" ]]; then
+      for candidate in {3000..3010}; do
+        if health "$candidate"; then port="$candidate"; break; fi
+      done
+      if [[ -z "$port" ]]; then
+        for candidate in {3000..3010}; do
+          if ! lsof -nP -iTCP:"$candidate" -sTCP:LISTEN >/dev/null 2>&1; then
+            port="$candidate"
+            break
+          fi
+        done
+      fi
+    fi
+    if [[ -z "$port" ]]; then
+      echo 'No free local server port from 3000 to 3010.' >&2
+      exit 1
+    fi
+
+    if health "$port"; then
+      echo "Using the local Tackly server on 127.0.0.1:$port."
     else
-      if lsof -nP -iTCP:3000 -sTCP:LISTEN >/dev/null 2>&1; then
-        echo 'Port 3000 is in use, but the Tackly health endpoint is unavailable.' >&2
+      if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+        echo "Port $port is in use, but the Tackly health endpoint is unavailable." >&2
         exit 1
       fi
       db="sqlite://$repo/server/tackly-sync.db"
       (cd "$repo/server" && DATABASE_URL="$db" cargo run --locked -- migrate)
       (
         cd "$repo/server"
-        exec env DATABASE_URL="$db" TACKLY_BIND=127.0.0.1:3000 ./target/debug/tackly-sync
+        exec env DATABASE_URL="$db" TACKLY_BIND="127.0.0.1:$port" ./target/debug/tackly-sync
       ) >"$repo/server/target/tackly-dev-server.log" 2>&1 &
       server_pid=$!
       for _ in {1..30}; do
-        if health; then break; fi
+        if health "$port"; then break; fi
         if ! kill -0 "$server_pid" 2>/dev/null; then break; fi
         sleep 1
       done
-      if ! health; then
+      if ! health "$port"; then
         cat "$repo/server/target/tackly-dev-server.log" >&2
         echo 'Could not start the local Tackly server.' >&2
         exit 1
       fi
-      echo 'Started the local Tackly server on 127.0.0.1:3000.'
+      echo "Started the local Tackly server on 127.0.0.1:$port."
     fi
 
     running_emulator() {
@@ -85,4 +104,4 @@ start:
 
     echo "Opening Tackly on $serial, connected to the local server."
     cd "$repo/app"
-    "$flutter" run -d "$serial" --dart-define=TACKLY_DEV_SERVER_URL=http://10.0.2.2:3000
+    "$flutter" run -d "$serial" --dart-define="TACKLY_DEV_SERVER_URL=http://10.0.2.2:$port"

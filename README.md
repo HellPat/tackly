@@ -14,10 +14,18 @@ server setup and security limits in [server/README.md](server/README.md).
 
 ## Run locally
 
-With `just`, Flutter, Rust, and an Android SDK/AVD installed, run `just start`
-from the repository root. It reuses a local Tackly server on port 3000 or
-starts one with `server/tackly-sync.db`, opens an Android emulator, and runs the
-debug app against `http://10.0.2.2:3000`. New family dialogs use this address;
+On Apple Silicon macOS, install Nix, direnv, and Flutter (`brew install --cask
+flutter`), then run `direnv allow` once in the repository root. The pinned
+shell supplies Rust, Java, Python, and `just`; Flutter stays a macOS host tool
+because the current Nix Flutter package omits the Android integration-test
+plugin used by this app. Keep an Android SDK and AVD installed in Android
+Studio; by default the shell uses `~/Library/Android/sdk`. Set `FLUTTER_BIN`
+if Flutter is installed somewhere other than `/opt/homebrew/bin/flutter`.
+
+Run `just start` from the repository root. It reuses a local Tackly server on ports 3000–3010
+or starts one on a free port with `server/tackly-sync.db`, opens an Android
+emulator, and passes the selected host address to the debug app. Set
+`TACKLY_SERVER_PORT` to use a specific port. New family dialogs use this address;
 an existing owner family without a server connects to it on launch. A family
 already connected to another server keeps its existing address. The app still
 works when the server is unavailable. Set `TACKLY_AVD` to select a different
