@@ -264,8 +264,8 @@ function nothingMine() {
   const someone = state.members.find((m) => !m.me);
   // A handwritten note, to go with the hand-drawn arrow.
   return `<button id="toAll" data-filter="all" class="block ml-auto mr-4 mt-12 text-right font-['Caveat'] text-stone-800 -rotate-2">
-      <span class="block text-[34px] leading-none font-bold">Make ${someone.name} happy</span>
-      <span class="block mt-1 text-2xl leading-none font-medium text-stone-700">pick one from All</span>
+      <span class="flex items-center justify-end gap-2 text-[34px] leading-none font-bold">Make <span class="rotate-2">${avatar(someone, 'size-9')}</span>${someone.name} happy</span>
+      <span class="block mt-1 text-2xl leading-none font-medium text-stone-700">pick some</span>
     </button>`;
 }
 /* A hand-drawn arrow from the message up to the "All" chip, measured after layout. */
@@ -274,12 +274,18 @@ function drawArrowToAll() {
   main.querySelector('#arrow')?.remove();
   if (!from || !to) return;
   const m = main.getBoundingClientRect(), a = from.getBoundingClientRect(), c = to.getBoundingClientRect();
-  const x1 = a.left - m.left - 10, y1 = a.top - m.top + 18;  // from the start of the note, curving up
-  const x2 = c.left - m.left + c.width / 2, y2 = c.bottom - m.top + 6;  // just under "All"
+  const sx = a.left - m.left + a.width * 0.35, sy = a.top - m.top - 8;   // just above the note
+  const ex = c.left - m.left + c.width / 2, ey = c.bottom - m.top + 8;   // just under "All"
+  const cx = sx + 36, cy = (sy + ey) / 2 + 6;                            // one gentle bend
+  // The head follows the curve's direction at its end.
+  const angle = Math.atan2(ey - cy, ex - cx), len = 11, spread = 0.5;
+  const hx1 = ex - len * Math.cos(angle - spread), hy1 = ey - len * Math.sin(angle - spread);
+  const hx2 = ex - len * Math.cos(angle + spread), hy2 = ey - len * Math.sin(angle + spread);
   main.insertAdjacentHTML('beforeend', `<svg id="arrow" class="absolute inset-0 pointer-events-none overflow-visible text-stone-800" width="100%" height="100%" aria-hidden="true">
-    <g>
-    <path d="M ${x1} ${y1} C ${x1 - 50} ${y1 + 4}, ${x2 - 10} ${y2 + 40}, ${x2} ${y2}" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
-    <path d="M ${x2 - 8} ${y2 + 11} L ${x2} ${y2} L ${x2 + 10} ${y2 + 8}" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></g></svg>`);
+    <g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M ${sx} ${sy} Q ${cx} ${cy} ${ex} ${ey}"/>
+      <path d="M ${hx1} ${hy1} L ${ex} ${ey} L ${hx2} ${hy2}"/>
+    </g></svg>`);
 }
 addEventListener('resize', drawArrowToAll);
 
@@ -414,6 +420,9 @@ function renderExtras() {
         ${icon('location_on', 'text-stone-500')}<span><span class="block">${f.name}</span><span class="block text-sm text-stone-600">${f.address}</span></span></button></li>`).join('')}</ul>` : '';
     return;
   }
+  // Quick chips for tasks are left out for now.
+  $('#extras').innerHTML = '';
+  return;
   const pills = state.places.slice(0, 5).map((p) => {
     const on = state.chosen.has(p.id);
     return `<button type="button" data-chip="${p.id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-stone-800 text-stone-50' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${p.name}</button>`;
