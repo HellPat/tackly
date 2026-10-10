@@ -266,41 +266,26 @@ function renderTasks() {
   return `${head}<p class="py-16 text-center text-stone-600">Every task has someone on it.</p>`;
 }
 
-/* Nothing of mine: the calm picture fills the screen; an arrow points up to "All". */
+/* Nothing of mine: the calm picture fills the screen, and a note asks to help someone. */
 function nothingMine() {
-  const someone = state.members.find((m) => !m.me);
-  // A handwritten note, to go with the hand-drawn arrow.
-  return `<div id="toAll" class="mt-32 flex flex-col items-center text-center">
+  const someone = others()[happy % others().length];
+  return `<div id="toAll" class="mt-24 flex flex-col items-center text-center">
       <p class="font-['Caveat'] text-2xl leading-none text-stone-700">No tasks on your list.</p>
-      <p class="mt-3 flex items-center gap-3 font-['Caveat'] text-[34px] leading-none font-bold text-stone-800">
-        <span id="arrowFrom" class="-rotate-3">${avatar(someone, 'size-12')}</span>Make ${someone.name} happy
-      </p>
+      <div id="happy" class="mt-5 flex flex-col items-center gap-2 transition-opacity duration-300">
+        <span class="-rotate-3">${avatar(someone, 'size-12')}</span>
+        <p class="font-['Caveat'] text-[34px] leading-none font-bold text-stone-800">Make ${someone.name} happy</p>
+      </div>
       <button class="${PRIMARY} mt-5 !h-12 px-6 text-base" data-filter="all">Pick some</button>
     </div>`;
 }
-/* A hand-drawn arrow from the message up to the "All" chip, measured after layout. */
-function drawArrowToAll() {
-  const main = $('#main'), from = $('#toAll'), to = main.querySelector('[data-filter=all]');
-  main.querySelector('#arrow')?.remove();
-  if (!from || !to) return;
-  const m = main.getBoundingClientRect(), a = from.getBoundingClientRect(), c = to.getBoundingClientRect();
-  const f = $('#arrowFrom').getBoundingClientRect();
-  const sx = f.left - m.left + f.width / 2, sy = f.top - m.top - 6;     // from Mona's picture
-  const ex = c.left - m.left + c.width / 2, ey = c.bottom - m.top + 8;   // just under "All"
-  // Up from the picture, past the left of the text, then into "All" from straight below.
-  const c1x = sx - 6, c1y = sy - (sy - ey) * 0.7, c2x = ex, c2y = ey + 46;
-  const cx = c2x, cy = c2y;                                                  // the head follows the last bend
-  // The head follows the curve's direction at its end.
-  const angle = Math.atan2(ey - cy, ex - cx), len = 11, spread = 0.5;
-  const hx1 = ex - len * Math.cos(angle - spread), hy1 = ey - len * Math.sin(angle - spread);
-  const hx2 = ex - len * Math.cos(angle + spread), hy2 = ey - len * Math.sin(angle + spread);
-  main.insertAdjacentHTML('beforeend', `<svg id="arrow" class="absolute inset-0 pointer-events-none overflow-visible text-stone-800" width="100%" height="100%" aria-hidden="true">
-    <g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M ${sx} ${sy} C ${c1x} ${c1y} ${c2x} ${c2y} ${ex} ${ey}"/>
-      <path d="M ${hx1} ${hy1} L ${ex} ${ey} L ${hx2} ${hy2}"/>
-    </g></svg>`);
-}
-addEventListener('resize', drawArrowToAll);
+/* Every few seconds the note names someone else in the family. */
+const others = () => state.members.filter((m) => !m.me);
+let happy = 0;
+setInterval(() => {
+  const el = $('#happy'); if (!el) return;
+  el.classList.add('opacity-0');
+  setTimeout(() => { happy++; const fresh = new DOMParser().parseFromString(nothingMine(), 'text/html').querySelector('#happy'); el.innerHTML = fresh.innerHTML; el.classList.remove('opacity-0'); }, 300);
+}, 4000);
 
 function renderPlaces() {
   if (state.placeView && state.editPlace) return renderPlaceEdit(placeById(state.placeView));
@@ -468,7 +453,6 @@ function render() {
   $('#familyBar').innerHTML = `<button class="${PRIMARY} w-full !h-12 text-base" data-invite>${icon('person_add')}Invite member</button>`;
   $('#calm').classList.toggle('hidden', !$('#toAll'));
   renderDock(); renderComposer(); renderDetail();
-  requestAnimationFrame(drawArrowToAll);
 }
 
 /* ---- Behaviour ----------------------------------------------------------------------------- */
@@ -580,7 +564,6 @@ if (query.get('filter')) state.filter = query.get('filter');
 if (query.has('assign')) { state.filter = 'all'; render(); document.querySelector('[data-assign]').click(); }
 if (query.has('mine')) { const t = find(6); t.on = 'p'; t.sessions.push({ from: now() - 3 * MIN }); }
 render();
-document.fonts.ready.then(drawArrowToAll);
 if (query.has('typing')) { $('#addInput').value = query.get('typing'); $('#addInput').focus(); $('#addInput').dispatchEvent(new Event('input')); }
 if (query.get('sheet') === 'invite') { state.tab = 'family'; render(); document.querySelector('[data-invite]').click(); }
 if (query.get('sheet') === 'avatar') { state.tab = 'family'; render(); avatarSheet(); }
