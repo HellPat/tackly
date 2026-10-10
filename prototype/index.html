@@ -1,62 +1,96 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="light" data-accent="coral">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tackly prototype</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&display=block" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/daisyui@5.7.47/daisyui.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.3"></script>
   <style>
     body { font-family: Roboto, system-ui, sans-serif; }
-    /* Material Symbols: outlined; filled for what is active or done. */
     .icon { font-family: 'Material Symbols Rounded'; font-size: 24px; line-height: 1; font-variation-settings: 'FILL' 0; user-select: none; }
     .icon.fill { font-variation-settings: 'FILL' 1; }
-    .icon.sm { font-size: 20px; }
-    /* Primary is for filled buttons and active icons only; text stays neutral (contrast). */
+    .icon.sm { font-size: 18px; }
     .muted { color: color-mix(in oklab, var(--color-base-content) 70%, transparent); }
-    /* One active marker per tab (the pill), and a quiet focus ring. */
     .dock > *::after { display: none; }
     .input:focus-within { outline: 2px solid var(--color-primary); outline-offset: 0; }
+    .tabular { font-variant-numeric: tabular-nums; }
+
+    /* Accent: one saturated colour, used only for the main action and what is active.
+       Each passes 4.5:1 against its button text. Switch with ?accent=coral|green|violet. */
+    [data-accent=coral]  { --accent: #c2410c; --accent-ink: #ffffff; }
+    [data-accent=green]  { --accent: #1f883d; --accent-ink: #ffffff; }
+    [data-accent=violet] { --accent: #6d28d9; --accent-ink: #ffffff; }
+    /* Light, but soft on the eyes: off-white page, near-white cards, dark-grey text instead of black. */
+    [data-theme] { --color-primary: var(--accent); --color-primary-content: var(--accent-ink); --radius-field: 0.375rem;
+      --color-base-100: #fdfcfa; --color-base-200: #f4f2ee; --color-base-300: #e7e4de; --color-base-content: #1f2328; }
+
+    /* Buttons like GitHub's: small radius, 1px border, semibold. Primary is filled, secondary is neutral. */
+    .btn { font-weight: 600; border-width: 1px; box-shadow: none; }
+    .btn:not(.btn-primary):not(.btn-ghost) { background: var(--color-base-200); border-color: color-mix(in oklab, var(--color-base-content) 18%, transparent); }
+    .btn-primary { border-color: color-mix(in oklab, black 15%, var(--color-primary)); }
+
+    /* Cards: depth from a two-layer shadow, no border. Work in progress gets an accent edge. */
+    .task-card { background: var(--color-base-100); border-radius: 14px; box-shadow: 0 1px 2px rgb(31 35 40 / .06), 0 2px 6px rgb(31 35 40 / .06); }
+    .task-card.doing { box-shadow: inset 4px 0 0 var(--color-primary), 0 1px 2px rgb(31 35 40 / .06), 0 2px 6px rgb(31 35 40 / .06); }
+    /* The finish circle is grey until it is ticked; only then it takes the accent. */
+    .tick { appearance: none; width: 24px; height: 24px; border-radius: 999px; border: 2px solid color-mix(in oklab, var(--color-base-content) 40%, transparent); display: grid; place-items: center; cursor: pointer; transition: background .15s, border-color .15s; }
+    .tick:hover { border-color: var(--color-primary); }
+    .tick:checked { background: var(--color-primary); border-color: var(--color-primary); }
+    .tick:checked::after { content: ''; width: 6px; height: 11px; border: solid var(--color-primary-content); border-width: 0 2.5px 2.5px 0; transform: translateY(-1px) rotate(45deg); }
+    .tick:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+    /* Place pills: all the same and quiet, so no place looks preferred. */
+    .pill { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 10px; border-radius: 999px; font-size: 13px; font-weight: 500;
+      background: var(--color-base-200); color: color-mix(in oklab, var(--color-base-content) 80%, transparent); border: 1px solid var(--color-base-300); }
+    /* Soft tints, only for people's pictures. */
+    .hue-0 { background: #dbeafe; color: #1e3a8a; } .hue-1 { background: #fce7f3; color: #831843; }
+    .hue-2 { background: #ccfbf1; color: #134e4a; } .hue-3 { background: #fef3c7; color: #78350f; }
+    .hue-4 { background: #ede9fe; color: #4c1d95; }
+    button.pill { height: 36px; padding: 0 14px; font-size: 14px; background: var(--color-base-100); }
+    button.pill[aria-pressed=true] { background: var(--color-base-content); color: var(--color-base-100); border-color: var(--color-base-content); }
+
+    /* Done: the check pops, then the card folds away. */
+    @keyframes pop { 0% { transform: scale(1); } 40% { transform: scale(1.3); } 100% { transform: scale(1); } }
+    @keyframes fold { 0% { opacity: 1; max-height: 120px; } 60% { opacity: 0; transform: translateX(32px); max-height: 120px; } 100% { opacity: 0; transform: translateX(32px); max-height: 0; margin: 0; } }
+    .popping { animation: pop .3s ease-out; }
+    .folding { animation: fold .45s ease-in .25s forwards; overflow: hidden; }
+    @keyframes breathe { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-primary) 35%, transparent); } 50% { box-shadow: 0 0 0 18px color-mix(in oklab, var(--color-primary) 0%, transparent); } }
+    .running { animation: breathe 2.4s ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce) { .popping, .folding, .running { animation: none; } }
   </style>
-  <script>
-    if (matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.dataset.theme = 'dark';
-  </script>
 </head>
 <body class="bg-base-300">
-  <div class="fixed inset-0 mx-auto max-w-[430px] bg-base-100 flex flex-col">
+  <div class="fixed inset-0 mx-auto max-w-[430px] bg-base-200 flex flex-col overflow-hidden">
 
-    <header class="shrink-0">
-    <div class="flex items-center gap-1 px-2 h-16">
+    <header class="shrink-0 flex items-center gap-1 px-2 h-16">
       <button id="backBtn" class="btn btn-ghost btn-circle size-12 hidden" aria-label="Back"><span class="icon">arrow_back</span></button>
-      <h1 id="title" class="flex-1 px-2 text-[22px] truncate">Tasks</h1>
+      <h1 id="title" class="flex-1 px-2 text-2xl font-medium truncate">Tasks</h1>
       <span id="offline" class="hidden badge badge-ghost gap-1 h-8 mr-2"><span class="icon sm" aria-hidden="true">cloud_off</span>Offline</span>
-    </div>
-    <progress id="progress" class="progress progress-primary h-1 rounded-none block" value="0" max="1"></progress>
     </header>
 
-    <main id="main" class="flex-1 overflow-y-auto pb-6"></main>
+    <main id="main" class="flex-1 overflow-y-auto px-3 pb-6"></main>
 
-    <section id="composer" aria-label="Add a task" class="shrink-0 px-3 pb-3 pt-2 flex flex-col gap-2">
-      <div id="chips" class="hidden flex-col gap-2">
-        <div id="placeChips" class="flex gap-2 overflow-x-auto" role="group" aria-label="Where"></div>
-        <div id="suggestions" class="flex gap-2 overflow-x-auto" role="group" aria-label="Add again"></div>
-      </div>
+    <!-- The bar at the bottom: adds a task, or (on Places) a place. -->
+    <section id="composer" aria-label="Add" class="shrink-0 px-3 pb-3 pt-2 flex flex-col gap-2">
+      <div id="extras" class="hidden flex-col gap-2"></div>
       <form id="addForm" class="flex items-center gap-2">
-        <label class="input flex-1 h-12 rounded-full bg-base-200 border-0">
-          <span class="icon muted" aria-hidden="true">add</span>
+        <label class="input flex-1 h-12 rounded-full bg-base-100 border-0 shadow-sm">
+          <span class="icon text-primary" aria-hidden="true">add</span>
           <input id="addInput" aria-label="Add a task" placeholder="Add a task" autocomplete="off" class="grow text-base">
         </label>
-        <button id="addBtn" aria-label="Add" class="btn btn-primary btn-circle size-12 hidden"><span class="icon">arrow_upward</span></button>
+        <button id="addBtn" aria-label="Add" class="btn btn-primary btn-square size-12 hidden"><span class="icon">arrow_upward</span></button>
       </form>
     </section>
 
-    <nav id="dock" class="dock static h-20 shrink-0 bg-base-200" aria-label="Main"></nav>
+    <nav id="dock" class="dock static h-20 shrink-0 bg-base-100" aria-label="Main"></nav>
 
-    <!-- One bottom sheet; its content changes. -->
+    <!-- A task in focus: full screen, no navigation. -->
+    <section id="detail" class="hidden absolute inset-0 z-40 bg-base-100 flex-col" aria-label="Task"></section>
+
     <dialog id="sheet" class="modal modal-bottom">
       <div class="modal-box rounded-t-[28px] px-6 pt-3 pb-8">
         <div class="mx-auto mb-5 h-1 w-8 rounded-full bg-base-content/30"></div>
@@ -65,120 +99,185 @@
       <form method="dialog" class="modal-backdrop"><button>Close</button></form>
     </dialog>
 
-    <div id="toast" class="toast toast-center hidden mb-28 w-[calc(100%-2rem)] max-w-[398px]" role="status"><div class="alert bg-neutral text-neutral-content border-0 justify-between"><span id="toastText"></span><button id="toastAction" class="btn btn-ghost btn-sm h-10 text-neutral-content hidden"></button></div></div>
+    <div id="toast" class="toast toast-center hidden mb-28 w-[calc(100%-2rem)] max-w-[398px] z-50" role="status"><div class="alert bg-neutral text-neutral-content border-0 justify-between"><span id="toastText"></span><button id="toastAction" class="btn btn-ghost btn-sm h-10 text-neutral-content hidden"></button></div></div>
   </div>
 
 <script>
 const $ = (s) => document.querySelector(s);
 const icon = (name, cls = '') => `<span class="icon ${cls}" aria-hidden="true">${name}</span>`;
+const MIN = 60_000, now = () => Date.now();
 const state = {
-  tab: 'tasks', placeView: null, chosen: new Set(), conflict: true, doneOpen: false,
+  tab: 'tasks', placeView: null, chosen: new Set(), detail: null,
   groups: [{ id: 'g1', name: 'Grocery Store' }, { id: 'g2', name: 'Hardware' }],
   places: [
-    { id: 'lidl', group: 'g1', name: 'LIDL', locations: ['Marbacher Straße 1, Winnenden', 'Stuttgarter Straße 3, Backnang'] },
-    { id: 'aldi', group: 'g1', name: 'Aldi', locations: ['Aldi Waiblingen'] },
-    { id: 'bauhaus', group: 'g2', name: 'Bauhaus', locations: ['Stuttgarter Straße 9, Backnang'] },
+    { id: 'lidl', group: 'g1', name: 'LIDL', hue: 0, locations: ['Marbacher Straße 1, Winnenden', 'Stuttgarter Straße 3, Backnang'] },
+    { id: 'aldi', group: 'g1', name: 'Aldi', hue: 2, locations: ['Aldi Waiblingen'] },
+    { id: 'bauhaus', group: 'g2', name: 'Bauhaus', hue: 3, locations: ['Stuttgarter Straße 9, Backnang'] },
   ],
+  members: [
+    { id: 'p', name: 'Patrick', me: true, avatar: { icon: 'sailing', hue: 0 } },
+    { id: 'mo', name: 'Mona', avatar: { icon: 'local_florist', hue: 1 } },
+    { id: 'ma', name: 'Mara', avatar: { icon: 'pets', hue: 2 } },
+  ],
+  // Work sessions since the task was (re)opened; reopening starts over.
   tasks: [
-    { id: 4, title: 'Water the plants', places: [], status: 'doing', by: 'Mona' },
-    { id: 1, title: 'Milk', places: ['lidl', 'aldi'], status: 'open' },
-    { id: 2, title: 'Bread', places: ['lidl'], status: 'open' },
-    { id: 3, title: 'Light bulbs', places: ['bauhaus'], status: 'open' },
-    { id: 6, title: 'Call the dentist', places: [], status: 'open' },
-    { id: 5, title: 'Altglas leeren', places: [], status: 'done', by: 'Mara' },
+    { id: 4, title: 'Water the plants', places: [], status: 'open', on: 'mo', sessions: [{ from: now() - 4 * MIN }] },
+    { id: 6, title: 'Call the dentist', places: [], status: 'open', sessions: [{ from: now() - 26 * 60 * MIN, to: now() - 25.6 * 60 * MIN }, { from: now() - 50 * MIN, to: now() - 38 * MIN }] },
+    { id: 1, title: 'Milk', places: ['lidl', 'aldi'], status: 'open', sessions: [] },
+    { id: 2, title: 'Bread', places: ['lidl'], status: 'open', sessions: [] },
+    { id: 3, title: 'Light bulbs', places: ['bauhaus'], status: 'open', sessions: [] },
+    { id: 7, title: 'Pick up the parcel', places: [], status: 'open', sessions: [] },
   ],
+  recent: ['Altglas leeren', 'Feed the cat'],
 };
+// What the address search would answer (Photon in the app).
+const FOUND = [
+  { name: 'Kaufland', address: 'Max-Eyth-Straße 2, Winnenden' },
+  { name: 'Kaufland', address: 'Fronackerstraße 30, Waiblingen' },
+  { name: 'dm', address: 'Marktstraße 41, Winnenden' },
+];
 const placeById = (id) => state.places.find((p) => p.id === id);
-const openAt = (p) => state.tasks.filter((t) => t.status !== 'done' && t.places.includes(p.id));
-const heading = (text) => `<li class="px-4 pt-6 pb-2 text-sm font-medium muted">${text}</li>`;
+const member = (id) => state.members.find((m) => m.id === id);
+const find = (id) => state.tasks.find((t) => t.id == id);
+const visible = () => state.tasks.filter((t) => t.status === 'open');
+const openAt = (p) => visible().filter((t) => t.places.includes(p.id));
+const pill = (p) => `<span class="pill">${p.name}</span>`;
+const heading = (text) => `<h2 class="px-2 pt-5 pb-2 text-sm font-medium muted">${text}</h2>`;
+const avatar = (m, size = 'w-10') => `<div class="avatar avatar-placeholder"><div class="${size} rounded-full hue-${m.avatar.hue}">${m.avatar.photo ? `<img src="${m.avatar.photo}" alt="">` : icon(m.avatar.icon, size === 'w-10' ? '' : '!text-5xl')}</div></div>`;
+const addingPlace = () => state.tab === 'places' && !state.placeView;
 
-/* Snackbar, optionally with one action (Android: at most one). */
+/* Time worked: today, and in total since the task was (re)opened. */
+function worked(t) {
+  const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+  let total = 0, today = 0;
+  for (const s of t.sessions) { const end = s.to ?? now(); total += end - s.from; today += Math.max(0, end - Math.max(s.from, +midnight)); }
+  return { total, today };
+}
+const running = (t) => t.sessions.some((s) => !s.to);
+const clock = (ms) => { const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return `${h}:${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+const short = (ms) => { const m = Math.round(ms / MIN); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
+
 function toast(text, action, onAction) {
   $('#toastText').textContent = text;
   const btn = $('#toastAction');
-  btn.classList.toggle('hidden', !action); btn.textContent = action || ''; btn.onclick = () => { onAction(); $('#toast').classList.add('hidden'); };
+  btn.classList.toggle('hidden', !action); btn.textContent = action || '';
+  btn.onclick = () => { onAction(); $('#toast').classList.add('hidden'); };
   $('#toast').classList.remove('hidden'); clearTimeout(toast.t); toast.t = setTimeout(() => $('#toast').classList.add('hidden'), 4000);
 }
 function sheet(html) { $('#sheetBody').innerHTML = html; $('#sheet').showModal(); }
 
-/* A task: circle, title, at most one quiet line. The circle finishes it. */
-function taskRow(t) {
-  const done = t.status === 'done', doing = t.status === 'doing';
-  const circle = done ? icon('check_circle', 'fill text-primary') : doing ? icon('play_circle', 'fill text-primary') : icon('circle', 'muted');
-  const line = doing ? `${t.by} is on it` : done ? '' : t.places.map((id) => placeById(id).name).join(', ');
-  return `<li class="flex items-center pl-1 pr-4 min-h-14">
-    <button class="btn btn-ghost btn-circle size-12" data-${done ? 'reopen' : 'quick'}="${t.id}" aria-label="${done ? 'Reopen' : 'Finish'} ${t.title}">${circle}</button>
-    <button class="flex-1 min-w-0 text-left py-2" data-open="${t.id}">
-      <span class="block truncate ${done ? 'line-through muted' : ''}">${t.title}</span>
-      ${line ? `<span class="block text-sm muted truncate">${line}</span>` : ''}
-    </button>
+/* A task card: the checkbox finishes it, the rest opens it. */
+function taskCard(t) {
+  const who = t.on && member(t.on);
+  // Inside a place, its own pill would only repeat the title.
+  const pills = t.places.filter((id) => id !== state.placeView).map(placeById).map(pill).join('');
+  return `<li class="task-card mb-2 ${who ? 'doing' : ''}" data-card="${t.id}">
+    <div class="flex items-center gap-1 pl-2 pr-4 min-h-16">
+      <label class="size-12 grid place-items-center cursor-pointer shrink-0">
+        <input type="checkbox" class="tick" data-check="${t.id}" aria-label="Done: ${t.title}">
+      </label>
+      <button class="flex-1 min-w-0 text-left py-3 flex flex-col gap-1.5" data-open="${t.id}">
+        <span class="text-base truncate">${t.title}</span>
+        ${pills || who ? `<span class="flex flex-wrap gap-1.5 items-center">${pills}${who ? `<span class="inline-flex items-center gap-1 text-sm">${icon('play_circle', 'fill sm text-primary')}${who.me ? 'You are' : `${who.name} is`} on it</span>` : ''}</span>` : ''}
+      </button>
+    </div>
   </li>`;
 }
 
 function renderTasks() {
-  const active = state.tasks.filter((t) => t.status !== 'done');
-  const done = state.tasks.filter((t) => t.status === 'done');
-  const calm = !active.length && !state.conflict ? `<li class="flex flex-col items-center gap-2 py-16 muted">${icon('task_alt', 'fill text-primary !text-5xl')}<span class="text-base">All done</span></li>` : '';
-  return `<ul>${calm}
-    ${state.conflict ? `<li class="flex items-center pl-1 pr-2 min-h-14">
-      <span class="size-12 grid place-items-center"><span class="size-7 rounded-full bg-warning text-warning-content grid place-items-center">${icon('priority_high', 'sm')}</span></span>
-      <span class="flex-1 min-w-0"><span class="block truncate">Feed the cat</span><span class="block text-sm muted">Finished twice</span></span>
-      <button class="btn btn-ghost h-12" data-decide>Decide</button></li>` : ''}
-    ${active.map(taskRow).join('')}
-    ${done.length ? `<li><button class="flex items-center gap-2 w-full px-4 min-h-12 mt-2 text-sm font-medium muted" data-toggle-done aria-expanded="${state.doneOpen}">
-      ${icon(state.doneOpen ? 'expand_less' : 'expand_more', 'sm')}Done (${done.length})</button></li>
-      ${state.doneOpen ? done.map(taskRow).join('') : ''}` : ''}
-  </ul>`;
+  const tasks = visible();
+  if (!tasks.length) return `<div class="flex flex-col items-center gap-3 py-24 muted">${icon('celebration', 'text-primary !text-6xl')}<span class="text-lg">All done</span></div>`;
+  return `<ul class="pt-1">${tasks.map(taskCard).join('')}</ul>`;
 }
 
 function renderPlaces() {
   if (state.placeView) {
     const p = placeById(state.placeView);
     const tasks = openAt(p);
-    return `<ul>
-      ${p.locations.map((l) => `<li class="flex items-center gap-3 px-4 min-h-10 text-sm muted">${icon('location_on', 'sm')}${l}</li>`).join('')}
-      ${tasks.length ? heading('To get here') + tasks.map(taskRow).join('') : `<li class="px-4 py-10 text-center muted">Nothing to get here.</li>`}
-    </ul>`;
+    return `<div class="flex flex-col gap-1 px-2 pb-2">
+        ${p.locations.map((l) => `<div class="flex items-center gap-2 text-sm muted">${icon('location_on', 'sm')}${l}</div>`).join('')}</div>
+      ${tasks.length ? `<ul class="pt-2">${tasks.map(taskCard).join('')}</ul>` : `<p class="py-16 text-center muted">Nothing to get here.</p>`}`;
   }
-  return `<ul>${state.groups.map((g) => {
-    const places = state.places.filter((p) => p.group === g.id).sort((a, b) => openAt(b).length - openAt(a).length);
-    return heading(g.name) + places.map((p) => {
+  const groups = [...state.groups, { id: null, name: 'Other' }];
+  return groups.map((g) => {
+    const places = state.places.filter((p) => (p.group ?? null) === g.id).sort((a, b) => openAt(b).length - openAt(a).length);
+    if (!places.length) return '';
+    return heading(g.name) + `<ul class="task-card overflow-hidden">${places.map((p) => {
       const n = openAt(p).length;
-      return `<li><button class="w-full flex items-center gap-4 px-4 min-h-14 text-left active:bg-base-200" data-place="${p.id}">
-        <span class="flex-1">${p.name}</span>
-        ${n ? `<span class="min-w-7 h-7 px-2 rounded-full bg-base-200 grid place-items-center text-sm font-medium" aria-label="${n} to get">${n}</span>` : ''}
+      return `<li class="border-b border-base-200 last:border-0"><button class="w-full flex items-center gap-3 px-4 min-h-14 text-left active:bg-base-200" data-place="${p.id}">
+        <span class="size-9 rounded-full bg-base-200 grid place-items-center shrink-0 muted">${icon('storefront', 'sm')}</span>
+        <span class="flex-1 text-base">${p.name}</span>
+        ${n ? `<span class="pill" aria-label="${n} to get">${n}</span>` : ''}
         ${icon('chevron_right', 'muted')}</button></li>`;
-    }).join('');
-  }).join('')}
-  <li class="px-2 pt-4"><button class="btn btn-ghost h-12">${icon('add')}Add place</button></li></ul>`;
-}
-
-function renderActivity() {
-  const rows = [['play_arrow', 'Mona started Water the plants', '4 min'], ['add', 'You added Milk', '1 h'], ['check', 'Mara finished Altglas leeren', '2 h'], ['person_add', 'Mara joined', '1 d']];
-  return `<ul class="pt-2">${rows.map(([i, t, a]) => `<li class="flex items-center gap-4 px-4 min-h-14">
-    ${icon(i, 'muted')}<span class="flex-1 min-w-0 truncate">${t}</span><span class="text-sm muted">${a}</span></li>`).join('')}</ul>`;
+    }).join('')}</ul>`;
+  }).join('');
 }
 
 function renderFamily() {
-  const member = (initial, name, head) => `<li class="flex items-center gap-4 px-4 min-h-14">
-    <div class="avatar avatar-placeholder"><div class="bg-base-200 w-10 rounded-full"><span>${initial}</span></div></div>
-    <span class="flex-1">${name}</span>${head ? '<span class="text-sm muted">Head</span>' : ''}</li>`;
-  return `<ul class="pt-2">${member('P', 'Patrick', true)}${member('M', 'Mona')}${member('M', 'Mara')}
-    <li class="px-2 pt-4"><button class="btn btn-ghost h-12" data-invite>${icon('person_add')}Invite someone</button></li></ul>`;
+  return `<ul class="task-card overflow-hidden mt-1">${state.members.map((m) => `
+    <li class="border-b border-base-200 last:border-0">
+      ${m.me ? `<button class="w-full flex items-center gap-4 px-4 min-h-16 text-left" data-avatar aria-label="Change your picture">${avatar(m)}<span class="flex-1 text-base">${m.name}</span>${icon('edit', 'sm muted')}</button>`
+             : `<div class="flex items-center gap-4 px-4 min-h-16">${avatar(m)}<span class="flex-1 text-base">${m.name}</span></div>`}
+    </li>`).join('')}</ul>
+    <button class="btn h-10 mt-4" data-invite>${icon('person_add', 'sm')}Invite someone</button>`;
+}
+
+/* The picture: an icon in a colour, or a photo. Always round. */
+function avatarSheet() {
+  const me = state.members.find((m) => m.me);
+  const icons = ['sailing', 'local_florist', 'pets', 'rocket_launch', 'sports_soccer', 'music_note', 'coffee', 'bolt'];
+  sheet(`<div class="flex flex-col items-center gap-5">
+    <h2 class="text-xl">Your picture</h2>${avatar(me, 'w-24')}
+    <div class="grid grid-cols-4 gap-3">${icons.map((ic, i) => `<button class="size-14 rounded-full hue-${i % 5} grid place-items-center ${me.avatar.icon === ic && !me.avatar.photo ? 'ring-2 ring-primary ring-offset-2 ring-offset-base-100' : ''}" data-pick="${ic}" data-hue="${i % 5}" aria-label="${ic.replace('_', ' ')}">${icon(ic)}</button>`).join('')}</div>
+    <label class="btn btn-primary h-10 px-4">${icon('photo_camera', 'sm')}Take or choose a photo<input type="file" accept="image/*" capture="user" class="hidden" id="photo"></label>
+  </div>`);
+  $('#photo').addEventListener('change', (e) => { const f = e.target.files[0]; if (!f) return; me.avatar.photo = URL.createObjectURL(f); $('#sheet').close(); render(); });
 }
 
 function qrSvg() {
   let cells = '';
   for (let y = 0; y < 25; y++) for (let x = 0; x < 25; x++) {
     const f = (ox, oy) => { const a = x - ox, b = y - oy; return a >= 0 && a < 7 && b >= 0 && b < 7 ? (a % 6 === 0 || b % 6 === 0 || (a > 1 && a < 5 && b > 1 && b < 5)) : null; };
-    const on = f(0, 0) ?? f(18, 0) ?? f(0, 18) ?? (((x * 31 + y * 17) ^ (x * y)) % 3 === 0);
-    if (on) cells += `<rect x="${x}" y="${y}" width="1" height="1"/>`;
+    if (f(0, 0) ?? f(18, 0) ?? f(0, 18) ?? (((x * 31 + y * 17) ^ (x * y)) % 3 === 0)) cells += `<rect x="${x}" y="${y}" width="1" height="1"/>`;
   }
-  return `<svg viewBox="-2 -2 29 29" class="size-56 bg-white rounded-box" role="img" aria-label="Invitation QR code"><g fill="#000">${cells}</g></svg>`;
+  return `<svg viewBox="-2 -2 29 29" class="size-56 bg-white rounded-2xl" role="img" aria-label="Invitation QR code"><g fill="#000">${cells}</g></svg>`;
 }
 
+/* Full-screen task: a big clock, Start/Pause, Finish. */
+function renderDetail() {
+  const el = $('#detail');
+  const t = state.detail && find(state.detail);
+  el.classList.toggle('hidden', !t); el.classList.toggle('flex', !!t);
+  if (!t) return;
+  const { total, today } = worked(t), on = running(t);
+  el.innerHTML = `
+    <div class="flex items-center px-2 h-16 shrink-0"><button class="btn btn-ghost btn-circle size-12" data-close-detail aria-label="Back">${icon('arrow_back')}</button></div>
+    <div class="px-6 flex flex-col gap-3">
+      <h1 class="text-3xl font-medium">${t.title}</h1>
+      ${t.places.length ? `<div class="flex flex-wrap gap-1.5">${t.places.map(placeById).map(pill).join('')}</div>` : ''}
+    </div>
+    <div class="flex-1 flex flex-col items-center justify-center gap-6">
+      <div class="size-64 rounded-full grid place-items-center ${on ? 'running' : ''}" style="${on ? 'background: color-mix(in oklab, var(--color-primary) 8%, var(--color-base-100)); border: 6px solid var(--color-primary);' : 'background: var(--color-base-200); border: 6px solid transparent;'}">
+        <div class="text-center">
+          <div class="text-xs font-semibold uppercase tracking-wider muted">Today</div>
+          <div class="text-5xl font-medium tabular mt-1" id="clockToday" role="timer" aria-label="Worked today">${clock(today)}</div>
+          <div class="text-sm muted tabular mt-2" id="clockTotal">${short(total)} in total</div>
+        </div>
+      </div>
+    </div>
+    <div class="px-6 pb-10 grid grid-cols-2 gap-3">
+      <button class="btn h-14 text-base ${on ? '' : 'btn-primary'}" data-toggle-run="${t.id}">${icon(on ? 'pause' : 'play_arrow')}${on ? 'Pause' : 'Start'}</button>
+      <button class="btn h-14 text-base ${on ? 'btn-primary' : ''}" data-finish-detail="${t.id}">${icon('check')}Finish</button>
+    </div>`;
+}
+setInterval(() => {
+  const t = state.detail && find(state.detail); if (!t || !running(t)) return;
+  const { total, today } = worked(t);
+  $('#clockToday').textContent = clock(today); $('#clockTotal').textContent = `${short(total)} in total`;
+}, 1000);
+
 function renderDock() {
-  const items = [['tasks', 'check_circle', 'Tasks'], ['places', 'storefront', 'Places'], ['activity', 'history', 'Activity'], ['family', 'group', 'Family']];
+  const items = [['tasks', 'task_alt', 'Tasks'], ['places', 'storefront', 'Places'], ['family', 'group', 'Family']];
   $('#dock').innerHTML = items.map(([id, ic, label]) => {
     const on = state.tab === id;
     return `<button data-tab="${id}" ${on ? 'aria-current="page"' : ''}>
@@ -187,110 +286,118 @@ function renderDock() {
   }).join('');
 }
 
-function renderComposer() {
-  const show = state.tab === 'tasks' || (state.tab === 'places' && state.placeView);
-  $('#composer').classList.toggle('hidden', !show);
-  $('#placeChips').innerHTML = state.places.slice(0, 5).map((p) => {
+/* Above the bar while typing: for a task, place pills and add-again chips;
+   for a place, only the address search. */
+function renderExtras() {
+  const typed = $('#addInput').value.trim();
+  if (addingPlace()) {
+    const found = typed.length >= 3 ? FOUND.filter((f) => `${f.name} ${f.address}`.toLowerCase().includes(typed.toLowerCase().split(' ')[0])) : [];
+    $('#extras').innerHTML = found.length ? `<ul class="task-card overflow-hidden" aria-label="Addresses">${found.map((f, i) => `
+      <li class="border-b border-base-200 last:border-0"><button type="button" class="w-full flex items-center gap-3 px-4 min-h-14 text-left" data-found="${i}">
+        ${icon('location_on', 'muted')}<span><span class="block">${f.name}</span><span class="block text-sm muted">${f.address}</span></span></button></li>`).join('')}</ul>` : '';
+    return;
+  }
+  const pills = state.places.slice(0, 5).map((p) => {
     const on = state.chosen.has(p.id);
-    return `<button type="button" data-chip="${p.id}" aria-pressed="${on}" class="btn btn-sm h-9 rounded-full shrink-0 font-normal ${on ? 'btn-primary' : 'btn-ghost border border-base-content/30'}">${on ? icon('check', 'sm') : ''}${p.name}</button>`;
+    return `<button type="button" data-chip="${p.id}" aria-pressed="${on}" class="pill shrink-0">${on ? icon('check', 'sm') : ''}${p.name}</button>`;
   }).join('');
-  const again = [...new Set(state.tasks.filter((t) => t.status === 'done').map((t) => t.title))].slice(0, 5);
-  $('#suggestions').innerHTML = again.map((s) => `<button type="button" data-suggest="${s}" class="btn btn-sm h-9 rounded-full shrink-0 font-normal btn-ghost bg-base-200">${icon('add', 'sm')}${s}</button>`).join('');
+  const again = state.recent.slice(0, 5).map((s) => `<button type="button" data-suggest="${s}" class="btn btn-sm h-9 !rounded-full shrink-0 !font-normal !bg-base-100 !border-0 shadow-sm">${icon('add', 'sm text-primary')}${s}</button>`).join('');
+  $('#extras').innerHTML = `<div class="flex gap-2 overflow-x-auto" role="group" aria-label="Where">${pills}</div><div class="flex gap-2 overflow-x-auto" role="group" aria-label="Add again">${again}</div>`;
+}
+
+function renderComposer() {
+  const show = state.tab === 'tasks' || state.tab === 'places';
+  $('#composer').classList.toggle('hidden', !show);
+  const label = addingPlace() ? 'Add a place' : 'Add a task';
+  $('#addInput').placeholder = label; $('#addInput').setAttribute('aria-label', label);
+  renderExtras();
 }
 
 function render() {
-  const titles = { tasks: 'Tasks', places: 'Places', activity: 'Activity', family: 'The Smiths' };
+  const titles = { tasks: 'Tasks', places: 'Places', family: 'The Smiths' };
   const inPlace = state.tab === 'places' && state.placeView;
   $('#title').textContent = inPlace ? placeById(state.placeView).name : titles[state.tab];
   $('#backBtn').classList.toggle('hidden', !inPlace);
-  $('#main').innerHTML = { tasks: renderTasks, places: renderPlaces, activity: renderActivity, family: renderFamily }[state.tab]();
-  renderDock(); renderComposer();
-  const all = state.tasks.length, finished = state.tasks.filter((t) => t.status === 'done').length;
-  const bar = $('#progress');
-  bar.classList.toggle('invisible', state.tab !== 'tasks');
-  bar.max = all; bar.value = finished; bar.setAttribute('aria-label', `${finished} of ${all} done`);
+  $('#main').innerHTML = { tasks: renderTasks, places: renderPlaces, family: renderFamily }[state.tab]();
   $('#offline').classList.toggle('hidden', !state.offline);
+  renderDock(); renderComposer(); renderDetail();
 }
 
-/* Chips appear only while typing, so the screen stays calm. */
-function setChips(open) { $('#chips').classList.toggle('hidden', !open); $('#chips').classList.toggle('flex', open); }
-$('#addInput').addEventListener('focus', () => setChips(true));
-$('#addInput').addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== $('#addInput')) setChips(false); }, 150));
-$('#composer').addEventListener('mousedown', (e) => { if (e.target.closest('#chips')) e.preventDefault(); });
-$('#addInput').addEventListener('input', (e) => { $('#addBtn').classList.toggle('hidden', !e.target.value.trim()); });
+/* Extras appear only while typing. */
+function setExtras(open) { $('#extras').classList.toggle('hidden', !open); $('#extras').classList.toggle('flex', open); }
+$('#addInput').addEventListener('focus', () => setExtras(true));
+$('#addInput').addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== $('#addInput')) setExtras(false); }, 150));
+$('#composer').addEventListener('mousedown', (e) => { if (e.target.closest('#extras')) e.preventDefault(); });
+$('#addInput').addEventListener('input', (e) => { $('#addBtn').classList.toggle('hidden', !e.target.value.trim()); if (addingPlace()) renderExtras(); });
 
 function addTask(title) {
-  state.tasks.splice(state.tasks.findIndex((t) => t.status === 'open'), 0, { id: Date.now(), title, places: [...state.chosen], status: 'open' });
+  state.tasks.push({ id: now(), title, places: [...state.chosen], status: 'open', sessions: [] });
   state.chosen = new Set(state.placeView ? [state.placeView] : []);
   render();
 }
-$('#addForm').addEventListener('submit', (e) => { e.preventDefault(); const v = $('#addInput').value.trim(); if (!v) return; addTask(v); $('#addInput').value = ''; $('#addBtn').classList.add('hidden'); $('#addInput').focus(); });
+function addPlace(name, address) {
+  state.places.push({ id: `p${now()}`, group: null, name, hue: state.places.length % 5, locations: [address ?? name] });
+  render();
+}
+function clearBar() { $('#addInput').value = ''; $('#addBtn').classList.add('hidden'); renderExtras(); $('#addInput').focus(); }
+$('#addForm').addEventListener('submit', (e) => {
+  e.preventDefault(); const v = $('#addInput').value.trim(); if (!v) return;
+  addingPlace() ? addPlace(v) : addTask(v); clearBar();
+});
 
-const find = (id) => state.tasks.find((x) => x.id == id);
+/* Finishing: the check pops, the card folds away, Undo brings it back. */
+function finish(t, card) {
+  for (const s of t.sessions) s.to ??= now();
+  t.on = null;
+  const done = () => { t.status = 'done'; if (!state.recent.includes(t.title)) state.recent.unshift(t.title); render(); };
+  if (card && !matchMedia('(prefers-reduced-motion: reduce)').matches) { card.querySelector('input').parentElement.classList.add('popping'); card.classList.add('folding'); setTimeout(done, 700); } else done();
+  toast(`${t.title} done`, 'Undo', () => { t.status = 'open'; render(); });
+}
+
+document.addEventListener('change', (e) => {
+  const id = e.target.dataset.check; if (!id) return;
+  finish(find(id), e.target.closest('[data-card]'));
+});
 document.addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
   const d = b.dataset;
   if (b.id === 'backBtn') { state.placeView = null; state.chosen = new Set(); }
   else if (d.tab) { state.tab = d.tab; state.placeView = null; state.chosen = new Set(); }
   else if (d.place) { state.placeView = d.place; state.chosen = new Set([d.place]); }
-  else if (d.chip) { state.chosen.has(d.chip) ? state.chosen.delete(d.chip) : state.chosen.add(d.chip); renderComposer(); return; }
+  else if (d.chip) { state.chosen.has(d.chip) ? state.chosen.delete(d.chip) : state.chosen.add(d.chip); renderExtras(); return; }
   else if (d.suggest) { addTask(d.suggest); return; }
-  else if ('toggleDone' in d) { state.doneOpen = !state.doneOpen; }
-  else if (d.open) {
-    const t = find(d.open);
-    sheet(`<h2 class="text-xl mb-4">${t.title}</h2>
-      <div class="flex flex-col">
-        ${t.status === 'open' ? `<button class="btn btn-ghost justify-start h-14 text-base font-normal" data-start="${t.id}">${icon('play_arrow')}Start</button>` : ''}
-        ${t.status !== 'done' ? `<button class="btn btn-ghost justify-start h-14 text-base font-normal" data-finish="${t.id}">${icon('edit_note')}Finish with a note</button>` : ''}
-        <button class="btn btn-ghost justify-start h-14 text-base font-normal" data-close>${icon('storefront')}Places</button>
-      </div>`); return;
+  else if (d.found) { const f = FOUND[+d.found]; addPlace(f.name, f.address); clearBar(); return; }
+  else if (d.open) { state.detail = +d.open; }
+  else if ('closeDetail' in d) { state.detail = null; }
+  else if (d.toggleRun) {
+    const t = find(d.toggleRun);
+    if (running(t)) { t.sessions.forEach((s) => (s.to ??= now())); t.on = null; }
+    else { t.sessions.push({ from: now() }); t.on = 'p'; }
   }
-  else if (d.start) { Object.assign(find(d.start), { status: 'doing', by: 'You' }); $('#sheet').close(); }
-  else if (d.quick) {
-    const t = find(d.quick), before = { ...t };
-    Object.assign(t, { status: 'done', by: 'You' }); render();
-    toast(`Done: ${t.title}`, 'Undo', () => { Object.assign(t, before); render(); }); return;
-  }
-  else if (d.finish) {
-    const t = find(d.finish);
-    sheet(`<h2 class="text-xl">Finish ${t.title}</h2>
-      <label class="floating-label mt-6 block"><span>Note</span><input id="note" class="input w-full h-12" placeholder="Note (optional)"></label>
-      <label class="flex items-center gap-3 mt-3 min-h-12 cursor-pointer"><span class="flex-1">Add where I am</span><input type="checkbox" class="toggle toggle-primary" checked></label>
-      <div class="flex justify-end gap-2 mt-6"><button class="btn btn-ghost h-12" data-close>Cancel</button><button class="btn btn-primary h-12 px-6" data-done="${t.id}">Done</button></div>`); return;
-  }
-  else if (d.done) { Object.assign(find(d.done), { status: 'done', by: 'You' }); $('#sheet').close(); toast('Done'); }
-  else if (d.reopen) { find(d.reopen).status = 'open'; }
-  else if ('decide' in d) {
-    sheet(`<h2 class="text-xl">Feed the cat</h2><p class="muted mt-1">Mona and Mara both finished it. Which one counts?</p>
-      <div class="flex flex-col mt-4">
-        <button class="btn btn-ghost justify-start h-16 text-left font-normal" data-keep><span><span class="block text-base">Mona</span><span class="block text-sm muted">“Mona fed her”</span></span></button>
-        <button class="btn btn-ghost justify-start h-16 text-left font-normal" data-keep><span><span class="block text-base">Mara</span><span class="block text-sm muted">“Mara fed her”</span></span></button>
-      </div>`); return;
-  }
-  else if ('keep' in d) { state.conflict = false; $('#sheet').close(); }
+  else if (d.finishDetail) { state.detail = null; finish(find(d.finishDetail)); return; }
+  else if ('avatar' in d) { avatarSheet(); return; }
+  else if (d.pick) { const me = state.members.find((m) => m.me); me.avatar = { icon: d.pick, hue: +d.hue }; $('#sheet').close(); }
   else if ('invite' in d) {
     sheet(`<div class="flex flex-col items-center gap-5 text-center"><h2 class="text-xl">Invite someone</h2>${qrSvg()}
       <p class="text-sm muted">Scan with the other phone, or send the link.<br>Works once, for 5 minutes.</p>
-      <button class="btn btn-primary h-12 px-6" data-copy>${icon('content_copy', 'sm')}Copy link</button></div>`); return;
+      <button class="btn btn-primary h-10 px-4" data-copy>${icon('content_copy', 'sm')}Copy link</button></div>`); return;
   }
   else if ('copy' in d) { toast('Link copied'); return; }
-  else if ('close' in d) { $('#sheet').close(); return; }
   else return;
   render();
 });
 
-// ?tab=places, ?tab=places&place=lidl, ?theme=dark, ?sheet=finish|invite|decide, ?typing=1
+// ?tab=places, ?tab=places&place=lidl, ?offline=1, ?typing=text, ?task=6, ?task=6&run=1, ?sheet=invite|avatar
 const query = new URLSearchParams(location.search);
 if (query.get('tab')) state.tab = query.get('tab');
 if (query.get('place')) { state.placeView = query.get('place'); state.chosen = new Set([state.placeView]); }
-if (query.get('theme')) document.documentElement.dataset.theme = query.get('theme');
+if (query.get('accent')) document.documentElement.dataset.accent = query.get('accent');
 state.offline = query.has('offline');
+if (query.get('task')) { state.detail = +query.get('task'); if (query.get('run')) { find(state.detail).sessions.push({ from: now() - 7 * MIN }); find(state.detail).on = 'p'; } }
 render();
-if (query.get('typing')) { $('#addInput').focus(); }
-const s = query.get('sheet');
-if (s === 'finish') document.querySelector('[data-finish]')?.click();
-if (s === 'invite') { state.tab = 'family'; render(); document.querySelector('[data-invite]').click(); }
-if (s === 'decide') document.querySelector('[data-decide]')?.click();
+if (query.has('typing')) { $('#addInput').value = query.get('typing'); $('#addInput').focus(); $('#addInput').dispatchEvent(new Event('input')); }
+if (query.get('sheet') === 'invite') { state.tab = 'family'; render(); document.querySelector('[data-invite]').click(); }
+if (query.get('sheet') === 'avatar') { state.tab = 'family'; render(); avatarSheet(); }
 </script>
 </body>
 </html>
