@@ -87,12 +87,6 @@
     <section id="toasts" class="absolute inset-x-4 bottom-40 z-50 h-0" aria-label="Notifications" aria-live="polite"></section>
   </div>
 
-  <!-- Prototype tool, not part of the app: try page backgrounds. -->
-  <details id="bgSwitcher" class="max-[600px]:hidden fixed top-3 right-3 z-[60] rounded-xl bg-white shadow-lg text-sm text-stone-800 open:p-3 [&:not([open])]:p-0">
-    <summary class="list-none cursor-pointer size-10 grid place-items-center rounded-xl" aria-label="Background"><span class="material-symbols-rounded" aria-hidden="true">wallpaper</span></summary>
-    <div class="mt-2 grid grid-cols-5 gap-2 w-[420px]" role="radiogroup" aria-label="Background"></div>
-  </details>
-
 <script>
 const $ = (s) => document.querySelector(s);
 const icon = (name, cls = '') => `<span class="material-symbols-rounded ${cls}" aria-hidden="true">${name}</span>`;
@@ -380,6 +374,7 @@ function renderPlaceEdit(p) {
 
 /* Family: everyone, with how many tasks they are on. Open a person to see those tasks. */
 function renderFamily() {
+  if (state.personView && state.settings) return renderSettings();
   if (state.personView) {
     const m = member(state.personView);
     const tasks = visible().filter((t) => t.on === m.id);
@@ -390,7 +385,7 @@ function renderFamily() {
     const n = visible().filter((t) => t.on === m.id).length;
     return `<li><button class="w-full flex items-center gap-4 px-4 min-h-16 text-left hover:bg-stone-50 active:bg-stone-100" data-person="${m.id}">
       ${avatar(m)}<span class="flex-1 text-base">${m.name}</span>
-      ${n ? `<span class="text-sm text-stone-600">${n} ${n === 1 ? 'task' : 'tasks'}</span>` : ''}
+      ${m.me ? '<span class="text-sm text-stone-600">Settings</span>' : n ? `<span class="text-sm text-stone-600">${n} ${n === 1 ? 'task' : 'tasks'}</span>` : ''}
       ${icon('chevron_right', 'text-stone-500')}</button></li>`;
   }).join('')}</ul>`;
 }
@@ -413,16 +408,33 @@ function nameSheet(kind, id) {
   $('#nameInput').focus();
 }
 
-/* The picture: an icon on a tint, or a photo. Always round. */
-function avatarSheet() {
+/* Your settings: picture, name, and color scheme (a background with its matching accent; kept on this phone). */
+const BG_NAMES = { blueclouds: 'Blue clouds' };
+const bgName = (n) => BG_NAMES[n] ?? n[0].toUpperCase() + n.slice(1);
+function renderSettings() {
   const me = state.members.find((m) => m.me);
   const icons = ['sailing', 'local_florist', 'pets', 'rocket_launch', 'sports_soccer', 'music_note', 'coffee', 'bolt'];
-  sheet(`<div class="flex flex-col items-center gap-5">
-    <h2 class="text-xl font-semibold">Your picture</h2>${avatar(me, 'size-24')}
-    <div class="grid grid-cols-4 gap-3">${icons.map((ic, i) => `<button class="size-14 rounded-full grid place-items-center ${TINTS[i % 5]} ${me.avatar.icon === ic && !me.avatar.photo ? 'ring-2 ring-accent-700 ring-offset-2 ring-offset-[#fffdfb]' : ''}" data-pick="${ic}" data-tint="${i % 5}" aria-label="${ic.replace('_', ' ')}">${icon(ic)}</button>`).join('')}</div>
-    <label class="${PRIMARY} cursor-pointer">${icon('photo_camera', '!text-[18px]')}Take or choose a photo<input type="file" accept="image/*" capture="user" class="hidden" id="photo"></label>
-  </div>`);
-  $('#photo').addEventListener('change', (e) => { const f = e.target.files[0]; if (!f) return; me.avatar.photo = URL.createObjectURL(f); $('#sheet').close(); render(); });
+  return `${heading('Picture')}
+    <div class="${CARD} p-4 flex flex-col items-center gap-4">
+      ${avatar(me, 'size-24')}
+      <div class="grid grid-cols-4 gap-3" role="radiogroup" aria-label="Picture">${icons.map((ic, i) => {
+        const on = me.avatar.icon === ic && !me.avatar.photo;
+        return `<button role="radio" aria-checked="${on}" class="size-14 rounded-full grid place-items-center ${TINTS[i % 5]} ${on ? 'ring-2 ring-accent-700 ring-offset-2 ring-offset-[#fffdfb]' : ''}" data-pick="${ic}" data-tint="${i % 5}" aria-label="${ic.replace('_', ' ')}">${icon(ic)}</button>`;
+      }).join('')}</div>
+      <label class="${SECONDARY} cursor-pointer">${icon('photo_camera', '!text-[18px]')}Take or choose a photo<input type="file" accept="image/*" capture="user" class="hidden" id="photo"></label>
+    </div>
+    ${heading('Name')}
+    <input id="myName" aria-label="Your name" value="${me.name}" class="w-full h-12 px-4 rounded-md bg-[#fffdfb] border border-stone-300 shadow-sm text-base outline-none focus:ring-2 focus:ring-accent-700">
+    ${heading('Color scheme')}
+    <div class="grid grid-cols-3 gap-3 pb-4" role="radiogroup" aria-label="Color scheme">${Object.entries(BACKGROUNDS).map(([n, b]) => {
+      const on = state.background === n;
+      return `<button role="radio" aria-checked="${on}" data-bg="${n}" class="flex flex-col gap-1.5 text-left">
+        <span class="relative block h-28 rounded-xl overflow-hidden shadow-sm ${b.sky} ${accentClasses(b.accent)} ${on ? 'ring-2 ring-stone-600 ring-offset-2 ring-offset-stone-100' : ''}">
+          <span class="absolute inset-x-0 bottom-0 h-3/5">${b.scene}</span>
+          <span class="absolute left-2 top-2 h-5 w-10 rounded-full bg-accent-700"></span>
+        </span>
+        <span class="text-sm ${on ? 'font-semibold' : 'text-stone-700'}">${bgName(n)}</span></button>`;
+    }).join('')}</div>`;
 }
 
 function qrSvg() {
@@ -509,12 +521,13 @@ function render() {
   const titles = { tasks: 'Tasks', places: 'Places', family: 'The Smiths' };
   const inPlace = state.tab === 'places' && state.placeView;
   const inPerson = state.tab === 'family' && state.personView;
+  const inSettings = inPerson && state.settings;
   const inList = state.tab === 'tasks' && state.listView;
   const inGroup = state.tab === 'places' && state.groupView && !state.placeView;
-  $('#title').textContent = inList ? listById(state.listView).name : inGroup ? state.groups.find((g) => g.id === state.groupView).name : inPlace ? (state.editPlace ? 'Edit place' : placeById(state.placeView).name) : inPerson ? member(state.personView).name : titles[state.tab];
+  $('#title').textContent = inList ? listById(state.listView).name : inGroup ? state.groups.find((g) => g.id === state.groupView).name : inPlace ? (state.editPlace ? 'Edit place' : placeById(state.placeView).name) : inSettings ? 'Your settings' : inPerson ? member(state.personView).name : titles[state.tab];
   // Edit lives in the top bar: for a place, and for yourself.
-  const canEdit = inList || inGroup || (inPlace && !state.editPlace) || (inPerson && member(state.personView).me);
-  $('#editBtn').setAttribute('aria-label', inList ? 'Edit list' : inGroup ? 'Edit group' : inPerson ? 'Edit your picture' : 'Edit place');
+  const canEdit = inList || inGroup || (inPlace && !state.editPlace);
+  $('#editBtn').setAttribute('aria-label', inList ? 'Edit list' : inGroup ? 'Edit group' : inPerson ? 'Your settings' : 'Edit place');
   $('#editBtn').classList.toggle('hidden', !canEdit); $('#editBtn').classList.toggle('grid', !!canEdit);
   const back = inList || inGroup || inPlace || inPerson;
   $('#backBtn').classList.toggle('hidden', !back); $('#backBtn').classList.toggle('grid', !!back);
@@ -579,7 +592,10 @@ function finish(t, card) {
   toast(`${t.title} done`, 'Undo', () => { t.status = 'open'; render(); });
 }
 
-document.addEventListener('input', (e) => { if (e.target.id === 'placeName') { placeById(state.placeView).name = e.target.value; } });
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'placeName') placeById(state.placeView).name = e.target.value;
+  if (e.target.id === 'myName' && e.target.value.trim()) state.members.find((m) => m.me).name = e.target.value.trim();
+});
 document.addEventListener('submit', (e) => {
   if (e.target.id !== 'nameForm') return;
   e.preventDefault();
@@ -593,19 +609,23 @@ document.addEventListener('submit', (e) => {
   }
 });
 document.addEventListener('change', (e) => {
+  if (e.target.id === 'photo') {
+    const f = e.target.files[0]; if (!f) return;
+    state.members.find((m) => m.me).avatar.photo = URL.createObjectURL(f); render(); return;
+  }
   const id = e.target.dataset.check; if (!id) return;
   finish(find(id), e.target.closest('[data-card]'));
 });
 document.addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b || b.closest('#toasts')) return;
   const d = b.dataset;
-  if (b.id === 'backBtn') { if (state.listView && state.tab === 'tasks') state.listView = null; else if (state.personView) state.personView = null; else if (state.editPlace) state.editPlace = false; else if (state.placeView) { state.placeView = null; state.chosen = new Set(); } else state.groupView = null; }
+  if (b.id === 'backBtn') { if (state.listView && state.tab === 'tasks') state.listView = null; else if (state.settings) { state.settings = false; state.personView = null; } else if (state.personView) state.personView = null; else if (state.editPlace) state.editPlace = false; else if (state.placeView) { state.placeView = null; state.chosen = new Set(); } else state.groupView = null; }
   else if (b.id === 'editBtn' && state.tab === 'tasks' && state.listView) { nameSheet('list', state.listView); return; }
   else if (b.id === 'editBtn' && state.tab === 'places' && state.groupView && !state.placeView) { nameSheet('group', state.groupView); return; }
   else if (d.openGroup) { state.groupView = d.openGroup; }
-  else if (b.id === 'editBtn' && state.personView) { avatarSheet(); return; }
+  else if (b.id === 'editBtn' && state.personView) { state.settings = true; }
   else if (b.id === 'editBtn' || 'editPlace' in d) { state.editPlace = true; }
-  else if (d.person) { state.personView = d.person; }
+  else if (d.person) { state.personView = d.person; state.settings = member(d.person).me; }
   else if ('newList' in d) { nameSheet('list'); return; }
   else if (d.openList) { state.listView = d.openList; }
   else if (d.rename) { nameSheet(d.rename, d.id); return; }
@@ -635,7 +655,7 @@ document.addEventListener('click', (e) => {
     const p = placeById(state.placeView), [l] = p.locations.splice(+d.removeLocation, 1);
     toast(`Removed ${l.name}`, 'Undo', () => { p.locations.splice(+d.removeLocation, 0, l); render(); });
   }
-  else if (d.tab) { state.tab = d.tab; state.listView = null; state.groupView = null; state.placeView = null; state.personView = null; state.editPlace = false; state.chosen = new Set(); }
+  else if (d.tab) { state.tab = d.tab; state.settings = false; state.listView = null; state.groupView = null; state.placeView = null; state.personView = null; state.editPlace = false; state.chosen = new Set(); }
   else if (d.place) { state.placeView = d.place; state.chosen = new Set([d.place]); }
   else if (d.chip) { state.chosen.has(d.chip) ? state.chosen.delete(d.chip) : state.chosen.add(d.chip); renderExtras(); return; }
   else if (d.suggest) { addTask(d.suggest); return; }
@@ -648,8 +668,8 @@ document.addEventListener('click', (e) => {
     else { t.sessions.push({ from: now() }); t.on = 'p'; }
   }
   else if (d.finishDetail) { state.detail = null; finish(find(d.finishDetail)); return; }
-  else if ('avatar' in d) { avatarSheet(); return; }
-  else if (d.pick) { const me = state.members.find((m) => m.me); me.avatar = { icon: d.pick, tint: +d.tint }; $('#sheet').close(); }
+  else if (d.pick) { const me = state.members.find((m) => m.me); me.avatar = { icon: d.pick, tint: +d.tint }; }
+  else if (d.bg) { setBackground(d.bg); }
   else if ('invite' in d) {
     sheet(`<div class="flex flex-col items-center gap-5 text-center"><h2 class="text-xl font-semibold">Invite member</h2>${qrSvg()}
       <p class="text-sm text-stone-600">Scan with the other phone, or send the link.<br>Works once, for 5 minutes.</p>
@@ -734,12 +754,9 @@ function setBackground(name) {
   const bg = BACKGROUNDS[name] ?? BACKGROUNDS.ocean;
   $('#app').className = `${APP} ${bg.sky} ${accentClasses(bg.accent)}`;
   $('#scene').innerHTML = bg.scene;
+  state.background = name;
   try { localStorage.setItem('tackly-bg', name); } catch {}
-  $('#bgSwitcher [role=radiogroup]').innerHTML = Object.entries(BACKGROUNDS).map(([n, b]) => `
-    <button role="radio" aria-checked="${n === name}" data-bg="${n}" class="flex flex-col items-center gap-1 text-xs">
-      <span class="relative w-16 h-20 rounded-lg overflow-hidden border ${n === name ? 'ring-2 ring-stone-800 ring-offset-1' : 'border-stone-200'} ${b.sky}"><span class="absolute inset-x-0 bottom-0 h-1/2">${b.scene}</span></span>${n}</button>`).join('');
 }
-$('#bgSwitcher').addEventListener('click', (e) => { const b = e.target.closest('[data-bg]'); if (b) setBackground(b.dataset.bg); });
 let savedBg = null; try { savedBg = localStorage.getItem('tackly-bg'); } catch {}
 setBackground(new URLSearchParams(location.search).get('bg') || savedBg || 'ocean');
 
@@ -759,7 +776,7 @@ if (query.has('mine')) { const t = find(6); t.on = 'p'; t.sessions.push({ from: 
 render();
 if (query.has('typing')) { $('#addInput').value = query.get('typing'); $('#addInput').focus(); $('#addInput').dispatchEvent(new Event('input')); }
 if (query.get('sheet') === 'invite') { state.tab = 'family'; render(); document.querySelector('[data-invite]').click(); }
-if (query.get('sheet') === 'avatar') { state.tab = 'family'; render(); avatarSheet(); }
+if (query.has('settings')) { state.tab = 'family'; state.personView = 'p'; state.settings = true; render(); }
 if (query.get('person')) { state.tab = 'family'; state.personView = query.get('person'); render(); }
 if (query.get('toasts')) {
   ['Milk', 'Bread', 'Light bulbs'].slice(0, +query.get('toasts')).forEach((title) => finish(find(state.tasks.find((t) => t.title === title).id)));
