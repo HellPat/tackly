@@ -35,17 +35,21 @@
 <body class="bg-stone-300 text-stone-800 antialiased">
   <div id="app" class="fixed inset-0 mx-auto max-w-[430px] bg-stone-100 flex flex-col overflow-hidden">
 
-    <header class="shrink-0 flex items-center gap-1 px-2 h-16">
+    <!-- Shown full screen when nothing is mine; only the filters, the add bar and the navigation stay on top. -->
+    <img id="calm" src="https://images.unsplash.com/photo-1767508938873-a2afdfb1b8a3?ixlib=rb-4.1.0&q=80&fm=jpg&crop=entropy&cs=srgb&w=1200"
+         alt="" class="hidden absolute inset-0 size-full object-cover object-[50%_65%]">
+
+    <header id="header" class="relative shrink-0 flex items-center gap-1 px-2 h-16">
       <button id="backBtn" class="hidden size-12 grid place-items-center rounded-full text-stone-700 hover:bg-stone-200" aria-label="Back"><span class="material-symbols-rounded" aria-hidden="true">arrow_back</span></button>
       <h1 id="title" class="flex-1 px-2 text-2xl font-semibold tracking-tight truncate">Tasks</h1>
       <button id="editBtn" class="hidden size-12 place-items-center rounded-full text-stone-700 hover:bg-stone-200" aria-label="Edit place"><span class="material-symbols-rounded" aria-hidden="true">edit</span></button>
       <span id="offline" class="hidden mr-2 items-center gap-1 h-8 px-3 rounded-full bg-stone-200 text-sm text-stone-700"><span class="material-symbols-rounded !text-[18px]" aria-hidden="true">cloud_off</span>Offline</span>
     </header>
 
-    <main id="main" class="relative flex-1 overflow-y-auto px-3 pb-6"></main>
+    <main id="main" class="relative z-10 flex-1 overflow-y-auto px-3 pb-6"></main>
 
     <!-- The bar at the bottom: adds a task, or (on Places) a place. -->
-    <section id="composer" aria-label="Add" class="shrink-0 px-3 pb-3 pt-2 flex flex-col gap-2">
+    <section id="composer" aria-label="Add" class="relative z-10 shrink-0 px-3 pb-3 pt-2 flex flex-col gap-2">
       <div id="extras" class="hidden flex-col gap-2"></div>
       <form id="addForm" class="flex items-center gap-2">
         <label class="flex-1 flex items-center gap-3 h-12 pl-2 pr-4 rounded-full bg-[#fffdfb] ring-1 ring-stone-300 shadow-sm focus-within:ring-2 focus-within:ring-accent-700">
@@ -59,7 +63,7 @@
     <!-- Family: the one main action, right above the navigation. -->
     <section id="familyBar" class="hidden shrink-0 px-3 pb-3 pt-2" aria-label="Invite"></section>
 
-    <nav id="dock" class="shrink-0 h-20 grid grid-cols-3 bg-[#fffdfb] shadow-[0_-1px_0_var(--color-stone-200)]" aria-label="Main"></nav>
+    <nav id="dock" class="relative z-10 shrink-0 h-20 grid grid-cols-3 bg-[#fffdfb] shadow-[0_-1px_0_var(--color-stone-200)]" aria-label="Main"></nav>
 
     <!-- A task in focus: full screen, no navigation. -->
     <section id="detail" class="hidden absolute inset-0 z-40 bg-[#fffdfb] flex-col" aria-label="Task"></section>
@@ -250,19 +254,9 @@ function renderTasks() {
   return `${head}<p class="py-16 text-center text-stone-600">Every task has someone on it.</p>`;
 }
 
-/* Nothing of mine: a calm picture, and an arrow up to "All" where I can pick something. */
+/* Nothing of mine: the calm picture fills the screen; an arrow points up to "All". */
 function nothingMine() {
-  return `<div class="pt-4">
-    <button class="block ml-auto mr-2 mt-8 mb-6 text-right" data-filter="all" id="toAll">
-      <span class="block text-lg font-semibold">Nothing on your plate</span>
-      <span class="block text-stone-600">Pick one from All</span>
-    </button>
-    <figure>
-      <img src="https://images.unsplash.com/photo-1767508938873-a2afdfb1b8a3?ixlib=rb-4.1.0&q=80&fm=jpg&crop=entropy&cs=srgb&w=800"
-           alt="Someone lying on a grassy hill above the sea" class="w-full h-60 object-cover rounded-2xl shadow-sm">
-      <figcaption class="mt-2 text-xs text-stone-600 text-right">Photo by <a class="underline" href="https://unsplash.com/@enq_1998">Enq 1998</a> on <a class="underline" href="https://unsplash.com/photos/HHKZVi_E3pw">Unsplash</a></figcaption>
-    </figure>
-  </div>`;
+  return `<div id="toAll" class="h-40" aria-hidden="true"></div><p class="sr-only">Nothing on your plate. Pick one from All.</p>`;
 }
 /* A hand-drawn arrow from the message up to the "All" chip, measured after layout. */
 function drawArrowToAll() {
@@ -270,11 +264,12 @@ function drawArrowToAll() {
   main.querySelector('#arrow')?.remove();
   if (!from || !to) return;
   const m = main.getBoundingClientRect(), a = from.getBoundingClientRect(), c = to.getBoundingClientRect();
-  const x1 = a.left - m.left - 10, y1 = a.top - m.top + 14;           // left of the message
+  const x1 = a.left - m.left + a.width * 0.75, y1 = a.bottom - m.top - 10;  // from lower right, curving up
   const x2 = c.left - m.left + c.width / 2, y2 = c.bottom - m.top + 6;  // just under "All"
-  main.insertAdjacentHTML('beforeend', `<svg id="arrow" class="absolute inset-0 pointer-events-none overflow-visible text-stone-400" width="100%" height="100%" aria-hidden="true">
-    <path d="M ${x1} ${y1} C ${x1 - 40} ${y1 - 10}, ${x2 - 20} ${y2 + 40}, ${x2} ${y2}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-    <path d="M ${x2 - 7} ${y2 + 9} L ${x2} ${y2} L ${x2 + 8} ${y2 + 7}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`);
+  main.insertAdjacentHTML('beforeend', `<svg id="arrow" class="absolute inset-0 pointer-events-none overflow-visible text-white" width="100%" height="100%" aria-hidden="true">
+    <g class="drop-shadow-[0_1px_3px_rgb(0_0_0/.45)]">
+    <path d="M ${x1} ${y1} C ${x1 - 10} ${y1 - 70}, ${x2 + 60} ${y2 + 50}, ${x2} ${y2}" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+    <path d="M ${x2 - 8} ${y2 + 11} L ${x2} ${y2} L ${x2 + 10} ${y2 + 8}" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></g></svg>`);
 }
 addEventListener('resize', drawArrowToAll);
 
@@ -439,6 +434,9 @@ function render() {
   $('#offline').classList.toggle('hidden', !state.offline); $('#offline').classList.toggle('inline-flex', !!state.offline);
   $('#familyBar').classList.toggle('hidden', state.tab !== 'family' || !!state.personView);
   $('#familyBar').innerHTML = `<button class="${PRIMARY} w-full !h-12 text-base" data-invite>${icon('person_add')}Invite member</button>`;
+  const calm = state.tab === 'tasks' && state.filter === 'mine' && !!$('#toAll');
+  $('#calm').classList.toggle('hidden', !calm);
+  $('#header').classList.toggle('invisible', calm);
   renderDock(); renderComposer(); renderDetail();
   requestAnimationFrame(drawArrowToAll);
 }
