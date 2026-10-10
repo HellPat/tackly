@@ -1,204 +1,296 @@
 <!doctype html>
-<html lang="en" data-theme="emerald">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tackly prototype</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&display=block" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/daisyui@5.7.47/daisyui.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/daisyui@5.7.47/themes.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.3"></script>
+  <style>
+    body { font-family: Roboto, system-ui, sans-serif; }
+    /* Material Symbols: outlined; filled for what is active or done. */
+    .icon { font-family: 'Material Symbols Rounded'; font-size: 24px; line-height: 1; font-variation-settings: 'FILL' 0; user-select: none; }
+    .icon.fill { font-variation-settings: 'FILL' 1; }
+    .icon.sm { font-size: 20px; }
+    /* Primary is for filled buttons and active icons only; text stays neutral (contrast). */
+    .muted { color: color-mix(in oklab, var(--color-base-content) 70%, transparent); }
+    /* One active marker per tab (the pill), and a quiet focus ring. */
+    .dock > *::after { display: none; }
+    .input:focus-within { outline: 2px solid var(--color-primary); outline-offset: 0; }
+  </style>
+  <script>
+    if (matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.dataset.theme = 'dark';
+  </script>
 </head>
-<body class="bg-neutral">
-  <!-- Plain daisyUI, built-in "emerald" theme. Full screen on a phone; a phone-sized column on a desktop. -->
-  <div id="app" class="fixed inset-0 mx-auto max-w-[430px] bg-base-100 flex flex-col">
+<body class="bg-base-300">
+  <div class="fixed inset-0 mx-auto max-w-[430px] bg-base-100 flex flex-col">
 
-    <div class="navbar bg-base-100 shadow-sm">
-      <div class="flex-1 px-2">
-        <div>
-          <div class="text-xl font-semibold">Tackly</div>
-          <div class="text-xs opacity-60">The Smiths · 3 members</div>
-        </div>
-      </div>
-      <span class="badge badge-success badge-soft">Live</span>
+    <header class="shrink-0">
+    <div class="flex items-center gap-1 px-2 h-16">
+      <button id="backBtn" class="btn btn-ghost btn-circle size-12 hidden" aria-label="Back"><span class="icon">arrow_back</span></button>
+      <h1 id="title" class="flex-1 px-2 text-[22px] truncate">Tasks</h1>
+      <span id="offline" class="hidden badge badge-ghost gap-1 h-8 mr-2"><span class="icon sm" aria-hidden="true">cloud_off</span>Offline</span>
     </div>
+    <progress id="progress" class="progress progress-primary h-1 rounded-none block" value="0" max="1"></progress>
+    </header>
 
-    <main id="main" class="flex-1 overflow-y-auto"></main>
+    <main id="main" class="flex-1 overflow-y-auto pb-6"></main>
 
-    <!-- Add a task -->
-    <div id="composer" class="border-t border-base-300 bg-base-100 p-2 flex flex-col gap-2">
-      <div id="placeChips" class="flex gap-2 overflow-x-auto"></div>
-      <div id="suggestions" class="flex gap-2 overflow-x-auto"></div>
+    <section id="composer" aria-label="Add a task" class="shrink-0 px-3 pb-3 pt-2 flex flex-col gap-2">
+      <div id="chips" class="hidden flex-col gap-2">
+        <div id="placeChips" class="flex gap-2 overflow-x-auto" role="group" aria-label="Where"></div>
+        <div id="suggestions" class="flex gap-2 overflow-x-auto" role="group" aria-label="Add again"></div>
+      </div>
       <form id="addForm" class="flex items-center gap-2">
-        <input id="addInput" aria-label="Add a task" placeholder="Add a task" autocomplete="off" class="input flex-1">
-        <button id="addBtn" aria-label="Add" class="btn btn-primary btn-circle" disabled>↑</button>
-      </form>
-    </div>
-
-    <div id="dock" class="dock dock-sm static border-t border-base-300"></div>
-
-    <dialog id="finishSheet" class="modal modal-bottom">
-      <div class="modal-box">
-        <h3 class="text-lg font-semibold">Finish “<span id="finishTitle"></span>”</h3>
-        <fieldset class="fieldset">
-          <legend class="fieldset-legend">Note (optional)</legend>
-          <input id="finishNote" class="input w-full">
-        </fieldset>
-        <label class="label cursor-pointer justify-start gap-3">
-          <input type="checkbox" class="toggle toggle-primary" checked> Add where I am
+        <label class="input flex-1 h-12 rounded-full bg-base-200 border-0">
+          <span class="icon muted" aria-hidden="true">add</span>
+          <input id="addInput" aria-label="Add a task" placeholder="Add a task" autocomplete="off" class="grow text-base">
         </label>
-        <div class="modal-action">
-          <form method="dialog"><button class="btn btn-ghost">Cancel</button></form>
-          <button id="finishDone" class="btn btn-primary">Done</button>
-        </div>
+        <button id="addBtn" aria-label="Add" class="btn btn-primary btn-circle size-12 hidden"><span class="icon">arrow_upward</span></button>
+      </form>
+    </section>
+
+    <nav id="dock" class="dock static h-20 shrink-0 bg-base-200" aria-label="Main"></nav>
+
+    <!-- One bottom sheet; its content changes. -->
+    <dialog id="sheet" class="modal modal-bottom">
+      <div class="modal-box rounded-t-[28px] px-6 pt-3 pb-8">
+        <div class="mx-auto mb-5 h-1 w-8 rounded-full bg-base-content/30"></div>
+        <div id="sheetBody"></div>
       </div>
-      <form method="dialog" class="modal-backdrop"><button>close</button></form>
+      <form method="dialog" class="modal-backdrop"><button>Close</button></form>
     </dialog>
 
-    <div id="toast" class="toast toast-center hidden mb-40"><div class="alert alert-info"><span id="toastText"></span></div></div>
+    <div id="toast" class="toast toast-center hidden mb-28 w-[calc(100%-2rem)] max-w-[398px]" role="status"><div class="alert bg-neutral text-neutral-content border-0 justify-between"><span id="toastText"></span><button id="toastAction" class="btn btn-ghost btn-sm h-10 text-neutral-content hidden"></button></div></div>
   </div>
 
 <script>
 const $ = (s) => document.querySelector(s);
+const icon = (name, cls = '') => `<span class="icon ${cls}" aria-hidden="true">${name}</span>`;
 const state = {
-  tab: 'tasks', placeView: null, chosen: new Set(),
-  groups: [{ id: 'g1', name: 'Grocery Store', emoji: '🛒' }, { id: 'g2', name: 'Hardware', emoji: '🔨' }],
+  tab: 'tasks', placeView: null, chosen: new Set(), conflict: true, doneOpen: false,
+  groups: [{ id: 'g1', name: 'Grocery Store' }, { id: 'g2', name: 'Hardware' }],
   places: [
-    { id: 'lidl', group: 'g1', name: 'LIDL', emoji: '🏪', loc: 'Marbacher Straße 1, 71364 Winnenden', more: 1 },
-    { id: 'aldi', group: 'g1', name: 'Aldi', emoji: '🏬', loc: 'Aldi Waiblingen', more: 0 },
-    { id: 'bauhaus', group: 'g2', name: 'Bauhaus', emoji: '🔧', loc: 'Stuttgarter Straße 9, 71522 Backnang', more: 0 },
+    { id: 'lidl', group: 'g1', name: 'LIDL', locations: ['Marbacher Straße 1, Winnenden', 'Stuttgarter Straße 3, Backnang'] },
+    { id: 'aldi', group: 'g1', name: 'Aldi', locations: ['Aldi Waiblingen'] },
+    { id: 'bauhaus', group: 'g2', name: 'Bauhaus', locations: ['Stuttgarter Straße 9, Backnang'] },
   ],
   tasks: [
-    { id: 1, title: 'Milk', emoji: '🥛', places: ['lidl', 'aldi'], status: 'open' },
-    { id: 2, title: 'Bread', emoji: '🍞', places: ['lidl'], status: 'open' },
-    { id: 3, title: 'Light bulbs', emoji: '💡', places: ['bauhaus'], status: 'open' },
-    { id: 4, title: 'Water the plants', emoji: '🪴', places: [], status: 'doing', by: 'Mona' },
-    { id: 5, title: 'Altglas leeren', emoji: '🗑', places: [], status: 'done', by: 'Mara', note: 'Both containers', took: '12 min' },
+    { id: 4, title: 'Water the plants', places: [], status: 'doing', by: 'Mona' },
+    { id: 1, title: 'Milk', places: ['lidl', 'aldi'], status: 'open' },
+    { id: 2, title: 'Bread', places: ['lidl'], status: 'open' },
+    { id: 3, title: 'Light bulbs', places: ['bauhaus'], status: 'open' },
+    { id: 6, title: 'Call the dentist', places: [], status: 'open' },
+    { id: 5, title: 'Altglas leeren', places: [], status: 'done', by: 'Mara' },
   ],
-  conflict: true,
 };
 const placeById = (id) => state.places.find((p) => p.id === id);
-const openCount = (p) => state.tasks.filter((t) => t.status !== 'done' && t.places.includes(p.id)).length;
-const header = (text) => `<li class="p-4 pb-2 text-xs opacity-60 tracking-wide uppercase">${text}</li>`;
+const openAt = (p) => state.tasks.filter((t) => t.status !== 'done' && t.places.includes(p.id));
+const heading = (text) => `<li class="px-4 pt-6 pb-2 text-sm font-medium muted">${text}</li>`;
 
-function toast(text) { $('#toastText').textContent = text; $('#toast').classList.remove('hidden'); setTimeout(() => $('#toast').classList.add('hidden'), 2000); }
+/* Snackbar, optionally with one action (Android: at most one). */
+function toast(text, action, onAction) {
+  $('#toastText').textContent = text;
+  const btn = $('#toastAction');
+  btn.classList.toggle('hidden', !action); btn.textContent = action || ''; btn.onclick = () => { onAction(); $('#toast').classList.add('hidden'); };
+  $('#toast').classList.remove('hidden'); clearTimeout(toast.t); toast.t = setTimeout(() => $('#toast').classList.add('hidden'), 4000);
+}
+function sheet(html) { $('#sheetBody').innerHTML = html; $('#sheet').showModal(); }
 
+/* A task: circle, title, at most one quiet line. The circle finishes it. */
 function taskRow(t) {
-  const badges = t.places.map((id) => `<span class="badge badge-sm badge-soft badge-primary">${placeById(id).emoji} ${placeById(id).name}</span>`).join(' ');
-  const sub = t.status === 'doing' ? `${t.by} is on it · started 4 min ago`
-    : t.status === 'done' ? `Done by ${t.by} · 2 h ago · ⏱ ${t.took} · 💬 ${t.note}` : '';
-  const actions = t.status === 'done'
-    ? `<button class="btn btn-sm btn-ghost" data-reopen="${t.id}">Reopen</button>`
-    : `${t.status === 'open' ? `<button class="btn btn-sm btn-soft" data-start="${t.id}">Start</button>` : ''}
-       <button class="btn btn-sm btn-primary" data-finish="${t.id}">Finish</button>`;
-  return `<li class="list-row items-center ${t.status === 'doing' ? 'bg-base-200' : ''}">
-    <div class="text-2xl">${t.emoji}</div>
-    <div class="list-col-grow">
-      <div class="${t.status === 'done' ? 'line-through opacity-60' : ''}">${t.title}</div>
-      ${sub ? `<div class="text-xs opacity-60">${sub}</div>` : ''}
-      ${badges ? `<div class="flex flex-wrap gap-1 mt-1">${badges}</div>` : ''}
-    </div>
-    <div class="flex gap-1">${actions}</div>
+  const done = t.status === 'done', doing = t.status === 'doing';
+  const circle = done ? icon('check_circle', 'fill text-primary') : doing ? icon('play_circle', 'fill text-primary') : icon('circle', 'muted');
+  const line = doing ? `${t.by} is on it` : done ? '' : t.places.map((id) => placeById(id).name).join(', ');
+  return `<li class="flex items-center pl-1 pr-4 min-h-14">
+    <button class="btn btn-ghost btn-circle size-12" data-${done ? 'reopen' : 'quick'}="${t.id}" aria-label="${done ? 'Reopen' : 'Finish'} ${t.title}">${circle}</button>
+    <button class="flex-1 min-w-0 text-left py-2" data-open="${t.id}">
+      <span class="block truncate ${done ? 'line-through muted' : ''}">${t.title}</span>
+      ${line ? `<span class="block text-sm muted truncate">${line}</span>` : ''}
+    </button>
   </li>`;
 }
 
 function renderTasks() {
-  const todo = state.tasks.filter((t) => t.status !== 'done').sort((a, b) => (b.status === 'doing') - (a.status === 'doing'));
+  const active = state.tasks.filter((t) => t.status !== 'done');
   const done = state.tasks.filter((t) => t.status === 'done');
-  return `${state.conflict ? `<div class="p-4 pb-0"><div role="alert" class="alert alert-warning alert-soft flex-col items-start">
-      <div><b>🐱 Feed the cat</b> was finished twice. Only Mona and Mara can decide.</div>
-      <div class="flex gap-2 flex-wrap"><button class="btn btn-sm" data-keep>Keep Mona’s</button><button class="btn btn-sm" data-keep>Keep Mara’s</button></div></div></div>` : ''}
-    <ul class="list">${header('To do')}${todo.map(taskRow).join('')}${header('Done')}${done.map(taskRow).join('')}</ul>`;
+  const calm = !active.length && !state.conflict ? `<li class="flex flex-col items-center gap-2 py-16 muted">${icon('task_alt', 'fill text-primary !text-5xl')}<span class="text-base">All done</span></li>` : '';
+  return `<ul>${calm}
+    ${state.conflict ? `<li class="flex items-center pl-1 pr-2 min-h-14">
+      <span class="size-12 grid place-items-center"><span class="size-7 rounded-full bg-warning text-warning-content grid place-items-center">${icon('priority_high', 'sm')}</span></span>
+      <span class="flex-1 min-w-0"><span class="block truncate">Feed the cat</span><span class="block text-sm muted">Finished twice</span></span>
+      <button class="btn btn-ghost h-12" data-decide>Decide</button></li>` : ''}
+    ${active.map(taskRow).join('')}
+    ${done.length ? `<li><button class="flex items-center gap-2 w-full px-4 min-h-12 mt-2 text-sm font-medium muted" data-toggle-done aria-expanded="${state.doneOpen}">
+      ${icon(state.doneOpen ? 'expand_less' : 'expand_more', 'sm')}Done (${done.length})</button></li>
+      ${state.doneOpen ? done.map(taskRow).join('') : ''}` : ''}
+  </ul>`;
 }
 
 function renderPlaces() {
   if (state.placeView) {
     const p = placeById(state.placeView);
-    const tasks = state.tasks.filter((t) => t.status !== 'done' && t.places.includes(p.id));
-    return `<div class="p-2 flex items-center gap-1"><button class="btn btn-ghost btn-circle" data-back aria-label="Back">←</button><h2 class="text-lg font-semibold">${p.emoji} ${p.name}</h2></div>
-      <div class="px-4 pb-2 text-sm opacity-70">📍 ${p.loc}${p.more ? ` · +${p.more} more` : ''}<br><button class="btn btn-sm btn-ghost px-0">Add location</button></div>
-      <ul class="list">${header('To get here')}${tasks.length ? tasks.map(taskRow).join('') : '<li class="p-4 opacity-60">Nothing to get here.</li>'}</ul>`;
+    const tasks = openAt(p);
+    return `<ul>
+      ${p.locations.map((l) => `<li class="flex items-center gap-3 px-4 min-h-10 text-sm muted">${icon('location_on', 'sm')}${l}</li>`).join('')}
+      ${tasks.length ? heading('To get here') + tasks.map(taskRow).join('') : `<li class="px-4 py-10 text-center muted">Nothing to get here.</li>`}
+    </ul>`;
   }
-  return `<ul class="list">${state.groups.map((g) => {
-    const places = state.places.filter((p) => p.group === g.id).sort((a, b) => openCount(b) - openCount(a));
-    return `${header(`${g.emoji} ${g.name}`)}
-      ${places.map((p) => `<li class="list-row items-center cursor-pointer" data-place="${p.id}">
-        <div class="text-2xl">${p.emoji}</div>
-        <div class="list-col-grow"><div>${p.name}</div><div class="text-xs opacity-60">${p.loc}${p.more ? ` · +${p.more} more` : ''}</div></div>
-        <span class="badge badge-primary" aria-label="${openCount(p)} to get">${openCount(p)}</span></li>`).join('')}`;
-  }).join('')}</ul>
-  <div class="p-4 flex gap-2"><button class="btn btn-soft">New group</button><button class="btn btn-soft">Add place</button></div>`;
+  return `<ul>${state.groups.map((g) => {
+    const places = state.places.filter((p) => p.group === g.id).sort((a, b) => openAt(b).length - openAt(a).length);
+    return heading(g.name) + places.map((p) => {
+      const n = openAt(p).length;
+      return `<li><button class="w-full flex items-center gap-4 px-4 min-h-14 text-left active:bg-base-200" data-place="${p.id}">
+        <span class="flex-1">${p.name}</span>
+        ${n ? `<span class="min-w-7 h-7 px-2 rounded-full bg-base-200 grid place-items-center text-sm font-medium" aria-label="${n} to get">${n}</span>` : ''}
+        ${icon('chevron_right', 'muted')}</button></li>`;
+    }).join('');
+  }).join('')}
+  <li class="px-2 pt-4"><button class="btn btn-ghost h-12">${icon('add')}Add place</button></li></ul>`;
 }
 
 function renderActivity() {
-  const rows = [['✅', 'Mara finished “Altglas leeren”', '2 h ago'], ['▶️', 'Mona started “Water the plants”', '4 min ago'], ['➕', 'You added “Milk”', '1 h ago'], ['👋', 'Mara joined the family', 'yesterday'], ['🌱', 'You created The Smiths', 'yesterday']];
-  return `<ul class="list">${rows.map(([i, t, a]) => `<li class="list-row items-center"><div class="text-2xl">${i}</div><div class="list-col-grow">${t}<div class="text-xs opacity-60">${a}</div></div></li>`).join('')}</ul>`;
+  const rows = [['play_arrow', 'Mona started Water the plants', '4 min'], ['add', 'You added Milk', '1 h'], ['check', 'Mara finished Altglas leeren', '2 h'], ['person_add', 'Mara joined', '1 d']];
+  return `<ul class="pt-2">${rows.map(([i, t, a]) => `<li class="flex items-center gap-4 px-4 min-h-14">
+    ${icon(i, 'muted')}<span class="flex-1 min-w-0 truncate">${t}</span><span class="text-sm muted">${a}</span></li>`).join('')}</ul>`;
 }
 
 function renderFamily() {
-  const cells = Array.from({ length: 21 * 21 }, (_, i) => { const x = i % 21, y = Math.floor(i / 21); const finder = (x < 7 && y < 7) || (x > 13 && y < 7) || (x < 7 && y > 13); return finder ? (x % 6 === 0 || y % 6 === 0 || (x % 6 > 1 && x % 6 < 5 && y % 6 > 1 && y % 6 < 5)) : ((i * 7919) >> 2) % 3 === 0; });
-  return `<ul class="list">${header('Members')}
-    <li class="list-row items-center"><div class="avatar avatar-placeholder"><div class="bg-primary text-primary-content w-10 rounded-full">P</div></div><div class="list-col-grow">Patrick (you)<div class="text-xs opacity-60">Head of the family</div></div></li>
-    <li class="list-row items-center"><div class="avatar avatar-placeholder"><div class="bg-primary text-primary-content w-10 rounded-full">M</div></div><div class="list-col-grow">Mona</div></li>
-    <li class="list-row items-center"><div class="avatar avatar-placeholder"><div class="bg-primary text-primary-content w-10 rounded-full">M</div></div><div class="list-col-grow">Mara</div></li>
-    ${header('Invite someone')}</ul>
-    <div class="px-4 flex flex-col items-center gap-3">
-      <p class="text-sm opacity-70 text-center">Let the other phone scan this code, or copy the link and send it by message. It expires in 5 minutes.</p>
-      <div class="bg-white p-2 border border-base-300 rounded-box" role="img" aria-label="Invitation QR code"><div class="grid" style="grid-template-columns:repeat(21,8px)">${cells.map((b) => `<i class="size-2 ${b ? 'bg-black' : 'bg-white'}"></i>`).join('')}</div></div>
-      <button class="btn btn-primary" data-copy>Copy link</button>
-    </div>`;
+  const member = (initial, name, head) => `<li class="flex items-center gap-4 px-4 min-h-14">
+    <div class="avatar avatar-placeholder"><div class="bg-base-200 w-10 rounded-full"><span>${initial}</span></div></div>
+    <span class="flex-1">${name}</span>${head ? '<span class="text-sm muted">Head</span>' : ''}</li>`;
+  return `<ul class="pt-2">${member('P', 'Patrick', true)}${member('M', 'Mona')}${member('M', 'Mara')}
+    <li class="px-2 pt-4"><button class="btn btn-ghost h-12" data-invite>${icon('person_add')}Invite someone</button></li></ul>`;
+}
+
+function qrSvg() {
+  let cells = '';
+  for (let y = 0; y < 25; y++) for (let x = 0; x < 25; x++) {
+    const f = (ox, oy) => { const a = x - ox, b = y - oy; return a >= 0 && a < 7 && b >= 0 && b < 7 ? (a % 6 === 0 || b % 6 === 0 || (a > 1 && a < 5 && b > 1 && b < 5)) : null; };
+    const on = f(0, 0) ?? f(18, 0) ?? f(0, 18) ?? (((x * 31 + y * 17) ^ (x * y)) % 3 === 0);
+    if (on) cells += `<rect x="${x}" y="${y}" width="1" height="1"/>`;
+  }
+  return `<svg viewBox="-2 -2 29 29" class="size-56 bg-white rounded-box" role="img" aria-label="Invitation QR code"><g fill="#000">${cells}</g></svg>`;
 }
 
 function renderDock() {
-  const items = [['tasks', '✓', 'Tasks'], ['places', '📍', 'Places'], ['activity', '🕘', 'Activity'], ['family', '👪', 'Family']];
-  $('#dock').innerHTML = items.map(([id, icon, label]) => `<button data-tab="${id}" class="${state.tab === id ? 'dock-active' : ''}"><span class="text-xl">${icon}</span><span class="dock-label">${label}</span></button>`).join('');
+  const items = [['tasks', 'check_circle', 'Tasks'], ['places', 'storefront', 'Places'], ['activity', 'history', 'Activity'], ['family', 'group', 'Family']];
+  $('#dock').innerHTML = items.map(([id, ic, label]) => {
+    const on = state.tab === id;
+    return `<button data-tab="${id}" ${on ? 'aria-current="page"' : ''}>
+      <span class="w-16 h-8 rounded-full grid place-items-center ${on ? 'bg-primary/20' : ''}">${icon(ic, on ? 'fill' : '')}</span>
+      <span class="dock-label text-xs ${on ? 'font-medium' : 'muted'}">${label}</span></button>`;
+  }).join('');
 }
 
 function renderComposer() {
   const show = state.tab === 'tasks' || (state.tab === 'places' && state.placeView);
   $('#composer').classList.toggle('hidden', !show);
-  $('#placeChips').innerHTML = state.places.map((p) => `<button type="button" data-chip="${p.id}" aria-pressed="${state.chosen.has(p.id)}" class="btn btn-xs shrink-0 ${state.chosen.has(p.id) ? 'btn-primary' : 'btn-outline'}">${p.emoji} ${p.name}</button>`).join('');
-  const suggestions = state.tasks.filter((t) => t.status === 'done').map((t) => t.title).slice(0, 6);
-  $('#suggestions').innerHTML = suggestions.map((s) => `<button type="button" data-suggest="${s}" class="btn btn-sm btn-soft shrink-0">+ ${s}</button>`).join('');
+  $('#placeChips').innerHTML = state.places.slice(0, 5).map((p) => {
+    const on = state.chosen.has(p.id);
+    return `<button type="button" data-chip="${p.id}" aria-pressed="${on}" class="btn btn-sm h-9 rounded-full shrink-0 font-normal ${on ? 'btn-primary' : 'btn-ghost border border-base-content/30'}">${on ? icon('check', 'sm') : ''}${p.name}</button>`;
+  }).join('');
+  const again = [...new Set(state.tasks.filter((t) => t.status === 'done').map((t) => t.title))].slice(0, 5);
+  $('#suggestions').innerHTML = again.map((s) => `<button type="button" data-suggest="${s}" class="btn btn-sm h-9 rounded-full shrink-0 font-normal btn-ghost bg-base-200">${icon('add', 'sm')}${s}</button>`).join('');
 }
 
 function render() {
+  const titles = { tasks: 'Tasks', places: 'Places', activity: 'Activity', family: 'The Smiths' };
+  const inPlace = state.tab === 'places' && state.placeView;
+  $('#title').textContent = inPlace ? placeById(state.placeView).name : titles[state.tab];
+  $('#backBtn').classList.toggle('hidden', !inPlace);
   $('#main').innerHTML = { tasks: renderTasks, places: renderPlaces, activity: renderActivity, family: renderFamily }[state.tab]();
   renderDock(); renderComposer();
+  const all = state.tasks.length, finished = state.tasks.filter((t) => t.status === 'done').length;
+  const bar = $('#progress');
+  bar.classList.toggle('invisible', state.tab !== 'tasks');
+  bar.max = all; bar.value = finished; bar.setAttribute('aria-label', `${finished} of ${all} done`);
+  $('#offline').classList.toggle('hidden', !state.offline);
 }
 
-function addTask(title, places) {
-  state.tasks.push({ id: Date.now(), title, emoji: '✅', places: [...places], status: 'open' });
+/* Chips appear only while typing, so the screen stays calm. */
+function setChips(open) { $('#chips').classList.toggle('hidden', !open); $('#chips').classList.toggle('flex', open); }
+$('#addInput').addEventListener('focus', () => setChips(true));
+$('#addInput').addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== $('#addInput')) setChips(false); }, 150));
+$('#composer').addEventListener('mousedown', (e) => { if (e.target.closest('#chips')) e.preventDefault(); });
+$('#addInput').addEventListener('input', (e) => { $('#addBtn').classList.toggle('hidden', !e.target.value.trim()); });
+
+function addTask(title) {
+  state.tasks.splice(state.tasks.findIndex((t) => t.status === 'open'), 0, { id: Date.now(), title, places: [...state.chosen], status: 'open' });
   state.chosen = new Set(state.placeView ? [state.placeView] : []);
   render();
 }
+$('#addForm').addEventListener('submit', (e) => { e.preventDefault(); const v = $('#addInput').value.trim(); if (!v) return; addTask(v); $('#addInput').value = ''; $('#addBtn').classList.add('hidden'); $('#addInput').focus(); });
 
-let finishing = null;
+const find = (id) => state.tasks.find((x) => x.id == id);
 document.addEventListener('click', (e) => {
-  const row = e.target.closest('[data-place]');
-  const button = e.target.closest('button');
-  const d = (button || row || {}).dataset; if (!d) return;
-  if (d.tab) { state.tab = d.tab; state.placeView = null; state.chosen = new Set(); }
-  else if (d.place && !button) { state.placeView = d.place; state.chosen = new Set([d.place]); }
-  else if ('back' in d) { state.placeView = null; state.chosen = new Set(); }
-  else if (d.chip) { state.chosen.has(d.chip) ? state.chosen.delete(d.chip) : state.chosen.add(d.chip); }
-  else if (d.suggest) { addTask(d.suggest, state.chosen); return; }
-  else if (d.start) { const t = state.tasks.find((x) => x.id == d.start); t.status = 'doing'; t.by = 'You'; }
-  else if (d.finish) { finishing = state.tasks.find((x) => x.id == d.finish); $('#finishTitle').textContent = finishing.title; $('#finishSheet').showModal(); return; }
-  else if (d.reopen) { state.tasks.find((x) => x.id == d.reopen).status = 'open'; }
+  const b = e.target.closest('button'); if (!b) return;
+  const d = b.dataset;
+  if (b.id === 'backBtn') { state.placeView = null; state.chosen = new Set(); }
+  else if (d.tab) { state.tab = d.tab; state.placeView = null; state.chosen = new Set(); }
+  else if (d.place) { state.placeView = d.place; state.chosen = new Set([d.place]); }
+  else if (d.chip) { state.chosen.has(d.chip) ? state.chosen.delete(d.chip) : state.chosen.add(d.chip); renderComposer(); return; }
+  else if (d.suggest) { addTask(d.suggest); return; }
+  else if ('toggleDone' in d) { state.doneOpen = !state.doneOpen; }
+  else if (d.open) {
+    const t = find(d.open);
+    sheet(`<h2 class="text-xl mb-4">${t.title}</h2>
+      <div class="flex flex-col">
+        ${t.status === 'open' ? `<button class="btn btn-ghost justify-start h-14 text-base font-normal" data-start="${t.id}">${icon('play_arrow')}Start</button>` : ''}
+        ${t.status !== 'done' ? `<button class="btn btn-ghost justify-start h-14 text-base font-normal" data-finish="${t.id}">${icon('edit_note')}Finish with a note</button>` : ''}
+        <button class="btn btn-ghost justify-start h-14 text-base font-normal" data-close>${icon('storefront')}Places</button>
+      </div>`); return;
+  }
+  else if (d.start) { Object.assign(find(d.start), { status: 'doing', by: 'You' }); $('#sheet').close(); }
+  else if (d.quick) {
+    const t = find(d.quick), before = { ...t };
+    Object.assign(t, { status: 'done', by: 'You' }); render();
+    toast(`Done: ${t.title}`, 'Undo', () => { Object.assign(t, before); render(); }); return;
+  }
+  else if (d.finish) {
+    const t = find(d.finish);
+    sheet(`<h2 class="text-xl">Finish ${t.title}</h2>
+      <label class="floating-label mt-6 block"><span>Note</span><input id="note" class="input w-full h-12" placeholder="Note (optional)"></label>
+      <label class="flex items-center gap-3 mt-3 min-h-12 cursor-pointer"><span class="flex-1">Add where I am</span><input type="checkbox" class="toggle toggle-primary" checked></label>
+      <div class="flex justify-end gap-2 mt-6"><button class="btn btn-ghost h-12" data-close>Cancel</button><button class="btn btn-primary h-12 px-6" data-done="${t.id}">Done</button></div>`); return;
+  }
+  else if (d.done) { Object.assign(find(d.done), { status: 'done', by: 'You' }); $('#sheet').close(); toast('Done'); }
+  else if (d.reopen) { find(d.reopen).status = 'open'; }
+  else if ('decide' in d) {
+    sheet(`<h2 class="text-xl">Feed the cat</h2><p class="muted mt-1">Mona and Mara both finished it. Which one counts?</p>
+      <div class="flex flex-col mt-4">
+        <button class="btn btn-ghost justify-start h-16 text-left font-normal" data-keep><span><span class="block text-base">Mona</span><span class="block text-sm muted">“Mona fed her”</span></span></button>
+        <button class="btn btn-ghost justify-start h-16 text-left font-normal" data-keep><span><span class="block text-base">Mara</span><span class="block text-sm muted">“Mara fed her”</span></span></button>
+      </div>`); return;
+  }
+  else if ('keep' in d) { state.conflict = false; $('#sheet').close(); }
+  else if ('invite' in d) {
+    sheet(`<div class="flex flex-col items-center gap-5 text-center"><h2 class="text-xl">Invite someone</h2>${qrSvg()}
+      <p class="text-sm muted">Scan with the other phone, or send the link.<br>Works once, for 5 minutes.</p>
+      <button class="btn btn-primary h-12 px-6" data-copy>${icon('content_copy', 'sm')}Copy link</button></div>`); return;
+  }
   else if ('copy' in d) { toast('Link copied'); return; }
-  else if ('keep' in d) { state.conflict = false; toast('Settled'); }
+  else if ('close' in d) { $('#sheet').close(); return; }
   else return;
   render();
 });
-$('#finishDone').addEventListener('click', () => { Object.assign(finishing, { status: 'done', by: 'You', note: $('#finishNote').value || 'Done', took: '3 min' }); $('#finishSheet').close(); render(); });
-$('#addInput').addEventListener('input', (e) => { $('#addBtn').disabled = !e.target.value.trim(); });
-$('#addForm').addEventListener('submit', (e) => { e.preventDefault(); const v = $('#addInput').value.trim(); if (!v) return; addTask(v, state.chosen); $('#addInput').value = ''; $('#addBtn').disabled = true; $('#addInput').focus(); });
 
-// ?tab=places  or  ?tab=places&place=lidl  opens that screen directly
+// ?tab=places, ?tab=places&place=lidl, ?theme=dark, ?sheet=finish|invite|decide, ?typing=1
 const query = new URLSearchParams(location.search);
 if (query.get('tab')) state.tab = query.get('tab');
 if (query.get('place')) { state.placeView = query.get('place'); state.chosen = new Set([state.placeView]); }
+if (query.get('theme')) document.documentElement.dataset.theme = query.get('theme');
+state.offline = query.has('offline');
 render();
+if (query.get('typing')) { $('#addInput').focus(); }
+const s = query.get('sheet');
+if (s === 'finish') document.querySelector('[data-finish]')?.click();
+if (s === 'invite') { state.tab = 'family'; render(); document.querySelector('[data-invite]').click(); }
+if (s === 'decide') document.querySelector('[data-decide]')?.click();
 </script>
 </body>
 </html>
