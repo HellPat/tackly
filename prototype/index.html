@@ -101,6 +101,7 @@ const TINTS = ['bg-sky-100 text-sky-900', 'bg-pink-100 text-pink-900', 'bg-teal-
 
 const state = {
   tab: 'tasks', filter: 'mine', placeView: null, personView: null, editPlace: false, chosen: new Set(), detail: null,
+  // Lists people made. Besides them there is always "Other" (id 'other'): it can't be deleted, and new tasks land there.
   lists: [{ id: 'home', name: 'Household' }, { id: 'shop', name: 'Shopping' }, { id: 'garden', name: 'Garden' }],
   listView: null, // the list you stepped into on Tasks
   groupView: null, // the group you stepped into on Places
@@ -120,11 +121,11 @@ const state = {
     { id: 4, title: 'Water the plants', list: 'home', places: [], status: 'open', on: 'mo', sessions: [{ from: now() - 4 * MIN }] },
     { id: 8, title: 'Vacuum the stairs', list: 'home', places: [], status: 'open', on: 'ma', sessions: [{ from: now() - 30 * MIN, to: now() - 12 * MIN }] },
     { id: 9, title: 'Book the holiday', list: 'home', places: [], status: 'open', on: 'mo', sessions: [] },
-    { id: 6, title: 'Call the dentist', list: 'home', places: [], status: 'open', sessions: [{ from: now() - 26 * 60 * MIN, to: now() - 25.6 * 60 * MIN }, { from: now() - 50 * MIN, to: now() - 38 * MIN }] },
+    { id: 6, title: 'Call the dentist', list: 'other', places: [], status: 'open', sessions: [{ from: now() - 26 * 60 * MIN, to: now() - 25.6 * 60 * MIN }, { from: now() - 50 * MIN, to: now() - 38 * MIN }] },
     { id: 1, title: 'Milk', list: 'shop', places: ['lidl', 'aldi'], status: 'open', sessions: [] },
     { id: 2, title: 'Bread', list: 'shop', places: ['lidl'], status: 'open', sessions: [] },
     { id: 3, title: 'Light bulbs', list: 'shop', places: ['bauhaus'], status: 'open', sessions: [] },
-    { id: 7, title: 'Pick up the parcel', list: 'home', places: [], status: 'open', sessions: [] },
+    { id: 7, title: 'Pick up the parcel', list: 'other', places: [], status: 'open', sessions: [] },
   ],
   recent: ['Altglas leeren', 'Feed the cat'],
 };
@@ -143,7 +144,7 @@ const openAt = (p) => visible().filter((t) => t.places.includes(p.id));
 const pill = (p) => `<span class="${PILL}">${p.name}</span>`;
 const heading = (text) => `<h2 class="px-2 pt-6 pb-2 text-sm font-semibold text-stone-600">${text}</h2>`;
 /* What the bottom bar adds here: a task, a place, or a location of the place being edited. */
-const barMode = () => state.tab === 'tasks' ? (state.listView ? 'task' : 'list')
+const barMode = () => state.tab === 'tasks' ? 'task'
   : state.editPlace ? 'location' : state.placeView ? 'task' : state.groupView ? 'place' : 'group';
 /* A person's picture: an icon on a soft tint, or a photo. Round, with a white border and a small shadow,
    so any photo (too light, too busy, badly cropped) still sits cleanly on the page. */
@@ -265,12 +266,20 @@ const overviewRow = (data, ic, name, count, sub = '') => `<li><button class="w-f
   ${count ? `<span class="text-sm text-stone-600">${count}</span>` : ''}
   ${icon('chevron_right', 'text-stone-500')}</button></li>`;
 
+/* Tasks overview: the lists to step into, then "Other" shown open, with its tasks right here. */
 function renderLists() {
-  if (!state.lists.length) return emptyState('checklist', 'No lists yet', 'Start one below, for example Household or Garden.');
-  return `<ul class="${CARD} overflow-hidden mt-1">${state.lists.map((l) => {
+  const rows = state.lists.map((l) => {
     const open = visible().filter((t) => t.list === l.id), mine = open.filter((t) => t.on === 'p').length;
     return overviewRow(`data-open-list="${l.id}"`, 'checklist', l.name, open.length ? `${open.length} open` : '', mine ? `${mine} yours` : '');
-  }).join('')}</ul>`;
+  }).join('');
+  const newList = state.newList
+    ? `<li class="px-4 py-2"><form id="newListForm"><input id="newList" aria-label="New list" placeholder="List name, e.g. Garden" class="w-full h-11 px-3 rounded-md bg-[#fffdfb] border border-stone-300 outline-none focus:ring-2 focus:ring-accent-700"></form></li>`
+    : `<li><button class="w-full flex items-center gap-3 px-4 min-h-14 text-left text-stone-700 hover:bg-stone-50" data-new-list>
+        <span class="size-9 shrink-0 rounded-full grid place-items-center border-2 border-dashed border-stone-300 text-stone-500">${icon('add', '!text-[18px]')}</span>New list</button></li>`;
+  const other = visible().filter((t) => t.list === 'other');
+  return `<ul class="${CARD} overflow-hidden mt-1">${rows}${newList}</ul>
+    ${heading('Other')}
+    ${other.length ? `<ul>${other.map(taskCard).join('')}</ul>` : `<p class="px-2 py-6 text-stone-600">New tasks land here. Add one below.</p>`}`;
 }
 
 function renderTasks() {
@@ -520,7 +529,7 @@ $('#composer').addEventListener('mousedown', (e) => { if (e.target.closest('#ext
 $('#addInput').addEventListener('input', (e) => { const has = !!e.target.value.trim(); $('#addBtn').classList.toggle('hidden', !has); $('#addBtn').classList.toggle('grid', has); if (barMode() === 'place' || barMode() === 'location') renderExtras(); });
 
 function addTask(title) {
-  const list = state.listView ?? state.lists[0]?.id;
+  const list = state.tab === 'tasks' && state.listView ? state.listView : 'other';
   const t = { id: now(), title, list, places: [...state.chosen], status: 'open', sessions: [] };
   state.tasks.push(t);
   state.chosen = new Set(state.placeView ? [state.placeView] : []);
@@ -568,6 +577,13 @@ function finish(t, card) {
 
 document.addEventListener('input', (e) => { if (e.target.id === 'placeName') { placeById(state.placeView).name = e.target.value; } });
 document.addEventListener('submit', (e) => {
+  if (e.target.id === 'newListForm') {
+    e.preventDefault();
+    const name = $('#newList').value.trim();
+    state.newList = false;
+    if (name) addList(name); else render();
+    return;
+  }
   if (e.target.id === 'renameForm') {
     e.preventDefault();
     const name = $('#renameInput').value.trim(), { kind, id } = e.target.dataset;
@@ -587,7 +603,7 @@ document.addEventListener('change', (e) => {
 document.addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b || b.closest('#toasts')) return;
   const d = b.dataset;
-  if (b.id === 'backBtn') { state.newGroup = false; }
+  if (b.id === 'backBtn' || b.dataset.tab) { state.newGroup = false; state.newList = false; }
   if (b.id === 'backBtn') { if (state.listView && state.tab === 'tasks') state.listView = null; else if (state.personView) state.personView = null; else if (state.editPlace) state.editPlace = false; else if (state.placeView) { state.placeView = null; state.chosen = new Set(); } else state.groupView = null; }
   else if (b.id === 'editBtn' && state.tab === 'tasks' && state.listView) { renameSheet('list', state.listView); return; }
   else if (b.id === 'editBtn' && state.tab === 'places' && state.groupView && !state.placeView) { renameSheet('group', state.groupView); return; }
@@ -595,6 +611,7 @@ document.addEventListener('click', (e) => {
   else if (b.id === 'editBtn' && state.personView) { avatarSheet(); return; }
   else if (b.id === 'editBtn' || 'editPlace' in d) { state.editPlace = true; }
   else if (d.person) { state.personView = d.person; }
+  else if ('newList' in d) { state.newList = true; render(); $('#newList').focus(); return; }
   else if (d.openList) { state.listView = d.openList; state.filter = 'mine'; }
   else if (d.rename) { renameSheet(d.rename, d.id); return; }
   else if ('closeSheet' in d) { $('#sheet').close(); return; }
