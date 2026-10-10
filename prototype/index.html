@@ -242,7 +242,8 @@ function taskCard(t, flat = false) {
         <span class="size-8 rounded-full grid place-items-center bg-stone-100 border-2 border-dashed border-white shadow-[0_1px_3px_rgb(41_37_36/.3)] text-stone-500 transition-colors group-hover:text-accent-700">${icon('person_add', '!text-[18px]')}</span>
       </button>`;
   const shell = flat ? 'max-h-40 overflow-hidden transition-all duration-300' : `${CARD} mb-2 max-h-40 overflow-hidden transition-all duration-300`;
-  const lockedLook = flat ? 'bg-stone-50' : '!bg-transparent !shadow-none ring-1 ring-inset ring-stone-200';
+  // Someone else's task: an opaque, slightly grey card without shadow, so it reads as disabled on any background.
+  const lockedLook = flat ? 'bg-stone-100' : '!bg-stone-100 !shadow-none';
   return `<li class="${shell} ${mine && how === 'working' ? 'border-l-4 border-accent-700' : ''} ${taken ? lockedLook : ''}" data-card="${t.id}" ${taken ? 'aria-disabled="true"' : ''}>
     <div class="flex items-center gap-1 pl-1 pr-3 min-h-16">
       ${lead}
