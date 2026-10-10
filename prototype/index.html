@@ -690,27 +690,47 @@ const fjord = (a, b, water) => svg(W('M0 210 L60 120 L110 170 L180 80 L250 160 L
 const clouds = (fill) => svg([[70, 90, 1, 'far'], [300, 60, .8, 'mid'], [220, 170, 1.2, 'near'], [60, 230, .9, 'mid'], [360, 250, 1, 'far']].map(([x, y, k, speed]) =>
   drift(speed, `<g transform="translate(${x} ${y}) scale(${k})" fill="${fill}"><circle cx="0" cy="0" r="18"/><circle cx="20" cy="-8" r="22"/><circle cx="42" cy="0" r="16"/><rect x="0" y="-2" width="42" height="18" rx="9"/></g>`)).join(''));
 
+/* Accent palettes (Tailwind's own shades). White text passes 4.5:1 on every 700.
+   Each background gets an accent from across the colour wheel (complementary or split-complementary), in a deep shade
+   against a pale sky: the accent stands out, and the strong lightness contrast is what people rate best for colour pairs
+   (Schloss & Palmer 2011). */
+const ACCENT = {
+  sky: ['#f0f9ff', '#e0f2fe', '#bae6fd', '#0369a1', '#075985', '#0c4a6e'],
+  pink: ['#fdf2f8', '#fce7f3', '#fbcfe8', '#be185d', '#9d174d', '#831843'],
+  violet: ['#f5f3ff', '#ede9fe', '#ddd6fe', '#6d28d9', '#5b21b6', '#4c1d95'],
+  emerald: ['#ecfdf5', '#d1fae5', '#a7f3d0', '#047857', '#065f46', '#064e3b'],
+  green: ['#f0fdf4', '#dcfce7', '#bbf7d0', '#15803d', '#166534', '#14532d'],
+  teal: ['#f0fdfa', '#ccfbf1', '#99f6e4', '#0f766e', '#115e59', '#134e4a'],
+  blue: ['#eff6ff', '#dbeafe', '#bfdbfe', '#1d4ed8', '#1e40af', '#1e3a8a'],
+  fuchsia: ['#fdf4ff', '#fae8ff', '#f5d0fe', '#a21caf', '#86198f', '#701a75'],
+  indigo: ['#eef2ff', '#e0e7ff', '#c7d2fe', '#4338ca', '#3730a3', '#312e81'],
+  amber: ['#fffbeb', '#fef3c7', '#fde68a', '#b45309', '#92400e', '#78350f'],
+  rose: ['#fff1f2', '#ffe4e6', '#fecdd3', '#be123c', '#9f1239', '#881337'],
+  lime: ['#f7fee7', '#ecfccb', '#d9f99d', '#4d7c0f', '#3f6212', '#365314'],
+};
+const accentClasses = (name) => ACCENT[name].map((hex, i) => `[--color-accent-${['50', '100', '200', '700', '800', '900'][i]}:${hex}]`).join(' ');
+
 const BACKGROUNDS = {
-  ocean:      { sky: 'bg-linear-to-b from-sky-200 to-cyan-100',       scene: waves('#7dd3fc', '#38bdf8', '#0ea5e9') },
-  sunset:     { sky: 'bg-linear-to-b from-orange-200 to-rose-200',    scene: slopes('#fdba74', '#fb923c', '#f97316') },
-  lavender:   { sky: 'bg-linear-to-b from-violet-200 to-indigo-100',  scene: peaks('#c4b5fd', '#a78bfa', '#8b5cf6') },
-  pinewood:   { sky: 'bg-linear-to-b from-emerald-200 to-teal-100',   scene: woods('#6ee7b7', '#34d399', '#10b981') },
-  spring:     { sky: 'bg-linear-to-b from-lime-200 to-emerald-100',   scene: slopes('#bef264', '#a3e635', '#84cc16') },
-  lagoon:     { sky: 'bg-linear-to-b from-teal-200 to-cyan-100',      scene: waves('#5eead4', '#2dd4bf', '#14b8a6') },
-  glacier:    { sky: 'bg-linear-to-b from-sky-200 to-indigo-100',     scene: peaks('#bae6fd', '#7dd3fc', '#38bdf8') },
-  heather:    { sky: 'bg-linear-to-b from-fuchsia-200 to-pink-100',   scene: slopes('#f0abfc', '#e879f9', '#d946ef') },
-  fjord:      { sky: 'bg-linear-to-b from-indigo-200 to-sky-100',     scene: fjord('#a5b4fc', '#818cf8', '#7dd3fc') },
-  jungle:     { sky: 'bg-linear-to-b from-lime-200 to-green-100',     scene: woods('#86efac', '#4ade80', '#22c55e') },
-  canyon:     { sky: 'bg-linear-to-b from-amber-200 to-orange-100',   scene: peaks('#fcd34d', '#fbbf24', '#f59e0b') },
-  rose:       { sky: 'bg-linear-to-b from-rose-200 to-pink-100',      scene: slopes('#fda4af', '#fb7185', '#f43f5e') },
-  seafoam:    { sky: 'bg-linear-to-b from-emerald-200 to-cyan-100',   scene: waves('#6ee7b7', '#34d399', '#10b981') },
-  clouds:     { sky: 'bg-linear-to-b from-sky-100 to-sky-50',         scene: clouds('#ffffff') },
-  blueclouds: { sky: 'bg-linear-to-b from-sky-300 to-sky-100',        scene: clouds('#ffffff') },
+  ocean:      { sky: 'bg-linear-to-b from-sky-200 to-cyan-100', accent: 'rose',       scene: waves('#7dd3fc', '#38bdf8', '#0ea5e9') },
+  sunset:     { sky: 'bg-linear-to-b from-orange-200 to-rose-200', accent: 'sky',    scene: slopes('#fdba74', '#fb923c', '#f97316') },
+  lavender:   { sky: 'bg-linear-to-b from-violet-200 to-indigo-100', accent: 'lime',  scene: peaks('#c4b5fd', '#a78bfa', '#8b5cf6') },
+  pinewood:   { sky: 'bg-linear-to-b from-emerald-200 to-teal-100', accent: 'pink',   scene: woods('#6ee7b7', '#34d399', '#10b981') },
+  spring:     { sky: 'bg-linear-to-b from-lime-200 to-emerald-100', accent: 'violet',   scene: slopes('#bef264', '#a3e635', '#84cc16') },
+  lagoon:     { sky: 'bg-linear-to-b from-teal-200 to-cyan-100', accent: 'fuchsia',      scene: waves('#5eead4', '#2dd4bf', '#14b8a6') },
+  glacier:    { sky: 'bg-linear-to-b from-sky-200 to-indigo-100', accent: 'amber',     scene: peaks('#bae6fd', '#7dd3fc', '#38bdf8') },
+  heather:    { sky: 'bg-linear-to-b from-fuchsia-200 to-pink-100', accent: 'green',   scene: slopes('#f0abfc', '#e879f9', '#d946ef') },
+  fjord:      { sky: 'bg-linear-to-b from-indigo-200 to-sky-100', accent: 'amber',     scene: fjord('#a5b4fc', '#818cf8', '#7dd3fc') },
+  jungle:     { sky: 'bg-linear-to-b from-lime-200 to-green-100', accent: 'fuchsia',     scene: woods('#86efac', '#4ade80', '#22c55e') },
+  canyon:     { sky: 'bg-linear-to-b from-amber-200 to-orange-100', accent: 'indigo',   scene: peaks('#fcd34d', '#fbbf24', '#f59e0b') },
+  rose:       { sky: 'bg-linear-to-b from-rose-200 to-pink-100', accent: 'teal',      scene: slopes('#fda4af', '#fb7185', '#f43f5e') },
+  seafoam:    { sky: 'bg-linear-to-b from-emerald-200 to-cyan-100', accent: 'rose',   scene: waves('#6ee7b7', '#34d399', '#10b981') },
+  clouds:     { sky: 'bg-linear-to-b from-sky-100 to-sky-50', accent: 'pink',         scene: clouds('#ffffff') },
+  blueclouds: { sky: 'bg-linear-to-b from-sky-300 to-sky-100', accent: 'amber',        scene: clouds('#ffffff') },
 };
 const APP = 'fixed inset-0 mx-auto max-w-[430px] flex flex-col overflow-hidden';
 function setBackground(name) {
   const bg = BACKGROUNDS[name] ?? BACKGROUNDS.ocean;
-  $('#app').className = `${APP} ${bg.sky}`;
+  $('#app').className = `${APP} ${bg.sky} ${accentClasses(bg.accent)}`;
   $('#scene').innerHTML = bg.scene;
   try { localStorage.setItem('tackly-bg', name); } catch {}
   $('#bgSwitcher [role=radiogroup]').innerHTML = Object.entries(BACKGROUNDS).map(([n, b]) => `
