@@ -302,7 +302,7 @@ function renderLists() {
 function filterBar(all) {
   const chips = Object.entries(FILTERS).map(([id, { label, keep }]) => {
     const on = state.filter === id, n = all.filter(keep).length;
-    return `<button data-filter="${id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-accent-100 text-accent-900 ring-1 ring-inset ring-accent-700' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${label}<span class="${on ? 'text-accent-800' : 'text-stone-500'} font-normal">${n}</span></button>`;
+    return `<button data-filter="${id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-stone-600 text-white' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${label}<span class="${on ? 'text-stone-200' : 'text-stone-500'} font-normal">${n}</span></button>`;
   }).join('');
   return `<div class="flex gap-2 pt-1 pb-3" role="group" aria-label="Filter">${chips}</div>`;
 }
@@ -351,7 +351,7 @@ const CHIP = 'shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full te
 function groupPicker(p) {
   const chip = (id, label) => {
     const on = (p.group ?? null) === id;
-    return `<button data-group="${id ?? ''}" aria-pressed="${on}" class="${CHIP} ${on ? 'bg-accent-100 text-accent-900 ring-1 ring-inset ring-accent-700' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${label}</button>`;
+    return `<button data-group="${id ?? ''}" aria-pressed="${on}" class="${CHIP} ${on ? 'bg-stone-600 text-white' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${label}</button>`;
   };
   return `<div class="px-1 pt-5">
     <span class="block text-sm font-semibold text-stone-600" id="groupLabel">Group</span>
@@ -491,7 +491,7 @@ function renderExtras() {
   return;
   const pills = state.places.slice(0, 5).map((p) => {
     const on = state.chosen.has(p.id);
-    return `<button type="button" data-chip="${p.id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-accent-100 text-accent-900 ring-1 ring-inset ring-accent-700' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${p.name}</button>`;
+    return `<button type="button" data-chip="${p.id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-stone-600 text-white' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${p.name}</button>`;
   }).join('');
   const again = state.recent.slice(0, 5).map((s) => `<button type="button" data-suggest="${s}" class="shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full bg-[#fffdfb] text-sm shadow-sm">${icon('add', '!text-[18px] text-accent-700')}${s}</button>`).join('');
   $('#extras').innerHTML = `<div class="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Where">${pills}</div><div class="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Add again">${again}</div>`;
