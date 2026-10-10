@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="light" data-accent="indigo">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -14,13 +14,30 @@
   <style type="text/tailwindcss">
     @theme {
       --font-sans: Roboto, system-ui, sans-serif;
+      /* The accent, used as bg-accent-700 etc. Swapped by the colour switcher (Tailwind's own palettes). */
+      --color-accent-50: #eef2ff;
+      --color-accent-100: #e0e7ff;
+      --color-accent-200: #c7d2fe;
+      --color-accent-700: #4338ca;
+      --color-accent-800: #3730a3;
+      --color-accent-900: #312e81;
       --animate-pop: pop .3s ease-out;
       --animate-breathe: breathe 2.4s ease-in-out infinite;
       @keyframes pop { 40% { transform: scale(1.3); } }
-      @keyframes breathe { 50% { box-shadow: 0 0 0 16px rgb(194 65 12 / 0); } 0%, 100% { box-shadow: 0 0 0 0 rgb(194 65 12 / .3); } }
+      @keyframes breathe { 50% { box-shadow: 0 0 0 16px transparent; } 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent-700) 30%, transparent); } }
     }
   </style>
-  <style>[data-theme=light] { --color-base-100: #fffdfb; --color-base-content: #292524; }</style>
+  <style>
+    [data-theme=light] { --color-base-100: #fffdfb; --color-base-content: #292524; }
+    [data-accent=indigo] { --color-accent-50: #eef2ff; --color-accent-100: #e0e7ff; --color-accent-200: #c7d2fe; --color-accent-700: #4338ca; --color-accent-800: #3730a3; --color-accent-900: #312e81; }
+    [data-accent=violet] { --color-accent-50: #f5f3ff; --color-accent-100: #ede9fe; --color-accent-200: #ddd6fe; --color-accent-700: #6d28d9; --color-accent-800: #5b21b6; --color-accent-900: #4c1d95; }
+    [data-accent=blue] { --color-accent-50: #eff6ff; --color-accent-100: #dbeafe; --color-accent-200: #bfdbfe; --color-accent-700: #1d4ed8; --color-accent-800: #1e40af; --color-accent-900: #1e3a8a; }
+    [data-accent=sky] { --color-accent-50: #f0f9ff; --color-accent-100: #e0f2fe; --color-accent-200: #bae6fd; --color-accent-700: #0369a1; --color-accent-800: #075985; --color-accent-900: #0c4a6e; }
+    [data-accent=teal] { --color-accent-50: #f0fdfa; --color-accent-100: #ccfbf1; --color-accent-200: #99f6e4; --color-accent-700: #0f766e; --color-accent-800: #115e59; --color-accent-900: #134e4a; }
+    [data-accent=emerald] { --color-accent-50: #ecfdf5; --color-accent-100: #d1fae5; --color-accent-200: #a7f3d0; --color-accent-700: #047857; --color-accent-800: #065f46; --color-accent-900: #064e3b; }
+    [data-accent=fuchsia] { --color-accent-50: #fdf4ff; --color-accent-100: #fae8ff; --color-accent-200: #f5d0fe; --color-accent-700: #a21caf; --color-accent-800: #86198f; --color-accent-900: #701a75; }
+    [data-accent=orange] { --color-accent-50: #fff7ed; --color-accent-100: #ffedd5; --color-accent-200: #fed7aa; --color-accent-700: #c2410c; --color-accent-800: #9a3412; --color-accent-900: #7c2d12; }
+  </style>
 </head>
 <body class="bg-stone-300 text-stone-800 antialiased">
   <div id="app" class="fixed inset-0 mx-auto max-w-[430px] bg-stone-100 flex flex-col overflow-hidden">
@@ -37,11 +54,11 @@
     <section id="composer" aria-label="Add" class="shrink-0 px-3 pb-3 pt-2 flex flex-col gap-2">
       <div id="extras" class="hidden flex-col gap-2"></div>
       <form id="addForm" class="flex items-center gap-2">
-        <label class="flex-1 flex items-center gap-2 h-12 px-4 rounded-full bg-[#fffdfb] shadow-sm focus-within:outline-2 focus-within:outline-orange-700">
-          <span class="material-symbols-rounded text-orange-700" aria-hidden="true">add</span>
+        <label class="flex-1 flex items-center gap-2 h-12 px-4 rounded-full bg-[#fffdfb] shadow-sm focus-within:outline-2 focus-within:outline-accent-700">
+          <span class="material-symbols-rounded text-accent-700" aria-hidden="true">add</span>
           <input id="addInput" aria-label="Add a task" placeholder="Add a task" autocomplete="off" class="flex-1 min-w-0 border-0 bg-transparent p-0 text-base outline-none focus:outline-none placeholder:text-stone-500">
         </label>
-        <button id="addBtn" aria-label="Add" class="hidden size-12 place-items-center rounded-md border border-orange-800 bg-orange-700 text-white shadow-sm inset-shadow-[0_1px_0_rgb(255_255_255/.18)] hover:bg-orange-800"><span class="material-symbols-rounded" aria-hidden="true">arrow_upward</span></button>
+        <button id="addBtn" aria-label="Add" class="hidden size-12 place-items-center rounded-md border border-accent-800 bg-accent-700 text-white shadow-sm inset-shadow-[0_1px_0_rgb(255_255_255/.18)] hover:bg-accent-800"><span class="material-symbols-rounded" aria-hidden="true">arrow_upward</span></button>
       </form>
     </section>
 
@@ -65,6 +82,12 @@
     <section id="toasts" class="absolute inset-x-4 bottom-40 z-50 h-0" aria-label="Notifications" aria-live="polite"></section>
   </div>
 
+  <!-- Prototype tool, not part of the app: try accent colours. -->
+  <details id="switcher" class="fixed top-3 right-3 z-[60] rounded-xl bg-white shadow-lg text-sm text-stone-800 open:p-3 [&:not([open])]:p-0">
+    <summary class="list-none cursor-pointer size-10 grid place-items-center rounded-xl" aria-label="Accent colour"><span class="material-symbols-rounded" aria-hidden="true">palette</span></summary>
+    <div class="mt-2 grid grid-cols-4 gap-2" role="radiogroup" aria-label="Accent colour"></div>
+  </details>
+
 <script>
 const $ = (s) => document.querySelector(s);
 const icon = (name, cls = '') => `<span class="material-symbols-rounded ${cls}" aria-hidden="true">${name}</span>`;
@@ -72,8 +95,8 @@ const FILL = "[font-variation-settings:'FILL'_1]";
 const MIN = 60_000, now = () => Date.now();
 
 /* Buttons, GitHub style: primary filled, secondary neutral. */
-const BTN = 'inline-flex items-center justify-center gap-2 h-10 px-4 rounded-md border font-semibold shadow-sm transition-colors active:shadow-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-700';
-const PRIMARY = `${BTN} border-orange-800 bg-orange-700 text-white inset-shadow-[0_1px_0_rgb(255_255_255/.18)] hover:bg-orange-800`;
+const BTN = 'inline-flex items-center justify-center gap-2 h-10 px-4 rounded-md border font-semibold shadow-sm transition-colors active:shadow-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-700';
+const PRIMARY = `${BTN} border-accent-800 bg-accent-700 text-white inset-shadow-[0_1px_0_rgb(255_255_255/.18)] hover:bg-accent-800`;
 const SECONDARY = `${BTN} border-stone-300 bg-stone-50 text-stone-800 inset-shadow-[0_1px_0_white] hover:bg-stone-100`;
 const PILL = 'inline-flex items-center h-6 px-2.5 rounded-full bg-stone-100 text-stone-700 text-[13px] font-semibold';
 const CARD = 'bg-[#fffdfb] rounded-2xl shadow-sm';
@@ -181,12 +204,12 @@ function taskCard(t) {
     ? `<span class="size-12 shrink-0 grid place-items-center">${avatar(who, 'size-8')}</span>`
     : `<label class="size-12 shrink-0 grid place-items-center cursor-pointer">
         <input type="checkbox" class="peer sr-only" data-check="${t.id}" aria-label="Done: ${t.title}">
-        <span class="size-6 rounded-full border-2 border-stone-400 grid place-items-center transition-colors hover:border-orange-700 peer-checked:bg-orange-700 peer-checked:border-orange-700 peer-checked:animate-pop peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-orange-700">
+        <span class="size-6 rounded-full border-2 border-stone-400 grid place-items-center transition-colors hover:border-accent-700 peer-checked:bg-accent-700 peer-checked:border-accent-700 peer-checked:animate-pop peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent-700">
           ${icon('check', '!text-[16px] text-white')}
         </span>
       </label>`;
   const line = taken ? `${who.name} is on it` : mine ? 'You are on it' : '';
-  return `<li class="${CARD} mb-2 max-h-40 overflow-hidden transition-all duration-300 ${mine ? 'border-l-4 border-orange-700' : ''} ${taken ? 'bg-stone-50 shadow-none' : ''}" data-card="${t.id}" ${taken ? 'aria-disabled="true"' : ''}>
+  return `<li class="${CARD} mb-2 max-h-40 overflow-hidden transition-all duration-300 ${mine ? 'border-l-4 border-accent-700' : ''} ${taken ? 'bg-stone-50 shadow-none' : ''}" data-card="${t.id}" ${taken ? 'aria-disabled="true"' : ''}>
     <div class="flex items-center gap-1 pl-1 pr-4 min-h-16">
       ${lead}
       <button class="flex-1 min-w-0 text-left py-3 flex flex-col gap-0.5 disabled:cursor-default" data-open="${t.id}" ${taken ? 'disabled' : ''}>
@@ -200,7 +223,7 @@ function taskCard(t) {
 /* Empty states: a normal-size icon in a tinted circle, a short friendly line. */
 function emptyState(ic, title, line) {
   return `<div class="flex flex-col items-center text-center gap-2 py-20 px-8">
-    <span class="size-16 mb-2 rounded-full grid place-items-center bg-orange-100 text-orange-800">${icon(ic, '!text-[32px]')}</span>
+    <span class="size-16 mb-2 rounded-full grid place-items-center bg-accent-100 text-accent-800">${icon(ic, '!text-[32px]')}</span>
     <span class="text-lg font-semibold">${title}</span><span class="text-stone-600">${line}</span></div>`;
 }
 
@@ -247,7 +270,7 @@ function avatarSheet() {
   const icons = ['sailing', 'local_florist', 'pets', 'rocket_launch', 'sports_soccer', 'music_note', 'coffee', 'bolt'];
   sheet(`<div class="flex flex-col items-center gap-5">
     <h2 class="text-xl font-semibold">Your picture</h2>${avatar(me, 'size-24')}
-    <div class="grid grid-cols-4 gap-3">${icons.map((ic, i) => `<button class="size-14 rounded-full grid place-items-center ${TINTS[i % 5]} ${me.avatar.icon === ic && !me.avatar.photo ? 'ring-2 ring-orange-700 ring-offset-2 ring-offset-[#fffdfb]' : ''}" data-pick="${ic}" data-tint="${i % 5}" aria-label="${ic.replace('_', ' ')}">${icon(ic)}</button>`).join('')}</div>
+    <div class="grid grid-cols-4 gap-3">${icons.map((ic, i) => `<button class="size-14 rounded-full grid place-items-center ${TINTS[i % 5]} ${me.avatar.icon === ic && !me.avatar.photo ? 'ring-2 ring-accent-700 ring-offset-2 ring-offset-[#fffdfb]' : ''}" data-pick="${ic}" data-tint="${i % 5}" aria-label="${ic.replace('_', ' ')}">${icon(ic)}</button>`).join('')}</div>
     <label class="${PRIMARY} cursor-pointer">${icon('photo_camera', '!text-[18px]')}Take or choose a photo<input type="file" accept="image/*" capture="user" class="hidden" id="photo"></label>
   </div>`);
   $('#photo').addEventListener('change', (e) => { const f = e.target.files[0]; if (!f) return; me.avatar.photo = URL.createObjectURL(f); $('#sheet').close(); render(); });
@@ -276,7 +299,7 @@ function renderDetail() {
       ${t.places.length ? `<div class="flex flex-wrap gap-1.5">${t.places.map(placeById).map(pill).join('')}</div>` : ''}
     </div>
     <div class="flex-1 grid place-items-center">
-      <div class="size-64 rounded-full grid place-items-center border-[6px] ${on ? 'border-orange-700 bg-linear-160 from-orange-50 to-red-50 animate-breathe' : 'border-transparent bg-stone-100'}">
+      <div class="size-64 rounded-full grid place-items-center border-[6px] ${on ? 'border-accent-700 bg-linear-160 from-accent-50 to-accent-100 animate-breathe' : 'border-transparent bg-stone-100'}">
         <div class="text-center">
           <div class="text-xs font-semibold uppercase tracking-wider text-stone-600">Today</div>
           <div class="mt-1 text-5xl font-semibold tabular-nums" id="clockToday" role="timer" aria-label="Worked today">${clock(today)}</div>
@@ -300,7 +323,7 @@ function renderDock() {
   $('#dock').innerHTML = items.map(([id, ic, label]) => {
     const on = state.tab === id;
     return `<button data-tab="${id}" class="flex flex-col items-center justify-center gap-1" ${on ? 'aria-current="page"' : ''}>
-      <span class="w-16 h-8 rounded-full grid place-items-center transition-colors ${on ? 'bg-orange-100 text-orange-900' : 'text-stone-600'}">${icon(ic, on ? FILL : '')}</span>
+      <span class="w-16 h-8 rounded-full grid place-items-center transition-colors ${on ? 'bg-accent-100 text-accent-900' : 'text-stone-600'}">${icon(ic, on ? FILL : '')}</span>
       <span class="text-xs ${on ? 'font-semibold text-stone-900' : 'text-stone-600'}">${label}</span></button>`;
   }).join('');
 }
@@ -319,7 +342,7 @@ function renderExtras() {
     const on = state.chosen.has(p.id);
     return `<button type="button" data-chip="${p.id}" aria-pressed="${on}" class="shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full text-sm font-semibold transition-colors ${on ? 'bg-stone-800 text-stone-50' : 'bg-[#fffdfb] text-stone-800 shadow-sm'}">${on ? icon('check', '!text-[18px]') : ''}${p.name}</button>`;
   }).join('');
-  const again = state.recent.slice(0, 5).map((s) => `<button type="button" data-suggest="${s}" class="shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full bg-[#fffdfb] text-sm shadow-sm">${icon('add', '!text-[18px] text-orange-700')}${s}</button>`).join('');
+  const again = state.recent.slice(0, 5).map((s) => `<button type="button" data-suggest="${s}" class="shrink-0 inline-flex items-center gap-1 h-9 px-3.5 rounded-full bg-[#fffdfb] text-sm shadow-sm">${icon('add', '!text-[18px] text-accent-700')}${s}</button>`).join('');
   $('#extras').innerHTML = `<div class="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Where">${pills}</div><div class="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Add again">${again}</div>`;
 }
 
@@ -413,7 +436,20 @@ document.addEventListener('click', (e) => {
   render();
 });
 
-// ?tab=places, ?tab=places&place=lidl, ?offline=1, ?empty=1, ?typing=text, ?task=6, ?task=6&run=1, ?sheet=invite|avatar, ?toasts=3, ?fan=1
+/* Colour switcher: remembers the choice in this browser; ?accent=teal also works. */
+const ACCENTS = { indigo: '#4338ca', violet: '#6d28d9', blue: '#1d4ed8', sky: '#0369a1', teal: '#0f766e', emerald: '#047857', fuchsia: '#a21caf', orange: '#c2410c' };
+function setAccent(name) {
+  document.documentElement.dataset.accent = name;
+  try { localStorage.setItem('tackly-accent', name); } catch {}
+  $('#switcher [role=radiogroup]').innerHTML = Object.entries(ACCENTS).map(([n, hex]) => `
+    <button role="radio" aria-checked="${n === name}" aria-label="${n}" title="${n}" data-accent-pick="${n}"
+      class="size-8 rounded-full ring-offset-2 ${n === name ? 'ring-2 ring-stone-800' : ''}" style="background:${hex}"></button>`).join('');
+}
+$('#switcher').addEventListener('click', (e) => { const b = e.target.closest('[data-accent-pick]'); if (b) setAccent(b.dataset.accentPick); });
+let savedAccent = null; try { savedAccent = localStorage.getItem('tackly-accent'); } catch {}
+setAccent(new URLSearchParams(location.search).get('accent') || savedAccent || 'indigo');
+
+// ?accent=teal, ?tab=places, ?tab=places&place=lidl, ?offline=1, ?empty=1, ?typing=text, ?task=6, ?task=6&run=1, ?sheet=invite|avatar, ?toasts=3, ?fan=1
 const query = new URLSearchParams(location.search);
 if (query.get('tab')) state.tab = query.get('tab');
 if (query.get('place')) { state.placeView = query.get('place'); state.chosen = new Set([state.placeView]); }
