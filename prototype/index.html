@@ -35,7 +35,13 @@
 <body class="bg-stone-300 text-stone-800 antialiased">
   <div id="app" class="fixed inset-0 mx-auto max-w-[430px] bg-stone-100 flex flex-col overflow-hidden">
 
-    <header id="header" class="relative shrink-0 flex items-center gap-1 px-2 h-16">
+    <!-- When nothing is mine: a calm picture behind everything but the navigation, faded at the top so the title and filters stay readable. -->
+    <div id="calm" class="hidden absolute inset-x-0 top-0 bottom-20">
+      <img src="https://images.unsplash.com/photo-1767508938873-a2afdfb1b8a3?ixlib=rb-4.1.0&q=80&fm=jpg&crop=entropy&cs=srgb&w=1200" alt="" class="size-full object-cover object-[50%_65%]">
+      <div class="absolute inset-x-0 top-0 h-64 bg-linear-to-b from-stone-100 via-stone-100/70 to-transparent"></div>
+    </div>
+
+    <header id="header" class="relative z-10 shrink-0 flex items-center gap-1 px-2 h-16">
       <button id="backBtn" class="hidden size-12 grid place-items-center rounded-full text-stone-700 hover:bg-stone-200" aria-label="Back"><span class="material-symbols-rounded" aria-hidden="true">arrow_back</span></button>
       <h1 id="title" class="flex-1 px-2 text-2xl font-semibold tracking-tight truncate">Tasks</h1>
       <button id="editBtn" class="hidden size-12 place-items-center rounded-full text-stone-700 hover:bg-stone-200" aria-label="Edit place"><span class="material-symbols-rounded" aria-hidden="true">edit</span></button>
@@ -44,9 +50,6 @@
 
     <!-- The content: the list and its main action, the add bar. When nothing is mine, a calm picture fills it. -->
     <div id="content" class="relative flex-1 min-h-0 flex flex-col">
-    <div id="calm" class="hidden absolute inset-x-0 bottom-0 top-[var(--calm-top,0px)]">
-      <img src="https://images.unsplash.com/photo-1767508938873-a2afdfb1b8a3?ixlib=rb-4.1.0&q=80&fm=jpg&crop=entropy&cs=srgb&w=1200" alt="" class="size-full object-cover object-[50%_65%]">
-    </div>
     <main id="main" class="relative z-10 flex-1 overflow-y-auto px-3 pb-6"></main>
 
     <!-- The bar at the bottom: adds a task, or (on Places) a place. -->
@@ -258,7 +261,11 @@ function renderTasks() {
 
 /* Nothing of mine: the calm picture fills the screen; an arrow points up to "All". */
 function nothingMine() {
-  return `<div id="toAll" class="flex-1 min-h-60" aria-hidden="true"></div><p class="sr-only">Nothing on your plate. Pick one from All.</p>`;
+  const someone = state.members.find((m) => !m.me);
+  return `<button id="toAll" data-filter="all" class="block ml-auto mr-3 mt-12 text-right">
+      <span class="block text-lg font-semibold text-stone-900">Make ${someone.name} happy</span>
+      <span class="block text-stone-800">pick one from All</span>
+    </button>`;
 }
 /* A hand-drawn arrow from the message up to the "All" chip, measured after layout. */
 function drawArrowToAll() {
@@ -266,11 +273,11 @@ function drawArrowToAll() {
   main.querySelector('#arrow')?.remove();
   if (!from || !to) return;
   const m = main.getBoundingClientRect(), a = from.getBoundingClientRect(), c = to.getBoundingClientRect();
-  const x1 = a.left - m.left + a.width * 0.72, y1 = a.top - m.top + 120;  // from inside the picture, curving up
+  const x1 = a.left - m.left - 8, y1 = a.top - m.top + 14;  // from the start of the line, curving up
   const x2 = c.left - m.left + c.width / 2, y2 = c.bottom - m.top + 6;  // just under "All"
-  main.insertAdjacentHTML('beforeend', `<svg id="arrow" class="absolute inset-0 pointer-events-none overflow-visible text-white" width="100%" height="100%" aria-hidden="true">
-    <g class="drop-shadow-[0_1px_3px_rgb(0_0_0/.45)]">
-    <path d="M ${x1} ${y1} C ${x1 - 10} ${y1 - 70}, ${x2 + 60} ${y2 + 50}, ${x2} ${y2}" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+  main.insertAdjacentHTML('beforeend', `<svg id="arrow" class="absolute inset-0 pointer-events-none overflow-visible text-stone-800" width="100%" height="100%" aria-hidden="true">
+    <g>
+    <path d="M ${x1} ${y1} C ${x1 - 50} ${y1 + 4}, ${x2 - 10} ${y2 + 40}, ${x2} ${y2}" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
     <path d="M ${x2 - 8} ${y2 + 11} L ${x2} ${y2} L ${x2 + 10} ${y2 + 8}" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></g></svg>`);
 }
 addEventListener('resize', drawArrowToAll);
@@ -436,14 +443,7 @@ function render() {
   $('#offline').classList.toggle('hidden', !state.offline); $('#offline').classList.toggle('inline-flex', !!state.offline);
   $('#familyBar').classList.toggle('hidden', state.tab !== 'family' || !!state.personView);
   $('#familyBar').innerHTML = `<button class="${PRIMARY} w-full !h-12 text-base" data-invite>${icon('person_add')}Invite member</button>`;
-  // The picture fills the content area below the filters, behind the add bar too.
-  const calm = !!$('#toAll');
-  $('#main').classList.toggle('flex', calm); $('#main').classList.toggle('flex-col', calm);
-  $('#calm').classList.toggle('hidden', !calm);
-  if (calm) requestAnimationFrame(() => {
-    const filters = $('#main [role=group]');
-    $('#calm').style.setProperty('--calm-top', `${filters.getBoundingClientRect().bottom - $('#content').getBoundingClientRect().top + 12}px`);
-  });
+  $('#calm').classList.toggle('hidden', !$('#toAll'));
   renderDock(); renderComposer(); renderDetail();
   requestAnimationFrame(drawArrowToAll);
 }
