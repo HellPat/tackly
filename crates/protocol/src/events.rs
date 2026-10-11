@@ -1,4 +1,4 @@
-//! Domain events. The app appends them, encrypts them under the family key,
+//! Domain events. The app appends them, sends them to the family's MLS group,
 //! and replays them into [`crate::Family`]. The server relays them as opaque
 //! [`crate::wire::EncryptedEvent`]s and never sees these types in plaintext.
 

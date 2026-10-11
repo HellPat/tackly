@@ -1,7 +1,9 @@
-//! The encrypted event log: appending, reading by cursor, and following live.
+//! The family's message log: appending, reading by cursor, and following live.
 //!
-//! The relay cannot read an event. It checks who sent it, gives it the next
-//! sequence number of its family, keeps it forever, and passes it on.
+//! Messages are MLS messages to the family's group. The relay cannot read
+//! one; it checks who sent it, that it is for the group's current epoch (a
+//! commit moves the epoch on; only the head commits), gives it the next
+//! sequence number, keeps it forever, and passes it on.
 
 use std::{convert::Infallible, time::Duration};
 
@@ -12,10 +14,11 @@ use axum::{
     response::sse::{Event, KeepAlive, Sse},
 };
 use futures_util::Stream;
+use openmls::prelude::{ContentType, MlsMessageBodyIn, MlsMessageIn, tls_codec::Deserialize as _};
 use sqlx::SqlitePool;
 use tackly_protocol::wire::{
     AppendEvents, AppendResult, EncryptedEvent, EventsPage, EventsQuery, MAX_APPEND_BATCH,
-    MAX_PAGE, SSE_EVENTS, SequencedEvent,
+    MAX_MESSAGE_BYTES, MAX_PAGE, SSE_EVENTS, STALE_EPOCH, SequencedEvent,
 };
 use tokio::sync::broadcast::error::RecvError;
 use uuid::Uuid;
@@ -27,11 +30,38 @@ use crate::{
     error::{ApiError, ApiResult, bad_request, conflict, forbidden, internal},
 };
 
-const MAX_CIPHERTEXT_BYTES: usize = 2 * 1024 * 1024;
+/// What the relay reads of a message: which group, which epoch, what kind.
+struct Framing {
+    epoch: i64,
+    content_type: ContentType,
+}
 
-/// Stores up to eight events from the calling device, all or none. Sending an
-/// event again with identical bytes is accepted and changes nothing; the same
-/// ID with different bytes is a conflict.
+/// The message's public framing, if it is a private message to this family's group.
+fn framing(bytes: &[u8], family_id: Uuid) -> Result<Framing, ApiError> {
+    let message = MlsMessageIn::tls_deserialize_exact(bytes)
+        .map_err(|_| bad_request("not an MLS message"))?;
+    let MlsMessageBodyIn::PrivateMessage(message) = message.extract() else {
+        return Err(bad_request("only private group messages are relayed"));
+    };
+    if message.group_id().as_slice() != family_id.as_bytes() {
+        return Err(bad_request("message for another group"));
+    }
+    let content_type = message.content_type();
+    if !matches!(content_type, ContentType::Application | ContentType::Commit) {
+        return Err(bad_request(
+            "only application messages and commits are relayed",
+        ));
+    }
+    Ok(Framing {
+        epoch: message.epoch().as_u64() as i64,
+        content_type,
+    })
+}
+
+/// Stores up to eight messages from the calling device, all or none. A
+/// message for an epoch that is over is refused (the phone catches up and
+/// encrypts again); a commit moves the epoch on, and only the head commits.
+/// A message ID sent again by the same device is accepted and changes nothing.
 pub async fn append_events(
     State(state): State<AppState>,
     Path(family_id): Path<Uuid>,
@@ -43,54 +73,69 @@ pub async fn append_events(
         return Err(bad_request("send between one and eight events"));
     }
     let mut tx = state.db.begin().await.map_err(internal)?;
+    let mut epoch: i64 = {
+        let row = sqlx::query("SELECT epoch FROM families WHERE id=?")
+            .bind(family_id.to_string())
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(internal)?;
+        column(&row, "epoch")?
+    };
     for event in &input.events {
         if event.origin_device_id != caller.id {
-            return Err(forbidden("an event must come from the sending device"));
+            return Err(forbidden("a message must come from the sending device"));
         }
-        if event.key_version < 1 {
-            return Err(bad_request("invalid key version"));
+        let message = decode(&event.message, None)?;
+        if message.is_empty() || message.len() > MAX_MESSAGE_BYTES {
+            return Err(bad_request("message exceeds limit"));
         }
-        let nonce = decode(&event.nonce, Some(12))?;
-        let mac = decode(&event.mac, Some(16))?;
-        let ciphertext = decode(&event.ciphertext, None)?;
-        if ciphertext.is_empty() || ciphertext.len() > MAX_CIPHERTEXT_BYTES {
-            return Err(bad_request("ciphertext exceeds limit"));
+        let framing = framing(&message, family_id)?;
+        if framing.epoch != epoch {
+            return Err(conflict(STALE_EPOCH));
+        }
+        if framing.content_type == ContentType::Commit && !caller.owner {
+            return Err(forbidden(
+                "only the head of the family changes who is in it",
+            ));
         }
         let inserted = sqlx::query(
-            "INSERT INTO encrypted_events \
-             (family_id, event_id, origin_device_id, key_version, nonce, ciphertext, mac) \
-             VALUES (?,?,?,?,?,?,?) \
+            "INSERT INTO group_messages \
+             (family_id, event_id, origin_device_id, epoch, content_type, message) \
+             VALUES (?,?,?,?,?,?) \
              ON CONFLICT (family_id, event_id) DO NOTHING",
         )
         .bind(family_id.to_string())
         .bind(event.event_id.to_string())
         .bind(event.origin_device_id.to_string())
-        .bind(event.key_version)
-        .bind(&nonce)
-        .bind(&ciphertext)
-        .bind(&mac)
+        .bind(epoch)
+        .bind(framing.content_type as i64)
+        .bind(&message)
         .execute(&mut *tx)
         .await
         .map_err(internal)?;
         if inserted.rows_affected() == 0 {
             let stored = sqlx::query(
-                "SELECT origin_device_id, key_version, nonce, ciphertext, mac \
-                 FROM encrypted_events WHERE family_id=? AND event_id=?",
+                "SELECT origin_device_id FROM group_messages WHERE family_id=? AND event_id=?",
             )
             .bind(family_id.to_string())
             .bind(event.event_id.to_string())
             .fetch_one(&mut *tx)
             .await
             .map_err(internal)?;
-            let identical = column::<String>(&stored, "origin_device_id")?
-                == event.origin_device_id.to_string()
-                && column::<i32>(&stored, "key_version")? == event.key_version
-                && column::<Vec<u8>>(&stored, "nonce")? == nonce
-                && column::<Vec<u8>>(&stored, "ciphertext")? == ciphertext
-                && column::<Vec<u8>>(&stored, "mac")? == mac;
-            if !identical {
-                return Err(conflict("event id already has different ciphertext"));
+            if column::<String>(&stored, "origin_device_id")? != event.origin_device_id.to_string()
+            {
+                return Err(conflict("message id already used by another device"));
             }
+            continue;
+        }
+        if framing.content_type == ContentType::Commit {
+            epoch += 1;
+            sqlx::query("UPDATE families SET epoch=? WHERE id=?")
+                .bind(epoch)
+                .bind(family_id.to_string())
+                .execute(&mut *tx)
+                .await
+                .map_err(internal)?;
         }
     }
     tx.commit().await.map_err(internal)?;
@@ -108,8 +153,7 @@ async fn events_after(
     limit: i64,
 ) -> Result<Vec<SequencedEvent>, ApiError> {
     let rows = sqlx::query(
-        "SELECT sequence, event_id, origin_device_id, \
-         key_version, nonce, ciphertext, mac FROM encrypted_events \
+        "SELECT sequence, event_id, origin_device_id, message FROM group_messages \
          WHERE family_id=? AND sequence>? ORDER BY sequence LIMIT ?",
     )
     .bind(family_id.to_string())
@@ -125,10 +169,7 @@ async fn events_after(
                 event: EncryptedEvent {
                     event_id: uuid_column(row, "event_id")?,
                     origin_device_id: uuid_column(row, "origin_device_id")?,
-                    key_version: column(row, "key_version")?,
-                    nonce: encode(&column::<Vec<u8>>(row, "nonce")?),
-                    ciphertext: encode(&column::<Vec<u8>>(row, "ciphertext")?),
-                    mac: encode(&column::<Vec<u8>>(row, "mac")?),
+                    message: encode(&column::<Vec<u8>>(row, "message")?),
                 },
             })
         })

@@ -28,25 +28,25 @@ pub struct CreateFamily {
     pub token_hash: String,
 }
 
-/// An event as the server stores it. The server can read only the two IDs
-/// below, so they are random (UUIDv4): a time-ordered ID would tell it when the
-/// action really happened, even if the phone uploaded it days later.
+/// A message to the family's MLS group, as the server stores it: an
+/// application message (an event, or a snapshot of the history for a new
+/// member) or a commit (someone added or removed). The server reads only the
+/// two IDs, the group ID, the epoch and the kind of message. The IDs are
+/// random (UUIDv4): a time-ordered ID would tell it when the action really
+/// happened, even if the phone uploaded it days later.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EncryptedEvent {
     pub event_id: Uuid,
     pub origin_device_id: Uuid,
-    pub key_version: i32,
-    pub nonce: String,
-    pub ciphertext: String,
-    pub mac: String,
+    /// The MLS message (base64url).
+    pub message: String,
 }
 
-impl EncryptedEvent {
-    /// Associated data binding the ciphertext to its routing IDs.
-    pub fn associated_data(&self, family_id: Uuid) -> String {
-        format!("{family_id}:{}:{}", self.event_id, self.origin_device_id)
-    }
-}
+/// The server's answer to a message encrypted for an epoch that is over: the
+/// phone catches up with the group and encrypts again.
+pub const STALE_EPOCH: &str = "stale epoch";
+/// The largest MLS message the server takes (a snapshot chunk stays below it).
+pub const MAX_MESSAGE_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AppendEvents {
@@ -91,6 +91,9 @@ pub struct InviteExpiry {
 pub struct InviteProof {
     pub verifier: String,
     pub device_id: Uuid,
+    /// The joining phone's MLS key package (base64url). Both phones derive
+    /// their six digits from it, so a server that swaps it is caught.
+    pub key_package: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,14 +110,15 @@ pub enum InviteState {
 pub struct InviteStatus {
     pub status: InviteState,
     pub pending_device_id: Option<Uuid>,
+    #[serde(default)]
+    pub pending_key_package: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ApproveJoin {
     pub device_id: Uuid,
-    pub package_nonce: String,
-    pub package_ciphertext: String,
-    pub package_mac: String,
+    /// The MLS welcome that lets the phone into the group (base64url).
+    pub welcome: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -127,9 +131,10 @@ pub struct ClaimInvite {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClaimedInvite {
     pub family_id: Uuid,
-    pub package_nonce: String,
-    pub package_ciphertext: String,
-    pub package_mac: String,
+    pub welcome: String,
+    /// The relay sequence the new member starts reading after (its history
+    /// comes as a snapshot from the head).
+    pub after: i64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

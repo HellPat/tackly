@@ -28,6 +28,11 @@ impl HttpError {
     pub fn is_gone(error: &anyhow::Error) -> bool {
         matches!(error.downcast_ref::<Self>(), Some(Self(status, _)) if status.as_u16() == 410)
     }
+
+    /// 409 with [`STALE_EPOCH`]: the group moved on; catch up and encrypt again.
+    pub fn is_stale_epoch(error: &anyhow::Error) -> bool {
+        matches!(error.downcast_ref::<Self>(), Some(Self(status, text)) if status.as_u16() == 409 && text == STALE_EPOCH)
+    }
 }
 
 async fn parse<T: DeserializeOwned>(response: Response) -> Result<T> {

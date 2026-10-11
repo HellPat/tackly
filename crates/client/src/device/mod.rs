@@ -1,5 +1,5 @@
 //! One phone's view of a family: its local event log, membership, and
-//! connection to the relay. The family key and device token never leave it.
+//! connection to the relay. Its MLS keys and device token never leave it.
 //!
 //! The work is split by what it is about:
 //! - [`tasks`]: commands a person gives (add, take, start, pause, finish, lists, their name)
@@ -7,6 +7,9 @@
 //! - [`problems`]: problems with their solutions, and each person's plan for a day
 //! - [`pairing`]: inviting someone, and joining
 //! - [`sync`]: uploading local events and downloading the others'
+//!
+//! The family is an MLS group ([`crate::mls`]): every event goes to the relay
+//! as a message only the group's members can read.
 
 mod membership;
 mod pairing;
@@ -34,6 +37,7 @@ use crate::{
     api::{Api, HttpError},
     cqrs_store::{DeviceStore, UploadTrigger},
     crypto::{self, random_bytes},
+    mls::Mls,
     secrets::Secrets,
     store::{EventStore, SharedStore},
 };
@@ -49,6 +53,7 @@ pub struct Device {
     online: Arc<AtomicBool>,
     secrets: Secrets,
     membership: Option<Membership>,
+    mls: Mls,
 }
 
 impl Device {
@@ -59,6 +64,7 @@ impl Device {
         let events = SharedStore::new(EventStore::open(&dir.join("tackly.db"), &secrets)?);
         let membership = Membership::load(&secrets)?;
         let upload = Arc::new(Notify::new());
+        let mls = Mls::open(&secrets, events.lock().device_id)?;
         Ok(Self {
             cqrs: Self::framework(&events, &upload),
             events,
@@ -66,6 +72,7 @@ impl Device {
             online: Arc::default(),
             secrets,
             membership,
+            mls,
         })
     }
 
@@ -111,8 +118,9 @@ impl Device {
         Api::new(&self.joined()?.server_url)
     }
 
-    fn family_key(&self) -> Result<Vec<u8>> {
-        crypto::decode(&self.joined()?.family_key)
+    /// The head of the family (this phone, or whoever let it in).
+    fn head(&self) -> Result<Uuid> {
+        Ok(self.joined()?.head)
     }
 
     fn save_membership(&mut self, membership: Membership) -> Result<()> {
@@ -155,10 +163,11 @@ impl Device {
             Err(error) if error.downcast_ref::<HttpError>().is_some() => return Err(error),
             Err(_) => false,
         };
+        self.mls.create_group(family_id)?;
         self.save_membership(Membership {
             server_url: api.base().to_owned(),
             family_id,
-            family_key: crypto::encode(&random_bytes::<32>()),
+            head: self.device_id(),
             device_token,
             registered,
             owner: true,
@@ -178,6 +187,7 @@ impl Device {
     /// Forgets the family, its events and this phone's identity.
     pub fn logout(&mut self) -> Result<()> {
         self.events.lock().clear(&self.secrets)?;
+        self.mls.clear(self.events.lock().device_id)?;
         self.cqrs = Self::framework(&self.events, &self.upload);
         Membership::forget(&self.secrets)?;
         self.membership = None;

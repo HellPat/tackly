@@ -35,12 +35,12 @@ database; the file and its write-ahead log both need backing up.
 | | |
 | --- | --- |
 | `POST /v1/families` | register a family and its first device |
-| `POST /v1/families/{id}/events` | append up to eight encrypted events |
-| `GET /v1/families/{id}/events?after=` | one page of events after a cursor |
+| `POST /v1/families/{id}/events` | append up to eight MLS messages (events, snapshots, commits) |
+| `GET /v1/families/{id}/events?after=` | one page of messages after a cursor |
 | `GET /v1/families/{id}/stream` | live stream (SSE) |
 | `POST /v1/families/{id}/invites` | create an invitation (head of the family) |
 | `GET`/`DELETE /v1/families/{id}/invites/{invite}` | its status; cancel it |
-| `POST /v1/families/{id}/invites/{invite}/approve` | hand over the sealed family key |
+| `POST /v1/families/{id}/invites/{invite}/approve` | leave the MLS welcome for the new phone |
 | `POST /v1/invites/{invite}/request` | a new phone asks to join |
 | `POST /v1/invites/{invite}/claim` | the new phone collects the key and joins |
 
@@ -63,13 +63,19 @@ A reconnecting client sends it back as `Last-Event-ID`. Keep-alives come every
 - **Invitations.** The head of the family creates a single-use invitation that
   expires after five minutes. Its secret is shown as a QR code and a link and is
   never uploaded. The new phone proves it knows the secret; both phones show
-  the same six digits derived from it and the head confirms them; the head's
-  phone seals the family key under the secret and the server relays that
-  package.
-- **Events.** Random (v4) event IDs make retries idempotent: the same bytes again are
-  accepted, other bytes under the same ID are a conflict. An event must come
-  from the device that sends it. Writes use one SQLite connection, so sequence
-  numbers are allocated in commit order and a cursor cannot skip a late commit.
+  the same six digits derived from it and the new phone's MLS key package,
+  and the head confirms them; the head's phone adds the new phone to the group
+  and the server relays the welcome, and where to start reading from.
+- **Messages.** Everything in the log is an MLS message to the family's
+  group (RFC 9420): application messages (events, and history snapshots for a
+  new member) and commits (members added or removed). The server reads a
+  message's epoch and kind, nothing else. A message for an epoch that is over
+  is refused (`409 stale epoch`): the phone catches up and encrypts again. A
+  commit moves the epoch on; only the head's device may commit. Random (v4)
+  message IDs make retries idempotent: the same ID from the same device again
+  changes nothing. A message must come from the device that sends it. Writes
+  use one SQLite connection, so sequence numbers are allocated in commit order
+  and a cursor cannot skip a late commit.
 - **Retention.** Every accepted event is kept forever. There is no expiry,
   pruning or delete API, and database triggers reject updates and deletes of the
   event table (a database administrator can still bypass them). Corrections,
@@ -78,8 +84,8 @@ A reconnecting client sends it back as `Last-Event-ID`. Keep-alives come every
 The server sees family, device and event IDs (all random, never time-ordered, so
 they say nothing about when something happened), payload sizes, upload times, IP
 addresses and access patterns. The time of an action is inside the ciphertext.
-AES-256-GCM protects the contents and authenticates the routing IDs as
-associated data. The server does not have the family key.
+MLS protects the contents, signs each message with its sender's key, and
+numbers messages per sender. The server is never in the group.
 
 ## Not done
 

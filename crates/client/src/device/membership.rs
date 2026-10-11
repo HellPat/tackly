@@ -12,8 +12,9 @@ const SECRET_NAME: &str = "membership";
 pub struct Membership {
     pub server_url: String,
     pub family_id: Uuid,
-    /// Base64url of the key that encrypts the family's events.
-    pub family_key: String,
+    /// The head of the family: the only one whose commits (adding and
+    /// removing members) and history snapshots this phone accepts.
+    pub head: Uuid,
     /// This phone's secret for the relay, chosen here; the relay keeps its hash.
     pub device_token: String,
     /// False while the family exists only on this phone (created offline).

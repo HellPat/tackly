@@ -23,7 +23,8 @@ ADHD optimized task management. Shared family tasks that work offline and sync l
 - Join with a QR code or a link. Both phones show six digits; the head confirms.
 - Your name, your picture (an icon or a photo), your color scheme.
 - Notes where a task was finished (never shown; Android asks once).
-- Encrypted on the phone. The server cannot read your tasks.
+- Encrypted on the phones, end to end (MLS, the messaging standard). The
+  server cannot read your tasks; someone who leaves cannot read what comes after.
 
 Android first, iOS maybe later. No restore: lost phone means join again.
 
@@ -116,9 +117,14 @@ network. The prototype the screens were built from is `prototype/index.html`.
   (`GET /v1/families/{id}/stream`) and reconnects from its cursor with backoff.
 - **Finished twice.** Two members finishing the same task while apart is simply
   done; the first finish the relay received counts. Nobody is asked.
-- **Encrypted.** Events are encrypted on the phone with a family key
-  (AES-256-GCM). The server stores ciphertext and routing IDs only. The family
-  key travels to a new member sealed under the invitation secret.
+- **Encrypted.** The family is an MLS group (RFC 9420, via OpenMLS). Every
+  event is an MLS message: encrypted to the group's current key, signed by
+  the phone that wrote it, numbered per phone. Adding a member is a commit
+  that moves the group to a new key; the new phone gets a welcome, then the
+  whole history as a snapshot from the head. The server stores messages and
+  routing IDs, and reads only each message's epoch and kind. Both phones
+  derive the six join digits from the invitation secret and the joiner's MLS
+  key package, so a server that swaps the key is caught (`crates/client/tests/e2e.rs`).
 
 ### Tests
 

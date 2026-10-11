@@ -1,8 +1,9 @@
 //! Letting a new phone join a family.
 //!
-//! An invitation goes open → pending (a phone asked) → approved (the owner
-//! sealed the family key for it) → used. The relay only moves the sealed key
-//! package along; the secret that opens it never reaches the relay.
+//! An invitation goes open → pending (a phone asked, with its MLS key
+//! package) → approved (the head added it to the group and left the welcome
+//! here) → used. The relay only moves key package and welcome along; the
+//! secret both phones derive their digits from never reaches it.
 
 use axum::{
     Json,
@@ -22,7 +23,9 @@ use crate::{
     error::{ApiError, ApiResult, bad_request, gone, internal},
 };
 
-const MAX_KEY_PACKAGE_BYTES: usize = 4096;
+const MAX_KEY_PACKAGE_BYTES: usize = 8 * 1024;
+/// A welcome carries the group's tree: it grows with the family.
+const MAX_WELCOME_BYTES: usize = 256 * 1024;
 
 /// True while the invitation's five minutes have not passed (SQL fragment).
 const NOT_EXPIRED: &str = "expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
@@ -58,11 +61,16 @@ pub async fn request_join(
     Json(input): Json<InviteProof>,
 ) -> ApiResult<InviteStatus> {
     let verifier = decode(&input.verifier, Some(32))?;
+    let key_package = decode(&input.key_package, None)?;
+    if key_package.is_empty() || key_package.len() > MAX_KEY_PACKAGE_BYTES {
+        return Err(bad_request("invalid key package size"));
+    }
     let result = sqlx::query(&format!(
-        "UPDATE invitations SET status='pending', pending_device_id=? \
+        "UPDATE invitations SET status='pending', pending_device_id=?, key_package=? \
          WHERE id=? AND verifier_hash=? AND status='open' AND {NOT_EXPIRED}"
     ))
     .bind(input.device_id.to_string())
+    .bind(&key_package)
     .bind(invite_id.to_string())
     .bind(verifier)
     .execute(&state.db)
@@ -74,6 +82,7 @@ pub async fn request_join(
     Ok(Json(InviteStatus {
         status: InviteState::Pending,
         pending_device_id: Some(input.device_id),
+        pending_key_package: Some(input.key_package),
     }))
 }
 
@@ -84,7 +93,7 @@ pub async fn invite_status(
 ) -> ApiResult<InviteStatus> {
     Device::authenticate_owner(&state.db, &headers, family_id).await?;
     let row = sqlx::query(&format!(
-        "SELECT status, pending_device_id FROM invitations \
+        "SELECT status, pending_device_id, key_package FROM invitations \
          WHERE id=? AND family_id=? AND {NOT_EXPIRED}"
     ))
     .bind(invite_id.to_string())
@@ -104,13 +113,17 @@ pub async fn invite_status(
         Some(_) => Some(uuid_column(&row, "pending_device_id")?),
         None => None,
     };
+    let pending_key_package = column::<Option<Vec<u8>>>(&row, "key_package")?
+        .as_deref()
+        .map(encode);
     Ok(Json(InviteStatus {
         status,
         pending_device_id,
+        pending_key_package,
     }))
 }
 
-/// The owner, after comparing the six digits, hands over the sealed key.
+/// The head, after comparing the six digits, leaves the welcome here.
 pub async fn approve_join(
     State(state): State<AppState>,
     Path((family_id, invite_id)): Path<(Uuid, Uuid)>,
@@ -118,19 +131,19 @@ pub async fn approve_join(
     Json(input): Json<ApproveJoin>,
 ) -> ApiResult<InviteStatus> {
     Device::authenticate_owner(&state.db, &headers, family_id).await?;
-    let nonce = decode(&input.package_nonce, Some(12))?;
-    let ciphertext = decode(&input.package_ciphertext, None)?;
-    let mac = decode(&input.package_mac, Some(16))?;
-    if ciphertext.is_empty() || ciphertext.len() > MAX_KEY_PACKAGE_BYTES {
-        return Err(bad_request("invalid key package size"));
+    let welcome = decode(&input.welcome, None)?;
+    if welcome.is_empty() || welcome.len() > MAX_WELCOME_BYTES {
+        return Err(bad_request("invalid welcome size"));
     }
+    // The new member reads from after the commit that added it; its history
+    // comes from the head as a snapshot.
     let result = sqlx::query(&format!(
-        "UPDATE invitations SET status='approved', package_nonce=?, package_ciphertext=?, package_mac=? \
+        "UPDATE invitations SET status='approved', welcome=?, \
+         joined_after=(SELECT COALESCE(MAX(sequence), 0) FROM group_messages WHERE family_id=?) \
          WHERE id=? AND family_id=? AND pending_device_id=? AND status='pending' AND {NOT_EXPIRED}"
     ))
-    .bind(nonce)
-    .bind(ciphertext)
-    .bind(mac)
+    .bind(&welcome)
+    .bind(family_id.to_string())
     .bind(invite_id.to_string())
     .bind(family_id.to_string())
     .bind(input.device_id.to_string())
@@ -143,12 +156,10 @@ pub async fn approve_join(
     Ok(Json(InviteStatus {
         status: InviteState::Approved,
         pending_device_id: Some(input.device_id),
+        pending_key_package: None,
     }))
 }
 
-/// The new phone collects the sealed key and becomes a device of the family.
-/// It chose its own token and sends the hash, so asking again after a lost
-/// answer returns the same package instead of failing.
 pub async fn claim_invite(
     State(state): State<AppState>,
     Path(invite_id): Path<Uuid>,
@@ -158,7 +169,7 @@ pub async fn claim_invite(
     let token_hash = decode(&input.token_hash, Some(32))?;
     let mut tx = state.db.begin().await.map_err(internal)?;
     let row = sqlx::query(&format!(
-        "SELECT family_id, status, package_nonce, package_ciphertext, package_mac \
+        "SELECT family_id, status, welcome, joined_after \
          FROM invitations WHERE id=? AND verifier_hash=? AND pending_device_id=? \
          AND status IN ('approved', 'used') AND {NOT_EXPIRED}"
     ))
@@ -197,9 +208,8 @@ pub async fn claim_invite(
     tx.commit().await.map_err(internal)?;
     Ok(Json(ClaimedInvite {
         family_id,
-        package_nonce: encode(&column::<Vec<u8>>(&row, "package_nonce")?),
-        package_ciphertext: encode(&column::<Vec<u8>>(&row, "package_ciphertext")?),
-        package_mac: encode(&column::<Vec<u8>>(&row, "package_mac")?),
+        welcome: encode(&column::<Vec<u8>>(&row, "welcome")?),
+        after: column(&row, "joined_after")?,
     }))
 }
 
@@ -221,5 +231,6 @@ pub async fn cancel_invite(
     Ok(Json(InviteStatus {
         status: InviteState::Cancelled,
         pending_device_id: None,
+        pending_key_package: None,
     }))
 }

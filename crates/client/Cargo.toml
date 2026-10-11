@@ -17,6 +17,10 @@ cqrs-es = "0.5"
 base64.workspace = true
 chrono.workspace = true
 futures-util.workspace = true
+openmls.workspace = true
+openmls_basic_credential.workspace = true
+openmls_rust_crypto.workspace = true
+openmls_traits.workspace = true
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rand.workspace = true
 reqwest.workspace = true
@@ -30,3 +34,4 @@ reqwest-eventsource = "0.6"
 
 [dev-dependencies]
 tackly-testkit = { path = "../testkit" }
+tempfile = "3"

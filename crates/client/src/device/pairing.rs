@@ -1,14 +1,17 @@
 //! Bringing a new phone into the family.
 //!
-//! The owner creates an invitation: a one-time secret that never reaches the
+//! The head creates an invitation: a one-time secret that never reaches the
 //! relay, shown as a QR code and a link. The new phone presents a proof of the
-//! secret; both phones show the same six digits, derived from the secret and
-//! the new phone's ID, and the owner confirms them. The owner's phone then
-//! seals the family key under the secret, and the relay only passes that
-//! package along.
+//! secret and its MLS key package; both phones show the same six digits,
+//! derived from the secret and that key package, and the head confirms them.
+//! The head's phone then adds the new phone to the group (a commit for the
+//! family, a welcome for the new phone, which the relay passes along) and
+//! sends it the history as a snapshot.
 
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
+
 use tackly_protocol::{
     FamilyCommand,
     wire::{ApproveJoin, ClaimInvite, CreateInvite, InviteProof, InviteState, token_hash},
@@ -18,8 +21,12 @@ use uuid::Uuid;
 use super::{Device, Membership};
 use crate::{
     api::{Api, HttpError},
-    crypto::{self, SealedData, derive, random_bytes},
+    crypto::{self, derive, random_bytes},
+    mls::confirmation_code,
 };
+
+/// How long a new member waits for the head's history snapshot.
+const SNAPSHOT_WAIT: Duration = Duration::from_secs(60);
 
 /// What the owner shows the other phone. `link` is shown as a QR code and can
 /// be copied and sent by any messenger; the other phone scans or pastes it.
@@ -74,20 +81,8 @@ fn invitation_payload(text: &str) -> Option<String> {
     (!payload.is_empty()).then(|| payload.to_owned())
 }
 
-/// Six digits both phones can compare out loud.
-fn confirmation_code(secret: &[u8], device_id: Uuid) -> String {
-    let hash = derive("confirmation", &[secret, device_id.as_bytes()]);
-    let number = u32::from_be_bytes([hash[0], hash[1], hash[2], hash[3]]) % 1_000_000;
-    format!("{number:06}")
-}
-
 fn invite_verifier(secret: &[u8]) -> String {
     crypto::encode(&derive("invite-verifier", &[secret]))
-}
-
-/// Where the sealed family key is bound to: this invitation.
-fn package_aad(invite_id: Uuid) -> String {
-    format!("invite:{invite_id}")
 }
 
 impl Device {
@@ -142,35 +137,91 @@ impl Device {
             Err(error) => return Err(error),
         };
         Ok(match (status.status, status.pending_device_id) {
-            (InviteState::Pending, Some(device_id)) => InviteProgress::Requested {
-                device_id,
-                confirmation: confirmation_code(&ticket.secret, device_id),
-            },
+            (InviteState::Pending, Some(device_id)) => {
+                let key_package = status
+                    .pending_key_package
+                    .as_deref()
+                    .map(crypto::decode)
+                    .transpose()?
+                    .context("the relay sent no key package")?;
+                InviteProgress::Requested {
+                    device_id,
+                    confirmation: confirmation_code(&ticket.secret, &key_package),
+                }
+            }
             (InviteState::Approved | InviteState::Used, _) => InviteProgress::Approved,
             (InviteState::Cancelled, _) => InviteProgress::Gone,
             _ => InviteProgress::Waiting,
         })
     }
 
-    /// Call only after the person compared the confirmation digits.
-    pub async fn approve_join(&self, ticket: &InviteTicket, device_id: Uuid) -> Result<()> {
-        let membership = self.joined()?;
-        let key = derive("invite-key", &[&ticket.secret]);
-        let sealed = crypto::seal(&key, &self.family_key()?, &package_aad(ticket.invite_id))?;
-        self.api()?
-            .approve_join(
+    /// Call only after the person compared the confirmation digits. Adds the
+    /// phone to the group, hands it the welcome, and sends it the history.
+    pub async fn approve_join(&mut self, ticket: &InviteTicket, device_id: Uuid) -> Result<()> {
+        let membership = self.joined()?.clone();
+        let api = self.api()?;
+        let status = api
+            .invite_status(
                 membership.family_id,
                 &membership.device_token,
                 ticket.invite_id,
-                &ApproveJoin {
-                    device_id,
-                    package_nonce: sealed.nonce,
-                    package_ciphertext: sealed.ciphertext,
-                    package_mac: sealed.mac,
-                },
             )
             .await?;
-        Ok(())
+        ensure!(
+            status.pending_device_id == Some(device_id),
+            "that phone is no longer asking to join"
+        );
+        let key_package = crypto::decode(
+            status
+                .pending_key_package
+                .as_deref()
+                .context("the relay sent no key package")?,
+        )?;
+        // The joiner must find the whole history in the snapshot.
+        self.flush().await?;
+        let welcome = self.commit_add(&key_package).await?;
+        api.approve_join(
+            membership.family_id,
+            &membership.device_token,
+            ticket.invite_id,
+            &ApproveJoin {
+                device_id,
+                welcome: crypto::encode(&welcome),
+            },
+        )
+        .await?;
+        self.send_snapshot().await
+    }
+
+    /// Adds a member: the commit goes to the relay (again, after catching up,
+    /// if the group moved on meanwhile); the welcome comes back for the member.
+    async fn commit_add(&mut self, key_package: &[u8]) -> Result<Vec<u8>> {
+        let family_id = self.joined()?.family_id;
+        let mut welcome = Vec::new();
+        let sent = self
+            .send(|device| {
+                if device.mls.has_group(family_id) {
+                    let _ = device.mls.clear_pending(family_id);
+                }
+                let (commit, new_welcome) = device.mls.add_member(family_id, key_package)?;
+                welcome = new_welcome;
+                Ok(vec![tackly_protocol::wire::EncryptedEvent {
+                    event_id: Uuid::new_v4(),
+                    origin_device_id: device.device_id(),
+                    message: crypto::encode(&commit),
+                }])
+            })
+            .await;
+        match sent {
+            Ok(()) => {
+                self.mls.merge_pending(family_id)?;
+                Ok(welcome)
+            }
+            Err(error) => {
+                let _ = self.mls.clear_pending(family_id);
+                Err(error)
+            }
+        }
     }
 
     // ---- the joining phone's side ---------------------------------------------------
@@ -182,18 +233,20 @@ impl Device {
         let invite: InviteLink = serde_json::from_slice(&crypto::decode(&encoded)?)
             .context("the invitation link is damaged")?;
         let secret = crypto::decode(&invite.secret)?;
+        let key_package = self.mls.key_package()?;
         Api::new(&invite.server)?
             .request_join(
                 invite.invite,
                 &InviteProof {
                     verifier: invite_verifier(&secret),
                     device_id: self.device_id(),
+                    key_package: crypto::encode(&key_package),
                 },
             )
             .await
             .context("the invitation is expired or already used")?;
         Ok(JoinRequest {
-            confirmation: confirmation_code(&secret, self.device_id()),
+            confirmation: confirmation_code(&secret, &key_package),
             invite,
             secret,
             device_token: crypto::encode(&random_bytes::<32>()),
@@ -223,26 +276,35 @@ impl Device {
             claimed.family_id == request.invite.family,
             "the invitation belongs to another family"
         );
-        let family_key = crypto::open(
-            &derive("invite-key", &[&request.secret]),
-            &SealedData {
-                nonce: claimed.package_nonce,
-                ciphertext: claimed.package_ciphertext,
-                mac: claimed.package_mac,
-            },
-            &package_aad(request.invite.invite),
-        )?;
+        let (family_id, head) = self.mls.join(&crypto::decode(&claimed.welcome)?)?;
+        ensure!(
+            family_id == claimed.family_id,
+            "the welcome is for another family"
+        );
         self.save_membership(Membership {
             server_url: api.base().to_owned(),
-            family_id: claimed.family_id,
-            family_key: crypto::encode(&family_key),
+            family_id,
+            head,
             device_token: request.device_token.clone(),
             registered: true,
             owner: false,
             name: my_name.trim().to_owned(),
         })?;
-        // Learn the family's history first, then announce ourselves.
-        self.pull().await?;
+        // The history comes from the head as a snapshot, right after the
+        // welcome; wait for it, then announce ourselves.
+        self.events.lock().advance_cursor(claimed.after)?;
+        let deadline = std::time::Instant::now() + SNAPSHOT_WAIT;
+        loop {
+            self.pull().await?;
+            if self.state()?.family_id.is_some() {
+                break;
+            }
+            ensure!(
+                std::time::Instant::now() < deadline,
+                "the head did not send the family's history"
+            );
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
         self.run(FamilyCommand::Join {
             name: my_name.to_owned(),
         })
@@ -273,14 +335,5 @@ mod tests {
             );
         }
         assert_eq!(invitation_payload("  "), None);
-    }
-
-    #[test]
-    fn both_phones_derive_the_same_digits() {
-        let (secret, device) = (b"secret".as_slice(), Uuid::now_v7());
-        let digits = confirmation_code(secret, device);
-        assert_eq!(digits.len(), 6);
-        assert_eq!(digits, confirmation_code(secret, device));
-        assert_ne!(digits, confirmation_code(secret, Uuid::now_v7()));
     }
 }

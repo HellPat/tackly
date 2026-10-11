@@ -6,6 +6,7 @@ pub mod crypto;
 pub mod device;
 pub mod geocode;
 pub mod live;
+pub mod mls;
 pub mod qr;
 pub mod secrets;
 pub mod store;

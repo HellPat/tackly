@@ -642,6 +642,58 @@ async fn a_server_outage_does_not_stop_members_and_they_converge_afterwards() ->
 /// A phone whose registration answer was lost asks again with the same token
 /// and succeeds; a different token for the same family is refused.
 #[tokio::test]
+async fn a_relay_that_swaps_the_joiners_key_is_caught_by_the_digits() -> Result<()> {
+    // Both phones derive their six digits from the invitation's secret and
+    // the joiner's MLS key package. A hostile relay that puts its own key
+    // package in Mona's place (here: Eve's) shows Patrick other digits than
+    // Mona sees, so Patrick does not let it in.
+    let dir = scratch_dir("hostile-relay")?;
+    let mut relay = Relay::reserve(&dir)?;
+    relay.start().await?;
+    let mut patrick = Phone::new("patrick", &dir)?;
+    patrick
+        .device
+        .lock()
+        .await
+        .create_family(&relay.url(), "The Smiths", "Patrick")
+        .await?;
+    patrick.go_live();
+    let (mona, eve) = (Phone::new("mona", &dir)?, Phone::new("eve", &dir)?);
+
+    let for_mona = patrick.device.lock().await.create_invite().await?;
+    let for_eve = patrick.device.lock().await.create_invite().await?;
+    let mona_asks = mona
+        .device
+        .lock()
+        .await
+        .request_join(&for_mona.link)
+        .await?;
+    eve.device.lock().await.request_join(&for_eve.link).await?;
+
+    // The relay's doing: Eve's key package under Mona's invitation.
+    let db = rusqlite::Connection::open(dir.join("relay.db"))?;
+    db.execute(
+        "UPDATE invitations SET key_package = (SELECT key_package FROM invitations WHERE id = ?1) WHERE id = ?2",
+        [for_eve.invite_id.to_string(), for_mona.invite_id.to_string()],
+    )?;
+
+    let InviteProgress::Requested { confirmation, .. } = patrick
+        .device
+        .lock()
+        .await
+        .invite_progress(&for_mona)
+        .await?
+    else {
+        bail!("Mona's request should be pending");
+    };
+    ensure!(
+        confirmation != mona_asks.confirmation,
+        "the digits must give the swap away"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn registering_a_family_again_is_safe_only_with_the_same_token() -> Result<()> {
     let dir = scratch_dir("register")?;
     let mut relay = Relay::reserve(&dir)?;

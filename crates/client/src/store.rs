@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::{Context, Result, bail, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
-use tackly_protocol::{FamilyEvent, wire::EncryptedEvent};
+use tackly_protocol::FamilyEvent;
 use uuid::Uuid;
 
 use crate::{
@@ -63,10 +63,6 @@ impl EventStore {
              );
              CREATE TABLE IF NOT EXISTS sync_metadata (
                name TEXT PRIMARY KEY, value TEXT NOT NULL
-             );
-             CREATE TABLE IF NOT EXISTS sync_outbox (
-               event_id TEXT PRIMARY KEY REFERENCES events(event_id),
-               nonce TEXT NOT NULL, ciphertext TEXT NOT NULL, mac TEXT NOT NULL
              );",
         )?;
         let count: i64 = db.query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))?;
@@ -189,58 +185,13 @@ impl EventStore {
         Ok(())
     }
 
-    /// The upload ciphertext is created once and reused for retries, so a
-    /// retried POST is byte-identical and idempotent on the server.
-    pub fn outbox_envelope(
-        &self,
-        event: &FamilyEvent,
-        family_id: Uuid,
-        family_key: &[u8],
-    ) -> Result<EncryptedEvent> {
-        let id = event.id.to_string();
-        let lookup = || {
-            self.db
-                .query_row(
-                    "SELECT nonce, ciphertext, mac FROM sync_outbox WHERE event_id=?",
-                    [&id],
-                    |row| {
-                        Ok(SealedData {
-                            nonce: row.get(0)?,
-                            ciphertext: row.get(1)?,
-                            mac: row.get(2)?,
-                        })
-                    },
-                )
-                .optional()
-        };
-        let mut wire = EncryptedEvent {
-            event_id: event.id,
-            origin_device_id: event.origin_device_id,
-            key_version: 1,
-            nonce: String::new(),
-            ciphertext: String::new(),
-            mac: String::new(),
-        };
-        let sealed = match lookup()? {
-            Some(sealed) => sealed,
-            None => {
-                let sealed = seal(
-                    family_key,
-                    &serde_json::to_vec(event)?,
-                    &wire.associated_data(family_id),
-                )?;
-                self.db.execute(
-                    "INSERT OR IGNORE INTO sync_outbox (event_id, nonce, ciphertext, mac)
-                     VALUES (?, ?, ?, ?)",
-                    params![id, sealed.nonce, sealed.ciphertext, sealed.mac],
-                )?;
-                lookup()?.context("outbox row")?
-            }
-        };
-        wire.nonce = sealed.nonce;
-        wire.ciphertext = sealed.ciphertext;
-        wire.mac = sealed.mac;
-        Ok(wire)
+    /// The relay stored one of this phone's own events at `sequence`.
+    pub fn confirm(&self, event_id: Uuid, sequence: i64) -> Result<()> {
+        self.db.execute(
+            "UPDATE events SET server_sequence=?, pushed=1 WHERE event_id=?",
+            params![sequence, event_id.to_string()],
+        )?;
+        Ok(())
     }
 
     pub fn mark_pushed(&self, event_id: Uuid) -> Result<()> {
@@ -262,7 +213,6 @@ impl EventStore {
     pub fn clear(&mut self, secrets: &Secrets) -> Result<()> {
         self.db.execute_batch(
             "PRAGMA secure_delete=ON;
-             DELETE FROM sync_outbox;
              DELETE FROM events;
              DELETE FROM sync_metadata;
              VACUUM;",
