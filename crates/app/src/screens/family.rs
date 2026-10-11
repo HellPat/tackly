@@ -82,7 +82,10 @@ pub fn FamilyTab() -> Element {
 }
 
 /// How much longer an agent may read.
-fn time_left(until: Option<chrono::DateTime<chrono::Utc>>, now: chrono::DateTime<chrono::Utc>) -> String {
+fn time_left(
+    until: Option<chrono::DateTime<chrono::Utc>>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> String {
     let Some(until) = until else {
         return String::new();
     };

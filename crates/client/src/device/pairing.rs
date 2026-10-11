@@ -102,7 +102,10 @@ impl Device {
     }
 
     /// An invitation for an AI agent, which may read along for `duration`.
-    pub async fn create_agent_invite(&mut self, duration: chrono::Duration) -> Result<InviteTicket> {
+    pub async fn create_agent_invite(
+        &mut self,
+        duration: chrono::Duration,
+    ) -> Result<InviteTicket> {
         ensure!(
             duration > chrono::Duration::zero(),
             "an agent needs some time"

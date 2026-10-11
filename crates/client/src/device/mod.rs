@@ -223,11 +223,7 @@ impl Device {
                 .await?;
         }
         self.api()?
-            .revoke_device(
-                membership.family_id,
-                &membership.device_token,
-                member_id,
-            )
+            .revoke_device(membership.family_id, &membership.device_token, member_id)
             .await?;
         self.run(FamilyCommand::RemoveMember { member_id }).await?;
         self.flush().await

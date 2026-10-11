@@ -317,7 +317,11 @@ async fn open_invitation(
         match latest {
             Ok(InviteProgress::Approved) => {
                 sheet.set(None);
-                state.say(if agent.is_some() { "The agent is in" } else { "They’re in" });
+                state.say(if agent.is_some() {
+                    "The agent is in"
+                } else {
+                    "They’re in"
+                });
                 state.refresh().await;
                 return;
             }

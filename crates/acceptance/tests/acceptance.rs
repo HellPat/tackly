@@ -281,10 +281,7 @@ impl Tackly {
         page.get_by_role_exact("button", "Create invitation")
             .click()
             .await?;
-        let link = page
-            .get_by_label("Invitation QR code")
-            .decode_qr()
-            .await?;
+        let link = page.get_by_label("Invitation QR code").decode_qr().await?;
         let mut agent = self.agent_command()?.arg("join").arg(&link).spawn()?;
         let stdout = agent.stdout.take().ok_or("no stdout")?;
         let mut lines = tokio::io::BufReader::new(stdout).lines();
@@ -299,7 +296,9 @@ impl Tackly {
         page.get_by_role_exact("button", "Yes, let it in")
             .click()
             .await?;
-        expect(&toast(&page, "The agent is in")).to_be_visible().await?;
+        expect(&toast(&page, "The agent is in"))
+            .to_be_visible()
+            .await?;
         let status = agent.wait().await?;
         if !status.success() {
             return Err("the agent did not get in".into());

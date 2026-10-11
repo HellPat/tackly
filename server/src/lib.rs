@@ -50,10 +50,7 @@ pub fn router(pool: SqlitePool) -> Router {
             "/v1/families/{family_id}/devices/{device_id}",
             axum::routing::delete(auth::revoke_device),
         )
-        .route(
-            "/v1/families/{family_id}/token",
-            post(auth::rotate_token),
-        )
+        .route("/v1/families/{family_id}/token", post(auth::rotate_token))
         .route(
             "/v1/families/{family_id}/recovery/{id}",
             axum::routing::put(recovery::put_recovery).delete(recovery::delete_recovery),

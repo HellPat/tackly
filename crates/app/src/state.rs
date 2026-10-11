@@ -584,7 +584,9 @@ impl AppState {
                     let mut shown = self.recovery_words;
                     shown.set(Some(words));
                 }
-                Err(error) => self.say(format!("Making a recovery code needs the server: {error:#}")),
+                Err(error) => self.say(format!(
+                    "Making a recovery code needs the server: {error:#}"
+                )),
             }
             self.refresh().await;
         });

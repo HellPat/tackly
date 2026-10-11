@@ -712,7 +712,12 @@ async fn the_head_removes_a_member_who_then_gets_nothing_new() -> Result<()> {
     // Only the head removes anyone.
     let mara_id = mara.id().await;
     ensure!(
-        mona.device.lock().await.remove_member(mara_id).await.is_err(),
+        mona.device
+            .lock()
+            .await
+            .remove_member(mara_id)
+            .await
+            .is_err(),
         "Mona is not the head"
     );
     patrick.device.lock().await.remove_member(mara_id).await?;
@@ -753,7 +758,10 @@ async fn an_ai_agent_reads_the_whole_history_until_its_time_is_over() -> Result<
     relay.start().await?;
     let (patrick, mona, _mara) = family_of_three(&dir, &relay).await?;
     let milk = patrick.add_task("Milk").await?;
-    eventually("Mona sees Milk", || async { mona.sees("Milk", |_| true).await }).await?;
+    eventually("Mona sees Milk", || async {
+        mona.sees("Milk", |_| true).await
+    })
+    .await?;
     mona.complete(milk, None).await?;
     eventually("Patrick sees Milk done", || async {
         patrick.sees("Milk", is_done).await
@@ -819,10 +827,7 @@ async fn an_ai_agent_reads_the_whole_history_until_its_time_is_over() -> Result<
     ensure!(seen.task_by_title("Milk").is_some_and(is_done), "history");
     ensure!(seen.people().count() == 3, "all three people");
     ensure!(seen.is_agent(agent_id), "known as an agent");
-    ensure!(
-        agent.add_task("Nope").await.is_err(),
-        "an agent only reads"
-    );
+    ensure!(agent.add_task("Nope").await.is_err(), "an agent only reads");
     eventually("Mona lists the agent", || async {
         Ok(mona.state().await?.is_agent(agent_id))
     })
@@ -859,7 +864,10 @@ async fn the_head_comes_back_on_a_new_phone_with_the_recovery_code() -> Result<(
     let words = patrick.device.lock().await.new_recovery_code().await?;
     ensure!(words.split(' ').count() == 24, "24 words");
     patrick.add_task("Milk").await?;
-    eventually("Mona sees Milk", || async { mona.sees("Milk", |_| true).await }).await?;
+    eventually("Mona sees Milk", || async {
+        mona.sees("Milk", |_| true).await
+    })
+    .await?;
     mona.add_task("Eggs").await?;
     eventually("Patrick sees Eggs", || async {
         patrick.sees("Eggs", |_| true).await
@@ -891,7 +899,11 @@ async fn the_head_comes_back_on_a_new_phone_with_the_recovery_code() -> Result<(
             .is_err(),
         "wrong words open nothing"
     );
-    back.device.lock().await.restore(&relay.url(), &words).await?;
+    back.device
+        .lock()
+        .await
+        .restore(&relay.url(), &words)
+        .await?;
     back.go_live();
     ensure!(back.id().await == lost_id, "the same head");
     ensure!(

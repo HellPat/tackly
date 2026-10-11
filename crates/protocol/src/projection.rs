@@ -212,9 +212,7 @@ impl Family {
     }
 
     pub fn is_agent(&self, device_id: Uuid) -> bool {
-        self.members
-            .get(&device_id)
-            .is_some_and(Member::is_agent)
+        self.members.get(&device_id).is_some_and(Member::is_agent)
     }
 
     /// The people in the family, without the AI agents.

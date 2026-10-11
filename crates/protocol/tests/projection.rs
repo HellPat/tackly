@@ -269,7 +269,11 @@ fn removed_and_admitted_count_only_from_the_head() {
                     until,
                 },
             ),
-            by(PATRICK, SMITHS, Happened::MemberRemoved { member_id: PATRICK }),
+            by(
+                PATRICK,
+                SMITHS,
+                Happened::MemberRemoved { member_id: PATRICK },
+            ),
         ],
     ]));
     assert!(!family.members.contains_key(&MARA));
@@ -277,7 +281,10 @@ fn removed_and_admitted_count_only_from_the_head() {
     assert_eq!(family.members[&AGENT].agent_until, Some(until));
     assert_eq!(family.head(), Some(PATRICK), "the head stays");
     assert_eq!(
-        family.people().map(|member| member.device_id).collect::<Vec<_>>(),
+        family
+            .people()
+            .map(|member| member.device_id)
+            .collect::<Vec<_>>(),
         vec![PATRICK, MONA]
     );
     assert_eq!(family.agents().count(), 1);

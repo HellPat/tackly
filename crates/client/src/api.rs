@@ -198,7 +198,13 @@ impl Api {
     }
 
     /// Leaves the head's sealed recovery backup with the relay.
-    pub async fn put_recovery(&self, family: Uuid, token: &str, id: &str, blob: &[u8]) -> Result<()> {
+    pub async fn put_recovery(
+        &self,
+        family: Uuid,
+        token: &str,
+        id: &str,
+        blob: &[u8],
+    ) -> Result<()> {
         let request = self
             .http
             .put(self.url(&format!("/v1/families/{family}/recovery/{id}")))

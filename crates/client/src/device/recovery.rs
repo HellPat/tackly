@@ -105,7 +105,10 @@ impl Device {
     /// previous backup, if any, is removed: its words are no good any more.
     pub async fn new_recovery_code(&mut self) -> Result<String> {
         let membership = self.joined()?.clone();
-        ensure!(membership.owner, "only the head of the family has a recovery code");
+        ensure!(
+            membership.owner,
+            "only the head of the family has a recovery code"
+        );
         self.flush().await?;
         let (words, key) = RecoveryKey::generate()?;
         // The first backup must go through before the old one goes.
@@ -182,7 +185,10 @@ impl Device {
     /// A new phone becomes the head again, from the backup the words open.
     pub async fn restore(&mut self, server_url: &str, words: &str) -> Result<()> {
         ensure!(self.membership.is_none(), "already in a family");
-        ensure!(self.events.lock().is_empty()?, "this phone already has a history");
+        ensure!(
+            self.events.lock().is_empty()?,
+            "this phone already has a history"
+        );
         let api = crate::api::Api::new(server_url)?;
         let key = RecoveryKey::from_words(words)?;
         let blob = api
