@@ -344,8 +344,22 @@ impl Locator {
         Ok(value.as_str().unwrap_or_default().to_owned())
     }
 
-    /// Reads the QR code drawn inside this element, like a phone's camera.
+    /// Reads the QR code drawn inside this element, like a phone's camera. A
+    /// code that is still being drawn is read again for a few seconds, as a
+    /// camera would try again.
     pub async fn decode_qr(&self) -> Outcome<String> {
+        let mut last = self.decode_qr_once().await;
+        for _ in 0..50 {
+            if last.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            last = self.decode_qr_once().await;
+        }
+        last
+    }
+
+    async fn decode_qr_once(&self) -> Outcome<String> {
         let reply = self.act("qr_pixels", Value::Null).await?;
         let size = reply["size"]
             .as_u64()
