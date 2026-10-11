@@ -32,6 +32,18 @@ pub enum DomainEvent {
     MemberRenamed { name: String },
     #[serde(rename = "member.picture_changed")]
     MemberPictureChanged { picture: Picture },
+    /// The head took a member (or an AI agent) out of the family. Only the
+    /// head's word counts: replay ignores it from anyone else.
+    #[serde(rename = "member.removed")]
+    MemberRemoved { member_id: Uuid },
+    /// The head let an AI agent in, to read along until `until`. Only the
+    /// head's word counts.
+    #[serde(rename = "agent.admitted")]
+    AgentAdmitted {
+        member_id: Uuid,
+        name: String,
+        until: DateTime<Utc>,
+    },
 
     // ---- task lists. Tasks without a list are in "Other", which always exists.
     #[serde(rename = "list.created")]
@@ -232,6 +244,8 @@ impl DomainEvent {
             Self::MemberJoined { .. } => "member.joined",
             Self::MemberRenamed { .. } => "member.renamed",
             Self::MemberPictureChanged { .. } => "member.picture_changed",
+            Self::MemberRemoved { .. } => "member.removed",
+            Self::AgentAdmitted { .. } => "agent.admitted",
             Self::ListCreated { .. } => "list.created",
             Self::ListRenamed { .. } => "list.renamed",
             Self::ListDeleted => "list.deleted",

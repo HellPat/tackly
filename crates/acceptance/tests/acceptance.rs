@@ -25,6 +25,8 @@ use tackly_testkit::{FakeGeocoder, Relay};
 
 /// The app binary built with the `ui-test` feature, set once in `main`.
 static APP: OnceLock<PathBuf> = OnceLock::new();
+/// The `tackly-agent` binary, built next to it.
+static AGENT: OnceLock<PathBuf> = OnceLock::new();
 
 /// Delay between key presses when typing key by key.
 const KEY_DELAY: Duration = Duration::from_millis(12);
@@ -34,6 +36,8 @@ const KEY_DELAY: Duration = Duration::from_millis(12);
 struct Tackly {
     dir: PathBuf,
     relay: Relay,
+    /// The 24 words the head wrote down.
+    recovery_code: Option<String>,
     geocoder: FakeGeocoder,
     members: HashMap<String, Member>,
 }
@@ -92,6 +96,7 @@ impl Tackly {
             geocoder: FakeGeocoder::start()?,
             dir,
             members: HashMap::new(),
+            recovery_code: None,
         })
     }
 
@@ -122,10 +127,12 @@ impl Tackly {
     async fn go(&self, name: &str, tab: &str) -> Outcome<()> {
         let page = self.page(name)?;
         if tab == "Family" {
-            return page
-                .get_by_role_exact("button", "Family and settings")
-                .click()
-                .await;
+            let avatar = page.get_by_role_exact("button", "Family and settings");
+            // Already on the family: the avatar is not in the top bar there.
+            if avatar.count().await == 0 {
+                return Ok(());
+            }
+            return avatar.click().await;
         }
         page.get_by_test_id("nav")
             .get_by_role_exact("button", tab)
@@ -249,6 +256,97 @@ impl Tackly {
         self.go(head, "Tasks").await
     }
 
+    /// The agent's own data folder; `tackly-agent` runs against it.
+    fn agent_command(&self) -> Outcome<tokio::process::Command> {
+        let binary = AGENT.get().ok_or("the agent was not built")?;
+        let mut command = tokio::process::Command::new(binary);
+        command
+            .arg("--data-dir")
+            .arg(self.dir.join("agent"))
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::inherit());
+        Ok(command)
+    }
+
+    /// The head makes an invitation for an AI agent, the agent (the real
+    /// `tackly-agent`) asks to join with it and prints its digits, the head
+    /// compares them and lets it in.
+    async fn admit_agent(&self, head: &str, access: &str) -> Outcome<()> {
+        use tokio::io::AsyncBufReadExt;
+        let page = self.page(head)?;
+        self.go(head, "Family").await?;
+        page.get_by_role_exact("button", "AI agent").click().await?;
+        page.get_by_role_exact("radio", access).click().await?;
+        page.get_by_role_exact("button", "Create invitation")
+            .click()
+            .await?;
+        let link = page
+            .get_by_label("Invitation QR code")
+            .decode_qr()
+            .await?;
+        let mut agent = self.agent_command()?.arg("join").arg(&link).spawn()?;
+        let stdout = agent.stdout.take().ok_or("no stdout")?;
+        let mut lines = tokio::io::BufReader::new(stdout).lines();
+        let first = lines.next_line().await?.unwrap_or_default();
+        let digits = first
+            .strip_prefix("Confirmation code: ")
+            .ok_or_else(|| Failure(format!("the agent said {first:?}")))?
+            .to_owned();
+        expect(&page.get_by_label("Confirmation code"))
+            .to_have_text(&digits)
+            .await?;
+        page.get_by_role_exact("button", "Yes, let it in")
+            .click()
+            .await?;
+        expect(&toast(&page, "The agent is in")).to_be_visible().await?;
+        let status = agent.wait().await?;
+        if !status.success() {
+            return Err("the agent did not get in".into());
+        }
+        self.go(head, "Tasks").await
+    }
+
+    /// The head makes a recovery code in its settings and reads the words.
+    async fn make_recovery_code(&self, head: &str) -> Outcome<String> {
+        let page = self.page(head)?;
+        self.go(head, "Family").await?;
+        page.get_by_test_id("main")
+            .get_by_role("button", head)
+            .click()
+            .await?;
+        page.get_by_role_exact("button", "Make a recovery code")
+            .click()
+            .await?;
+        let words = page.get_by_label("Recovery code").text_content().await?;
+        page.get_by_role_exact("button", "I wrote them down")
+            .click()
+            .await?;
+        self.go(head, "Tasks").await?;
+        Ok(words)
+    }
+
+    /// A new phone becomes the head, with the words.
+    async fn restore(&self, name: &str, words: &str) -> Outcome<()> {
+        let page = self.page(name)?;
+        page.get_by_role_exact("button", "Restore from a recovery code")
+            .click()
+            .await?;
+        page.get_by_label("Recovery code").fill(words).await?;
+        page.get_by_role_exact("button", "Restore").click().await?;
+        expect(&page.get_by_test_id("nav")).to_be_visible().await?;
+        self.go(name, "Tasks").await
+    }
+
+    /// What the agent sees, straight from `tackly-agent state`.
+    async fn agent_state(&self) -> Outcome<serde_json::Value> {
+        let output = self.agent_command()?.arg("state").output().await?;
+        if !output.status.success() {
+            return Err("the agent could not show the family".into());
+        }
+        Ok(serde_json::from_slice(&output.stdout)?)
+    }
+
     async fn add_task(&self, name: &str, title: &str) -> Outcome<()> {
         // Tasks are added where the bar is; from Today or Problems, that is Tasks.
         if self.page(name)?.get_by_label("Add a task").count().await == 0 {
@@ -305,6 +403,10 @@ impl Tackly {
     }
 
     async fn filter(&self, name: &str, filter: &str) -> Outcome<()> {
+        // The filter is on Tasks; from elsewhere, go there first.
+        if self.page(name)?.get_by_test_id("filter").count().await == 0 {
+            self.go(name, "Tasks").await?;
+        }
         self.page(name)?
             .get_by_test_id("filter")
             .get_by_role("button", filter)
@@ -338,6 +440,35 @@ async fn server_running(world: &mut Tackly) {
 #[when("the sync server is stopped")]
 async fn server_stopped(world: &mut Tackly) {
     world.relay.stop();
+}
+
+#[given(regex = r"^(\w+) has opened Tackly$")]
+#[when(regex = r"^(\w+) opens Tackly$")]
+async fn opened_one(world: &mut Tackly, name: String) {
+    check(world.open(&name).await);
+}
+
+#[when(regex = r"^(\w+) makes a recovery code$")]
+async fn makes_recovery_code(world: &mut Tackly, head: String) {
+    let words = check(world.make_recovery_code(&head).await);
+    world.recovery_code = Some(words);
+}
+
+#[when(regex = r"^(\w+)'s phone is lost$")]
+async fn phone_lost(world: &mut Tackly, name: String) {
+    // Dropping the member closes its window; the phone is gone.
+    world.members.remove(&name);
+}
+
+#[when(regex = r"^(\w+) restores the family with the recovery code$")]
+async fn restores(world: &mut Tackly, name: String) {
+    let words = check(
+        world
+            .recovery_code
+            .clone()
+            .ok_or(Failure::from("nobody made a recovery code")),
+    );
+    check(world.restore(&name, &words).await);
 }
 
 #[given(regex = r"^(\w+), (\w+) and (\w+) have opened Tackly$")]
@@ -689,6 +820,118 @@ async fn sees_text(world: &mut Tackly, name: String, text: String) {
             &check(world.page(&name))
                 .get_by_test_id("main")
                 .get_by_text(&text),
+        )
+        .to_be_visible()
+        .await,
+    );
+}
+
+#[when(regex = r"^(\w+) removes (\w+) from the family$")]
+async fn removes_member(world: &mut Tackly, head: String, member: String) {
+    check(world.go(&head, "Family").await);
+    let page = check(world.page(&head));
+    check(
+        page.get_by_test_id("main")
+            .get_by_role("button", &member)
+            .click()
+            .await,
+    );
+    check(
+        page.get_by_role_exact("button", "Remove from family")
+            .click()
+            .await,
+    );
+    check(
+        page.get_by_role_exact("button", &format!("Remove {member}"))
+            .click()
+            .await,
+    );
+    check(
+        expect(&toast(&page, &format!("{member} is out of the family")))
+            .to_be_visible()
+            .await,
+    );
+    check(world.go(&head, "Tasks").await);
+}
+
+#[when(regex = r#"^(\w+) lets an AI agent in for "([^"]+)"$"#)]
+async fn admits_agent(world: &mut Tackly, head: String, access: String) {
+    check(world.admit_agent(&head, &access).await);
+}
+
+#[then(regex = r#"^the AI agent sees the task "([^"]+)"$"#)]
+async fn agent_sees_task(world: &mut Tackly, title: String) {
+    let state = check(world.agent_state().await);
+    let seen = state["tasks"]
+        .as_object()
+        .is_some_and(|tasks| tasks.values().any(|task| task["title"] == title));
+    if !seen {
+        check(Err::<(), _>(Failure(format!(
+            "the agent does not see {title:?}: {state}"
+        ))));
+    }
+}
+
+#[then(regex = r#"^(\w+(?:, \w+)*(?: and \w+)?) sees? the AI agent with "([^"]+)"$"#)]
+async fn sees_agent(world: &mut Tackly, who: String, detail: String) {
+    for name in names(&who) {
+        check(world.go(&name, "Family").await);
+        let page = check(world.page(&name));
+        check(
+            expect(&page.get_by_test_id("agents"))
+                .to_contain_text(&detail)
+                .await,
+        );
+    }
+}
+
+#[when(regex = r"^(\w+) revokes the AI agent$")]
+async fn revokes_agent(world: &mut Tackly, head: String) {
+    check(world.go(&head, "Family").await);
+    let page = check(world.page(&head));
+    check(
+        page.get_by_test_id("agents")
+            .get_by_role_exact("button", "Revoke")
+            .click()
+            .await,
+    );
+    check(
+        expect(&toast(&page, "AI agent is out of the family"))
+            .to_be_visible()
+            .await,
+    );
+    check(world.go(&head, "Tasks").await);
+}
+
+#[then(regex = r"^(\w+(?:, \w+)*(?: and \w+)?) sees? no AI agent$")]
+async fn sees_no_agent(world: &mut Tackly, who: String) {
+    for name in names(&who) {
+        check(world.go(&name, "Family").await);
+        let page = check(world.page(&name));
+        check(expect(&page.get_by_test_id("agents")).to_be_hidden().await);
+    }
+}
+
+#[then(regex = r"^(\w+(?:, \w+)*(?: and \w+)?) (?:does not|do not) see the member (\w+)$")]
+async fn does_not_see_member(world: &mut Tackly, who: String, member: String) {
+    for name in names(&who) {
+        check(world.go(&name, "Family").await);
+        let page = check(world.page(&name));
+        check(
+            expect(&page.get_by_test_id("main").get_by_role("button", &member))
+                .to_be_hidden()
+                .await,
+        );
+    }
+}
+
+#[then(regex = r"^(\w+)'s app says (?:she|he|they) (?:was|were) removed$")]
+async fn says_removed(world: &mut Tackly, name: String) {
+    check(
+        expect(
+            &check(world.page(&name))
+                .get_by_test_id("header")
+                .get_by_text("Removed"),
         )
         .to_be_visible()
         .await,
@@ -1173,6 +1416,15 @@ fn build_app() -> Outcome<PathBuf> {
     if !status.success() {
         return Err("could not build the app".into());
     }
+    let status = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+        .args(["build", "--locked", "-p", "tackly-agent", "--target-dir"])
+        .arg(&target)
+        .current_dir(&workspace)
+        .status()?;
+    if !status.success() {
+        return Err("could not build the agent".into());
+    }
+    let _ = AGENT.set(target.join("debug/tackly-agent"));
     Ok(target.join("debug/tackly"))
 }
 

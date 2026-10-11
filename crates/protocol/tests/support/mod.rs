@@ -14,6 +14,7 @@ use uuid::Uuid;
 pub const PATRICK: Uuid = Uuid::from_u128(0x1);
 pub const MONA: Uuid = Uuid::from_u128(0x2);
 pub const MARA: Uuid = Uuid::from_u128(0x3);
+pub const AGENT: Uuid = Uuid::from_u128(0x4);
 
 pub const SMITHS: Uuid = Uuid::from_u128(0x10);
 pub const SHOPPING: Uuid = Uuid::from_u128(0x20);

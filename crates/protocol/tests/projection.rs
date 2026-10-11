@@ -234,6 +234,55 @@ fn members_names_and_pictures_follow_their_changes() {
     assert!(family.members[&PATRICK].owner);
 }
 
+#[test]
+fn removed_and_admitted_count_only_from_the_head() {
+    let until = nine_o_clock() + chrono::Duration::minutes(30);
+    let family = replay(&given(vec![
+        the_smiths(),
+        vec![
+            // Mona has no say.
+            by(MONA, SMITHS, Happened::MemberRemoved { member_id: MARA }),
+            by(
+                MONA,
+                SMITHS,
+                Happened::AgentAdmitted {
+                    member_id: AGENT,
+                    name: "Fake".into(),
+                    until,
+                },
+            ),
+        ],
+    ]));
+    assert!(family.members.contains_key(&MARA));
+    assert!(!family.members.contains_key(&AGENT));
+
+    let family = replay(&given(vec![
+        the_smiths(),
+        vec![
+            by(PATRICK, SMITHS, Happened::MemberRemoved { member_id: MARA }),
+            by(
+                PATRICK,
+                SMITHS,
+                Happened::AgentAdmitted {
+                    member_id: AGENT,
+                    name: "AI agent".into(),
+                    until,
+                },
+            ),
+            by(PATRICK, SMITHS, Happened::MemberRemoved { member_id: PATRICK }),
+        ],
+    ]));
+    assert!(!family.members.contains_key(&MARA));
+    assert!(family.is_agent(AGENT));
+    assert_eq!(family.members[&AGENT].agent_until, Some(until));
+    assert_eq!(family.head(), Some(PATRICK), "the head stays");
+    assert_eq!(
+        family.people().map(|member| member.device_id).collect::<Vec<_>>(),
+        vec![PATRICK, MONA]
+    );
+    assert_eq!(family.agents().count(), 1);
+}
+
 // ---- problems and plans ---------------------------------------------------------------------------
 
 #[test]

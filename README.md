@@ -125,6 +125,28 @@ network. The prototype the screens were built from is `prototype/index.html`.
   routing IDs, and reads only each message's epoch and kind. Both phones
   derive the six join digits from the invitation secret and the joiner's MLS
   key package, so a server that swaps the key is caught (`crates/client/tests/e2e.rs`).
+- **The head decides who is in.** Only the head's phone may commit (the
+  server checks its token; every phone checks the commit's sender, so a
+  stolen member phone cannot throw anyone out). Removing someone is a commit
+  to a key that phone never gets, plus `member.removed` in the log; the server
+  drops its token. The removed phone keeps what it had and sees nothing new.
+- **AI agents read along, for a while.** The head makes an invitation for an
+  agent with how long it may read; `tackly-agent join <link>` prints the six
+  digits, the head confirms, and the agent is a member with the whole
+  history (`tackly-agent state|events|follow`). It cannot write: the server
+  refuses its token for writes, and the phones ignore anything it sends. Its
+  server token ends at the time given; the head's phone takes it out of the
+  group when that time has passed, or at once with Revoke.
+- **Recovery code.** The head's phone makes 24 words (BIP-39); HKDF turns them
+  into a key and an ID. After every change it seals a backup (AES-256-GCM:
+  the head's MLS signing key, the group's public state, its relay token and
+  the whole history) and leaves it with the server under the ID, which cannot
+  open it. A new phone with the words takes over the head's identity, comes
+  back into the group from outside (an MLS external commit, which also
+  removes the lost phone's leaf; the others accept it because it is signed
+  with the head's key), then moves to a fresh signing key and a fresh relay
+  token, so the lost phone is out. The others send it what happened since
+  the backup.
 
 ### Tests
 
@@ -171,10 +193,12 @@ something happened.
 
 ### Status
 
-Not done, by decision: there is no restore process. A lost phone means
-leaving and rejoining with a new invitation. Also missing: device revocation,
-key rotation, scanning the QR code with the camera, opening invitation links
-on Android, and keeping secrets in the Android Keystore (they sit in the
-app-private storage for now). The location permission is declared in
+Missing: scanning the QR code with the camera, opening invitation links on
+Android, keeping secrets in the Android Keystore (they sit in the app-private
+storage for now), and a second head (one phone holds the family; its recovery
+code is the way back). The recovery backup is uploaded whole after every
+change, which is fine for a family's history but not tuned. A member whose
+phone is lost simply rejoins with a new invitation; only the head has a
+recovery code. The location permission is declared in
 `crates/app/Dioxus.toml`, so the store listing shows it; Android still asks
 once, after creating or joining a family.

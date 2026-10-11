@@ -1,0 +1,21 @@
+[package]
+name = "tackly-agent"
+description = "An AI agent's way into a Tackly family: joins with an invitation, then reads along"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "tackly-agent"
+path = "src/main.rs"
+
+[dependencies]
+tackly-client.workspace = true
+tackly-protocol.workspace = true
+anyhow.workspace = true
+clap = { version = "4", features = ["derive", "env"] }
+serde_json.workspace = true
+tokio.workspace = true

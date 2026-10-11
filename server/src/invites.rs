@@ -12,7 +12,7 @@ use axum::{
 };
 use tackly_protocol::wire::{
     ApproveJoin, ClaimInvite, ClaimedInvite, CreateInvite, InviteExpiry, InviteProof, InviteState,
-    InviteStatus,
+    InviteStatus, MAX_AGENT_SECONDS,
 };
 use uuid::Uuid;
 
@@ -38,14 +38,21 @@ pub async fn create_invite(
 ) -> ApiResult<InviteExpiry> {
     let caller = Device::authenticate_owner(&state.db, &headers, family_id).await?;
     let verifier = decode(&input.verifier, Some(32))?;
+    if input
+        .agent_seconds
+        .is_some_and(|seconds| !(1..=MAX_AGENT_SECONDS).contains(&seconds))
+    {
+        return Err(bad_request("an agent reads for a second to thirty days"));
+    }
     let row = sqlx::query(
-        "INSERT INTO invitations (id, family_id, verifier_hash, created_by) \
-         VALUES (?,?,?,?) RETURNING expires_at",
+        "INSERT INTO invitations (id, family_id, verifier_hash, created_by, agent_seconds) \
+         VALUES (?,?,?,?,?) RETURNING expires_at",
     )
     .bind(input.invite_id.to_string())
     .bind(family_id.to_string())
     .bind(verifier)
     .bind(caller.id.to_string())
+    .bind(input.agent_seconds)
     .fetch_one(&state.db)
     .await
     .map_err(internal)?;
@@ -169,7 +176,7 @@ pub async fn claim_invite(
     let token_hash = decode(&input.token_hash, Some(32))?;
     let mut tx = state.db.begin().await.map_err(internal)?;
     let row = sqlx::query(&format!(
-        "SELECT family_id, status, welcome, joined_after \
+        "SELECT family_id, status, welcome, joined_after, agent_seconds \
          FROM invitations WHERE id=? AND verifier_hash=? AND pending_device_id=? \
          AND status IN ('approved', 'used') AND {NOT_EXPIRED}"
     ))
@@ -182,13 +189,21 @@ pub async fn claim_invite(
     .ok_or(gone("invitation unavailable"))?;
     let family_id = uuid_column(&row, "family_id")?;
     if column::<String>(&row, "status")? == "approved" {
-        sqlx::query("INSERT INTO devices (id, family_id, token_hash) VALUES (?,?,?)")
-            .bind(input.device_id.to_string())
-            .bind(family_id.to_string())
-            .bind(&token_hash)
-            .execute(&mut *tx)
-            .await
-            .map_err(internal)?;
+        // An AI agent's token ends when its time is over.
+        let agent_seconds: Option<i64> = column(&row, "agent_seconds")?;
+        sqlx::query(
+            "INSERT INTO devices (id, family_id, token_hash, is_agent, expires_at) \
+             VALUES (?1, ?2, ?3, ?4, CASE WHEN ?5 IS NULL THEN NULL \
+             ELSE strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+' || ?5 || ' seconds') END)",
+        )
+        .bind(input.device_id.to_string())
+        .bind(family_id.to_string())
+        .bind(&token_hash)
+        .bind(i64::from(agent_seconds.is_some()))
+        .bind(agent_seconds)
+        .execute(&mut *tx)
+        .await
+        .map_err(internal)?;
         sqlx::query("UPDATE invitations SET status='used' WHERE id=?")
             .bind(invite_id.to_string())
             .execute(&mut *tx)

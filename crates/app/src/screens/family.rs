@@ -3,6 +3,7 @@
 
 use dioxus::prelude::*;
 use tackly_protocol::{Picture, Task};
+use uuid::Uuid;
 
 use super::{home::Nav, tasks::TaskCard};
 use crate::{
@@ -22,27 +23,14 @@ pub fn FamilyTab() -> Element {
         return rsx! { Settings {} };
     }
     if let Some(person) = here.person {
-        let tasks: Vec<Task> = family
-            .open_tasks()
-            .filter(|task| task.assignee == Some(person))
-            .cloned()
-            .collect();
-        let name = family.member_name(person).to_owned();
-        return rsx! {
-            if tasks.is_empty() {
-                p { class: "py-16 text-center text-stone-700", "{name} is not on any task." }
-            } else {
-                ul { class: "pt-1",
-                    for task in tasks {
-                        TaskCard { key: "{task.id}", task }
-                    }
-                }
-            }
-        };
+        return rsx! { Person { person } };
     }
+    let is_head = (state.membership)().is_some_and(|membership| membership.owner);
+    let now = (state.now)();
+    let agents: Vec<_> = family.agents().cloned().collect();
     rsx! {
         ul { class: "{CARD} overflow-hidden mt-1",
-            for member in family.members.values() {
+            for member in family.people() {
                 li { key: "{member.device_id}",
                     button {
                         class: "w-full flex items-center gap-4 px-4 min-h-16 text-left hover:bg-stone-50 active:bg-stone-100",
@@ -67,6 +55,108 @@ pub fn FamilyTab() -> Element {
                         }
                         Icon { name: "chevron_right", class: "text-stone-500" }
                     }
+                }
+            }
+        }
+        if !agents.is_empty() {
+            Heading { text: "AI agents" }
+            ul { class: "{CARD} overflow-hidden", "data-testid": "agents",
+                for agent in agents {
+                    li { key: "{agent.device_id}", class: "flex items-center gap-4 px-4 min-h-16 text-stone-600",
+                        span { class: "size-10 rounded-full grid place-items-center bg-stone-200", Icon { name: "smart_toy" } }
+                        span { class: "flex-1",
+                            span { class: "block text-base", "{agent.name}" }
+                            span { class: "block text-sm", "{time_left(agent.agent_until, now)}" }
+                        }
+                        if is_head {
+                            button { class: crate::ui::SECONDARY, onclick: {
+                                let who = agent.device_id;
+                                move |_| state.remove_member(who)
+                            }, "Revoke" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// How much longer an agent may read.
+fn time_left(until: Option<chrono::DateTime<chrono::Utc>>, now: chrono::DateTime<chrono::Utc>) -> String {
+    let Some(until) = until else {
+        return String::new();
+    };
+    let left = until - now;
+    if left <= chrono::Duration::zero() {
+        "time is over".into()
+    } else if left < chrono::Duration::minutes(1) {
+        "less than a minute left".into()
+    } else if left < chrono::Duration::hours(2) {
+        format!("{} min left", (left.num_seconds() + 59) / 60)
+    } else if left < chrono::Duration::days(2) {
+        format!("{} h left", left.num_hours())
+    } else {
+        format!("{} days left", left.num_days())
+    }
+}
+
+/// The fresh recovery words, shown once: write them down, then close.
+#[component]
+pub fn RecoveryCodeSheet(words: String) -> Element {
+    let state = use_context::<AppState>();
+    let close = move || {
+        let mut shown = state.recovery_words;
+        shown.set(None);
+    };
+    rsx! {
+        crate::ui::Sheet { close: move |_| close(), label: "Your recovery code",
+            div { class: "flex flex-col gap-4",
+                h2 { class: "text-xl font-semibold text-center", "Your recovery code" }
+                p { class: "text-sm text-stone-700 text-center", "Write these 24 words down and keep them somewhere safe. They are shown only now." }
+                p { class: "{CARD} px-4 py-3 font-mono text-base leading-8 break-words select-all", aria_label: "Recovery code", "{words}" }
+                button { class: "{crate::ui::PRIMARY} w-full", onclick: move |_| close(), "I wrote them down" }
+            }
+        }
+    }
+}
+
+/// Someone else: the tasks they are on. The head can take them out of the family.
+#[component]
+fn Person(person: Uuid) -> Element {
+    let state = use_context::<AppState>();
+    let mut nav = use_context::<Signal<Nav>>();
+    let family = (state.family)();
+    let is_head = (state.membership)().is_some_and(|membership| membership.owner);
+    let mut removing = use_signal(|| false);
+    let tasks: Vec<Task> = family
+        .open_tasks()
+        .filter(|task| task.assignee == Some(person))
+        .cloned()
+        .collect();
+    let name = family.member_name(person).to_owned();
+    rsx! {
+        if tasks.is_empty() {
+            p { class: "py-16 text-center text-stone-700", "{name} is not on any task." }
+        } else {
+            ul { class: "pt-1",
+                for task in tasks {
+                    TaskCard { key: "{task.id}", task }
+                }
+            }
+        }
+        if is_head {
+            div { class: "pt-6 pb-6 text-center",
+                if removing() {
+                    p { class: "text-sm text-stone-700", "{name}’s phone keeps what it has and sees nothing new." }
+                    div { class: "mt-3 flex justify-center gap-2",
+                        button { class: crate::ui::SECONDARY, onclick: move |_| removing.set(false), "Cancel" }
+                        button { class: crate::ui::SECONDARY, onclick: move |_| {
+                            state.remove_member(person);
+                            nav.write().person = None;
+                        }, "Remove {name}" }
+                    }
+                } else {
+                    button { class: "text-sm text-stone-700 underline underline-offset-4", onclick: move |_| removing.set(true), "Remove from family" }
                 }
             }
         }
@@ -138,6 +228,22 @@ fn Settings() -> Element {
                     let time = event.value();
                     state.set_plan_at((!time.is_empty()).then_some(time));
                 },
+            }
+        }
+        if (state.membership)().is_some_and(|membership| membership.owner) {
+            Heading { text: "Recovery code" }
+            div { class: "{CARD} px-4 py-4 flex flex-col gap-3",
+                p { class: "text-sm text-stone-700",
+                    if (state.has_recovery)() {
+                        "This phone keeps a backup of the family. If it is lost, the 24 words bring the family back on a new phone."
+                    } else {
+                        "If this phone is lost, 24 words bring the family back on a new phone. Without them, the family is gone with it."
+                    }
+                }
+                button { class: "{crate::ui::SECONDARY} self-start", onclick: move |_| state.new_recovery_code(),
+                    Icon { name: "key", class: "!text-[18px]" }
+                    if (state.has_recovery)() { "New recovery code" } else { "Make a recovery code" }
+                }
             }
         }
         Heading { text: "Color scheme" }

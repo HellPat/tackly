@@ -6,6 +6,7 @@
 //! - [`places`]: groups of places, places, and which task belongs where
 //! - [`problems`]: problems with their solutions, and each person's plan for a day
 //! - [`pairing`]: inviting someone, and joining
+//! - [`recovery`]: the head's recovery code and the way back after a lost phone
 //! - [`sync`]: uploading local events and downloading the others'
 //!
 //! The family is an MLS group ([`crate::mls`]): every event goes to the relay
@@ -15,6 +16,7 @@ mod membership;
 mod pairing;
 mod places;
 mod problems;
+mod recovery;
 mod sync;
 mod tasks;
 
@@ -30,7 +32,8 @@ use tokio::sync::Notify;
 use uuid::Uuid;
 
 pub use membership::Membership;
-pub use pairing::{InviteProgress, InviteTicket, JoinRequest};
+pub use pairing::{AGENT_NAME, InviteProgress, InviteTicket, JoinRequest};
+pub use recovery::RecoveryKey;
 pub use sync::LiveTarget;
 
 use crate::{
@@ -54,6 +57,13 @@ pub struct Device {
     secrets: Secrets,
     membership: Option<Membership>,
     mls: Mls,
+    /// Events that arrived while this phone still waits for the head's
+    /// history snapshot: they belong after it.
+    early: Vec<(tackly_protocol::FamilyEvent, i64)>,
+    /// What the last recovery backup covered (events, epoch).
+    backed_up: Option<(usize, u64)>,
+    /// The head came back from outside: it needs the history from us.
+    owes_snapshot: bool,
 }
 
 impl Device {
@@ -73,6 +83,9 @@ impl Device {
             secrets,
             membership,
             mls,
+            early: Vec::new(),
+            backed_up: None,
+            owes_snapshot: false,
         })
     }
 
@@ -106,6 +119,11 @@ impl Device {
         Ok(Family::replay(&self.events.lock().read_events()?))
     }
 
+    /// Every event this phone has, in the order it replays them.
+    pub fn events(&self) -> Result<Vec<tackly_protocol::FamilyEvent>> {
+        self.events.lock().read_events()
+    }
+
     // ---- small helpers for the other modules ---------------------------------
 
     fn joined(&self) -> Result<&Membership> {
@@ -131,7 +149,9 @@ impl Device {
 
     /// Runs a command against the family aggregate.
     async fn run(&self, command: FamilyCommand) -> Result<()> {
-        let family_id = self.joined()?.family_id;
+        let membership = self.joined()?;
+        ensure!(!membership.agent, "an AI agent only reads");
+        let family_id = membership.family_id;
         self.cqrs.execute(&family_id.to_string(), command).await?;
         Ok(())
     }
@@ -172,6 +192,9 @@ impl Device {
             registered,
             owner: true,
             name: my_name.trim().to_owned(),
+            agent: false,
+            removed: false,
+            restoring: false,
         })?;
         self.run(FamilyCommand::CreateFamily {
             family_id,
@@ -184,13 +207,61 @@ impl Device {
         Ok(())
     }
 
+    /// Takes a member (or an AI agent) out of the family: the group moves to
+    /// a key that phone never gets, the relay stops serving it, and the
+    /// family's record says so.
+    pub async fn remove_member(&mut self, member_id: Uuid) -> Result<()> {
+        let membership = self.joined()?.clone();
+        ensure!(
+            membership.owner,
+            "only the head of the family can remove someone"
+        );
+        ensure!(member_id != self.device_id(), "the head cannot be removed");
+        self.flush().await?;
+        if self.mls.members(membership.family_id)?.contains(&member_id) {
+            self.commit(|device| device.mls.remove_member(membership.family_id, member_id))
+                .await?;
+        }
+        self.api()?
+            .revoke_device(
+                membership.family_id,
+                &membership.device_token,
+                member_id,
+            )
+            .await?;
+        self.run(FamilyCommand::RemoveMember { member_id }).await?;
+        self.flush().await
+    }
+
+    /// The head's phone takes AI agents out whose time is over (MLS cannot
+    /// schedule a removal, so the next phone that can, does it).
+    pub(super) async fn expire_agents(&mut self) -> Result<()> {
+        if !self.membership.as_ref().is_some_and(|m| m.owner) {
+            return Ok(());
+        }
+        let now = chrono::Utc::now();
+        let expired: Vec<Uuid> = self
+            .state()?
+            .agents()
+            .filter(|agent| agent.agent_until.is_some_and(|until| until <= now))
+            .map(|agent| agent.device_id)
+            .collect();
+        for agent in expired {
+            self.remove_member(agent).await?;
+        }
+        Ok(())
+    }
+
     /// Forgets the family, its events and this phone's identity.
     pub fn logout(&mut self) -> Result<()> {
         self.events.lock().clear(&self.secrets)?;
         self.mls.clear(self.events.lock().device_id)?;
         self.cqrs = Self::framework(&self.events, &self.upload);
         Membership::forget(&self.secrets)?;
+        self.secrets.delete("recovery-words")?;
         self.membership = None;
+        self.backed_up = None;
+        self.owes_snapshot = false;
         Ok(())
     }
 }

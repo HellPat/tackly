@@ -22,7 +22,7 @@ jobs:
           "$RUNNER_TEMP/tailwindcss" --input crates/app/tailwind.css --output crates/app/src/style.css --minify
           git diff --exit-code crates/app/src/style.css
       - name: Unit and end-to-end tests (real server, three phones, SSE, outages)
-        run: cargo test --locked -p tackly-protocol -p tackly-client -p tackly-sync
+        run: cargo test --locked -p tackly-protocol -p tackly-client -p tackly-sync -p tackly-agent
 
   app-macos:
     runs-on: macos-latest

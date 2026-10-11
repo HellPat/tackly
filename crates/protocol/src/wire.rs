@@ -80,7 +80,13 @@ pub struct EventsPage {
 pub struct CreateInvite {
     pub invite_id: Uuid,
     pub verifier: String,
+    /// Set for an AI agent: it may read for this long, then its token ends.
+    #[serde(default)]
+    pub agent_seconds: Option<i64>,
 }
+
+/// The longest an AI agent may be let in for.
+pub const MAX_AGENT_SECONDS: i64 = 30 * 24 * 60 * 60;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InviteExpiry {
@@ -135,6 +141,25 @@ pub struct ClaimedInvite {
     /// The relay sequence the new member starts reading after (its history
     /// comes as a snapshot from the head).
     pub after: i64,
+}
+
+/// The head's recovery backup: sealed on the phone with a key from the
+/// recovery code, kept by the relay under an ID derived from the same code.
+/// The relay cannot open it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RecoveryBlob {
+    /// base64url
+    pub blob: String,
+}
+
+/// The largest recovery backup the relay keeps.
+pub const MAX_RECOVERY_BYTES: usize = 16 * 1024 * 1024;
+
+/// A device moves to a new token (after coming back from a backup, so that
+/// the lost phone's token stops working).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RotateToken {
+    pub token_hash: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

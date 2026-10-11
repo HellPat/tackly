@@ -255,7 +255,7 @@ mod tests {
 
     /// Every icon the app shows. The embedded icon font holds exactly these;
     /// see `fonts/README.md` when adding one.
-    const ICONS: [&str; 47] = [
+    const ICONS: [&str; 50] = [
         "add",
         "add_task",
         "arrow_back",
@@ -281,6 +281,7 @@ mod tests {
         "flag",
         "group",
         "image",
+        "key",
         "kitchen",
         "local_florist",
         "local_laundry_service",
@@ -288,6 +289,7 @@ mod tests {
         "music_note",
         "pause",
         "person_add",
+        "person_off",
         "pets",
         "photo_camera",
         "play_arrow",
@@ -298,6 +300,7 @@ mod tests {
         "sailing",
         "sentiment_satisfied",
         "shower",
+        "smart_toy",
         "sports_soccer",
         "storefront",
         "task_alt",

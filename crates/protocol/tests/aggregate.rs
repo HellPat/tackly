@@ -779,3 +779,64 @@ fn someone_elses_task_cannot_be_in_my_plan() {
         })
         .then_expect_error(FamilyError::Taken);
 }
+
+// ---- the head, members and agents ------------------------------------------------------------
+
+#[test]
+fn the_head_removes_a_member() {
+    as_member(PATRICK)
+        .given(the_smiths())
+        .when(Do::RemoveMember { member_id: MARA })
+        .then_expect_events(vec![by(
+            PATRICK,
+            SMITHS,
+            Happened::MemberRemoved { member_id: MARA },
+        )]);
+}
+
+#[test]
+fn only_the_head_removes_and_never_itself() {
+    as_member(MONA)
+        .given(the_smiths())
+        .when(Do::RemoveMember { member_id: MARA })
+        .then_expect_error(FamilyError::NotHead);
+    as_member(PATRICK)
+        .given(the_smiths())
+        .when(Do::RemoveMember { member_id: PATRICK })
+        .then_expect_error(FamilyError::HeadStays);
+    as_member(PATRICK)
+        .given(the_smiths())
+        .when(Do::RemoveMember {
+            member_id: Uuid::from_u128(0x99),
+        })
+        .then_expect_error(FamilyError::UnknownMember);
+}
+
+#[test]
+fn the_head_admits_an_agent_for_a_while() {
+    let until = nine_o_clock() + chrono::Duration::minutes(30);
+    as_member(PATRICK)
+        .given(the_smiths())
+        .when(Do::AdmitAgent {
+            member_id: AGENT,
+            name: "AI agent".into(),
+            until,
+        })
+        .then_expect_events(vec![by(
+            PATRICK,
+            SMITHS,
+            Happened::AgentAdmitted {
+                member_id: AGENT,
+                name: "AI agent".into(),
+                until,
+            },
+        )]);
+    as_member(MONA)
+        .given(the_smiths())
+        .when(Do::AdmitAgent {
+            member_id: AGENT,
+            name: "AI agent".into(),
+            until,
+        })
+        .then_expect_error(FamilyError::NotHead);
+}

@@ -4,7 +4,8 @@
 //! - [`families`]: registering a family
 //! - [`events`]: the encrypted event log
 //! - [`invites`]: letting a new phone join
-//! - [`auth`]: who is calling
+//! - [`recovery`]: the head's sealed backup
+//! - [`auth`]: who is calling, taking a device out, moving to a new token
 
 mod auth;
 mod db;
@@ -13,6 +14,7 @@ mod events;
 mod families;
 mod invites;
 mod live;
+mod recovery;
 
 use axum::{
     Router,
@@ -44,6 +46,19 @@ pub fn router(pool: SqlitePool) -> Router {
             "/v1/families/{family_id}/stream",
             get(events::stream_events),
         )
+        .route(
+            "/v1/families/{family_id}/devices/{device_id}",
+            axum::routing::delete(auth::revoke_device),
+        )
+        .route(
+            "/v1/families/{family_id}/token",
+            post(auth::rotate_token),
+        )
+        .route(
+            "/v1/families/{family_id}/recovery/{id}",
+            axum::routing::put(recovery::put_recovery).delete(recovery::delete_recovery),
+        )
+        .route("/v1/recovery/{id}", get(recovery::get_recovery))
         .route(
             "/v1/families/{family_id}/invites",
             post(invites::create_invite),

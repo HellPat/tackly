@@ -36,24 +36,35 @@ struct Framing {
     content_type: ContentType,
 }
 
-/// The message's public framing, if it is a private message to this family's group.
+/// The message's public framing, if it is a message to this family's group:
+/// a private message (an event, or a commit), or a public commit (the head
+/// coming back from outside after losing its phone).
 fn framing(bytes: &[u8], family_id: Uuid) -> Result<Framing, ApiError> {
     let message = MlsMessageIn::tls_deserialize_exact(bytes)
         .map_err(|_| bad_request("not an MLS message"))?;
-    let MlsMessageBodyIn::PrivateMessage(message) = message.extract() else {
-        return Err(bad_request("only private group messages are relayed"));
+    let (group_id, epoch, content_type) = match message.extract() {
+        MlsMessageBodyIn::PrivateMessage(message) => (
+            message.group_id().clone(),
+            message.epoch(),
+            message.content_type(),
+        ),
+        MlsMessageBodyIn::PublicMessage(message) => (
+            message.group_id().clone(),
+            message.epoch(),
+            message.content_type(),
+        ),
+        _ => return Err(bad_request("only group messages are relayed")),
     };
-    if message.group_id().as_slice() != family_id.as_bytes() {
+    if group_id.as_slice() != family_id.as_bytes() {
         return Err(bad_request("message for another group"));
     }
-    let content_type = message.content_type();
     if !matches!(content_type, ContentType::Application | ContentType::Commit) {
         return Err(bad_request(
             "only application messages and commits are relayed",
         ));
     }
     Ok(Framing {
-        epoch: message.epoch().as_u64() as i64,
+        epoch: epoch.as_u64() as i64,
         content_type,
     })
 }
@@ -69,6 +80,9 @@ pub async fn append_events(
     Json(input): Json<AppendEvents>,
 ) -> ApiResult<AppendResult> {
     let caller = Device::authenticate(&state.db, &headers, family_id).await?;
+    if caller.agent {
+        return Err(forbidden("an AI agent only reads"));
+    }
     if input.events.is_empty() || input.events.len() > MAX_APPEND_BATCH {
         return Err(bad_request("send between one and eight events"));
     }

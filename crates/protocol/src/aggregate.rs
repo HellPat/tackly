@@ -26,6 +26,16 @@ pub enum FamilyCommand {
     SetPicture {
         picture: Picture,
     },
+    /// The head takes someone out of the family (a member or an AI agent).
+    RemoveMember {
+        member_id: Uuid,
+    },
+    /// The head lets an AI agent read along until `until`.
+    AdmitAgent {
+        member_id: Uuid,
+        name: String,
+        until: DateTime<Utc>,
+    },
 
     CreateList {
         list_id: Uuid,
@@ -180,6 +190,10 @@ pub enum FamilyError {
     Empty,
     #[error("unknown member")]
     UnknownMember,
+    #[error("only the head of the family can do that")]
+    NotHead,
+    #[error("the head cannot be removed")]
+    HeadStays,
     #[error("unknown list")]
     UnknownList,
     #[error("a list with open tasks can't be deleted")]
@@ -336,6 +350,38 @@ impl Family {
                     return Err(FamilyError::BadPhoto);
                 }
                 one(family()?, E::MemberPictureChanged { picture })
+            }
+            C::RemoveMember { member_id } => {
+                if !self.is_head(me) {
+                    return Err(FamilyError::NotHead);
+                }
+                if member_id == me {
+                    return Err(FamilyError::HeadStays);
+                }
+                self.members
+                    .get(&member_id)
+                    .ok_or(FamilyError::UnknownMember)?;
+                one(family()?, E::MemberRemoved { member_id })
+            }
+            C::AdmitAgent {
+                member_id,
+                name,
+                until,
+            } => {
+                if !self.is_head(me) {
+                    return Err(FamilyError::NotHead);
+                }
+                if member_id == me {
+                    return Err(FamilyError::HeadStays);
+                }
+                one(
+                    family()?,
+                    E::AgentAdmitted {
+                        member_id,
+                        name: not_empty(&name)?,
+                        until,
+                    },
+                )
             }
 
             C::CreateList { list_id, name } => one(

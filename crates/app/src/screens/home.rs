@@ -13,7 +13,7 @@ use super::{
     family::FamilyTab,
     places::PlacesTab,
     problems::{AssignProblemSheet, ProblemsTab, RaiseSheet, SomethingWrongSheet},
-    sheets::{AssignSheet, InviteSheet, NameSheet},
+    sheets::{AgentSheet, AssignSheet, InviteSheet, NameSheet},
     tasks::TasksTab,
     today::{Celebration, TodayTab},
     upcoming::{Upcoming, should_plan},
@@ -21,7 +21,7 @@ use super::{
 use crate::{
     state::AppState,
     theme,
-    ui::{Avatar, FILLED, Icon, PRIMARY, Size, Toasts},
+    ui::{Avatar, FILLED, Icon, PRIMARY, SECONDARY, Size, Toasts},
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -106,6 +106,8 @@ pub enum SheetKind {
     NewGroupFor(Uuid),
     Assign(Uuid),
     Invite,
+    /// Let an AI agent read along for a while.
+    Agent,
     /// What's wrong? Known problems are suggested.
     SomethingWrong,
     /// Raise this problem (by ID, or a suggested one by its title) for someone.
@@ -221,7 +223,12 @@ pub fn Home() -> Element {
                         Icon { name: "edit" }
                     }
                 }
-                if !(state.online)() {
+                if (state.membership)().is_some_and(|membership| membership.removed) {
+                    span { class: "mr-2 inline-flex items-center gap-1 h-8 px-3 rounded-full bg-stone-900/10 text-sm text-stone-700",
+                        Icon { name: "person_off", class: "!text-[18px]" }
+                        "Removed"
+                    }
+                } else if !(state.online)() {
                     span { class: "mr-2 inline-flex items-center gap-1 h-8 px-3 rounded-full bg-stone-900/10 text-sm text-stone-700",
                         Icon { name: "cloud_off", class: "!text-[18px]" }
                         "Offline"
@@ -252,8 +259,12 @@ pub fn Home() -> Element {
                 AddBar { key: "{mode:?}", mode }
             }
             if show_invite {
-                section { class: "relative z-10 shrink-0 px-3 pb-3 pt-2", aria_label: "Invite",
-                    button { class: "{PRIMARY} w-full !h-12 text-base", onclick: move |_| sheet.set(Some(SheetKind::Invite)),
+                section { class: "relative z-10 shrink-0 px-3 pb-3 pt-2 flex gap-2", aria_label: "Invite",
+                    button { class: "{SECONDARY} !h-12 text-base", onclick: move |_| sheet.set(Some(SheetKind::Agent)),
+                        Icon { name: "smart_toy" }
+                        "AI agent"
+                    }
+                    button { class: "{PRIMARY} flex-1 !h-12 text-base", onclick: move |_| sheet.set(Some(SheetKind::Invite)),
                         Icon { name: "person_add" }
                         "Invite member"
                     }
@@ -282,6 +293,9 @@ pub fn Home() -> Element {
             if let Some(kitten) = (state.celebrate)() {
                 Celebration { kitten }
             }
+            if let Some(words) = (state.recovery_words)() {
+                super::family::RecoveryCodeSheet { words }
+            }
             // On top of everything: an Undo must be reachable from Upcoming, too.
             Toasts {}
             match sheet() {
@@ -289,6 +303,7 @@ pub fn Home() -> Element {
                 Some(kind @ (SheetKind::RenameList(_) | SheetKind::RenameGroup(_) | SheetKind::NewGroupFor(_))) => rsx! { NameSheet { kind } },
                 Some(SheetKind::Assign(task)) => rsx! { AssignSheet { task } },
                 Some(SheetKind::Invite) => rsx! { InviteSheet {} },
+                Some(SheetKind::Agent) => rsx! { AgentSheet {} },
                 Some(SheetKind::SomethingWrong) => rsx! { SomethingWrongSheet {} },
                 Some(SheetKind::Raise(problem, title)) => rsx! { RaiseSheet { problem, title } },
                 Some(SheetKind::AssignProblem(problem)) => rsx! { AssignProblemSheet { problem } },

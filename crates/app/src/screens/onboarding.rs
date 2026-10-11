@@ -15,6 +15,8 @@ enum Mode {
     Choose,
     Create,
     Join,
+    /// The head, on a new phone, with the 24 words.
+    Restore,
 }
 
 /// How often a phone that asked to join checks whether it was let in.
@@ -36,6 +38,7 @@ pub fn Onboarding() -> Element {
     let family_name = use_signal(String::new);
     let my_name = use_signal(String::new);
     let invitation = use_signal(|| launch_link.unwrap_or_default());
+    let mut recovery_code = use_signal(String::new);
     // Set while this phone waits for the head of the family to let it in.
     let mut join_request = use_signal(|| None::<JoinRequest>);
     let busy = use_signal(|| false);
@@ -53,6 +56,19 @@ pub fn Onboarding() -> Element {
                             // Stacked buttons: the main action at the bottom, under the thumb.
                             button { class: "{SECONDARY} !h-12", onclick: move |_| mode.set(Mode::Join), "Join with an invitation" }
                             button { class: "{PRIMARY} !h-12", onclick: move |_| mode.set(Mode::Create), "Create a family" }
+                            button { class: "text-sm text-stone-700 underline underline-offset-4 self-center", onclick: move |_| mode.set(Mode::Restore), "Restore from a recovery code" }
+                        },
+                        Mode::Restore => rsx! {
+                            TextField { label: "Server", value: server }
+                            label { class: "block",
+                                span { class: "text-sm font-semibold text-stone-700", "Recovery code" }
+                                textarea { class: "{FIELD} mt-1.5 !h-32 py-3", value: "{recovery_code}", oninput: move |event| recovery_code.set(event.value()) }
+                            }
+                            p { class: "text-sm text-stone-700", "The 24 words from the lost phone. The family comes back here, with everything." }
+                            div { class: "flex justify-end gap-2",
+                                button { class: SECONDARY, onclick: move |_| mode.set(Mode::Choose), "Back" }
+                                button { class: PRIMARY, disabled: busy(), onclick: move |_| restore_family(state, server, recovery_code, busy), "Restore" }
+                            }
                         },
                         Mode::Create => rsx! {
                             TextField { label: "Your name", value: my_name }
@@ -121,6 +137,27 @@ async fn create_family(
     state.refresh().await;
 }
 
+/// The head comes back on this phone, from the backup the words open.
+async fn restore_family(
+    state: AppState,
+    server: Signal<String>,
+    recovery_code: Signal<String>,
+    mut busy: Signal<bool>,
+) {
+    busy.set(true);
+    let restored = state
+        .device()
+        .lock()
+        .await
+        .restore(&server(), &recovery_code())
+        .await;
+    if let Err(error) = restored {
+        state.say(format!("{error:#}"));
+    }
+    busy.set(false);
+    state.refresh().await;
+}
+
 /// Asks to join, shows the confirmation digits, and keeps checking until the
 /// head of the family has let this phone in (or the person cancels).
 async fn join_family(
@@ -135,7 +172,7 @@ async fn join_family(
         .device()
         .lock()
         .await
-        .request_join(&invitation())
+        .request_join(&invitation(), false)
         .await;
     busy.set(false);
     let request = match asked {

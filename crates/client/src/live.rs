@@ -34,11 +34,25 @@ pub async fn run_live(device: SharedDevice, on_change: impl Fn() + Send + Sync +
             }
         }
     };
+    // Now and then: expired AI agents go out (the head's phone does that).
+    let ticker = {
+        let device = device.clone();
+        async move {
+            loop {
+                tokio::time::sleep(TICK).await;
+                let _ = device.lock().await.tick().await;
+            }
+        }
+    };
     tokio::select! {
         () = sync_loop(device, online, on_change) => {}
         () = uploader => {}
+        () = ticker => {}
     }
 }
+
+/// How often the live loop looks for expired AI agents.
+const TICK: Duration = Duration::from_secs(30);
 
 async fn sync_loop(
     device: SharedDevice,
@@ -48,7 +62,7 @@ async fn sync_loop(
     loop {
         let target = {
             let mut device = device.lock().await;
-            let _ = device.flush().await;
+            let _ = device.tick().await;
             device.live_target()
         };
         let Some(LiveTarget {
@@ -67,13 +81,18 @@ async fn sync_loop(
                     match event {
                         // Connected, or reconnected after a drop: catch up uploads.
                         Ok(Event::Open) => {
-                            let _ = device.lock().await.flush().await;
+                            let _ = device.lock().await.tick().await;
                             online.store(true, Ordering::Relaxed);
                         }
                         Ok(Event::Message(message)) => match serde_json::from_str(&message.data) {
                             Ok(page) => {
-                                if let Err(error) = device.lock().await.ingest(page) {
+                                let mut device = device.lock().await;
+                                if let Err(error) = device.ingest(page) {
                                     eprintln!("live sync: {error:#}");
+                                }
+                                // The head came back: it gets the history from here.
+                                if device.owes_snapshot() {
+                                    let _ = device.flush().await;
                                 }
                             }
                             Err(error) => eprintln!("live sync: bad update: {error}"),

@@ -107,7 +107,7 @@ async fn pair(owner: &Phone, joiner: &mut Phone, joiner_name: &str) -> Result<()
         .device
         .lock()
         .await
-        .request_join(&ticket.link)
+        .request_join(&ticket.link, false)
         .await?;
     let (device_id, confirmation) = loop {
         let progress = owner.device.lock().await.invite_progress(&ticket).await?;
@@ -666,9 +666,13 @@ async fn a_relay_that_swaps_the_joiners_key_is_caught_by_the_digits() -> Result<
         .device
         .lock()
         .await
-        .request_join(&for_mona.link)
+        .request_join(&for_mona.link, false)
         .await?;
-    eve.device.lock().await.request_join(&for_eve.link).await?;
+    eve.device
+        .lock()
+        .await
+        .request_join(&for_eve.link, false)
+        .await?;
 
     // The relay's doing: Eve's key package under Mona's invitation.
     let db = rusqlite::Connection::open(dir.join("relay.db"))?;
@@ -689,6 +693,253 @@ async fn a_relay_that_swaps_the_joiners_key_is_caught_by_the_digits() -> Result<
     ensure!(
         confirmation != mona_asks.confirmation,
         "the digits must give the swap away"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_head_removes_a_member_who_then_gets_nothing_new() -> Result<()> {
+    let dir = scratch_dir("remove")?;
+    let mut relay = Relay::reserve(&dir)?;
+    relay.start().await?;
+    let (patrick, mona, mara) = family_of_three(&dir, &relay).await?;
+    patrick.add_task("Before").await?;
+    eventually("Mara sees the task from before", || async {
+        mara.sees("Before", |_| true).await
+    })
+    .await?;
+
+    // Only the head removes anyone.
+    let mara_id = mara.id().await;
+    ensure!(
+        mona.device.lock().await.remove_member(mara_id).await.is_err(),
+        "Mona is not the head"
+    );
+    patrick.device.lock().await.remove_member(mara_id).await?;
+
+    eventually("Patrick and Mona no longer list Mara", || async {
+        Ok(!patrick.state().await?.members.contains_key(&mara_id)
+            && !mona.state().await?.members.contains_key(&mara_id))
+    })
+    .await?;
+    patrick.add_task("After").await?;
+    eventually("Mona sees the task from after", || async {
+        mona.sees("After", |_| true).await
+    })
+    .await?;
+    // Mara keeps what she had, gets nothing new, and the relay turns her away.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    ensure!(mara.sees("Before", |_| true).await?, "the past stays");
+    ensure!(!mara.sees("After", |_| true).await?, "nothing new for Mara");
+    ensure!(
+        mara.device.lock().await.pull().await.is_err(),
+        "the relay refuses Mara's token"
+    );
+    ensure!(
+        mara.device
+            .lock()
+            .await
+            .membership()
+            .is_some_and(|membership| membership.removed),
+        "Mara's phone knows it was removed"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_ai_agent_reads_the_whole_history_until_its_time_is_over() -> Result<()> {
+    let dir = scratch_dir("agent")?;
+    let mut relay = Relay::reserve(&dir)?;
+    relay.start().await?;
+    let (patrick, mona, _mara) = family_of_three(&dir, &relay).await?;
+    let milk = patrick.add_task("Milk").await?;
+    eventually("Mona sees Milk", || async { mona.sees("Milk", |_| true).await }).await?;
+    mona.complete(milk, None).await?;
+    eventually("Patrick sees Milk done", || async {
+        patrick.sees("Milk", is_done).await
+    })
+    .await?;
+
+    // The head lets an agent in for two seconds; both sides show the digits.
+    let ticket = patrick
+        .device
+        .lock()
+        .await
+        .create_agent_invite(chrono::Duration::seconds(2))
+        .await?;
+    let mut phone = Phone::new("phone", &dir)?;
+    ensure!(
+        phone
+            .device
+            .lock()
+            .await
+            .request_join(&ticket.link, false)
+            .await
+            .is_err(),
+        "a phone does not take an agent's invitation"
+    );
+    let mut agent = Phone::new("agent", &dir)?;
+    let request = agent
+        .device
+        .lock()
+        .await
+        .request_join(&ticket.link, true)
+        .await?;
+    let agent_id = agent.id().await;
+    let device_id = loop {
+        let progress = patrick.device.lock().await.invite_progress(&ticket).await?;
+        if let InviteProgress::Requested {
+            device_id,
+            confirmation,
+        } = progress
+        {
+            ensure!(confirmation == request.confirmation, "same digits");
+            break device_id;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    patrick
+        .device
+        .lock()
+        .await
+        .approve_join(&ticket, device_id)
+        .await?;
+    while !agent
+        .device
+        .lock()
+        .await
+        .complete_join(&request, "whatever")
+        .await?
+    {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    // It has the whole history, is known as an agent, and cannot write.
+    let seen = agent.state().await?;
+    ensure!(seen.task_by_title("Milk").is_some_and(is_done), "history");
+    ensure!(seen.people().count() == 3, "all three people");
+    ensure!(seen.is_agent(agent_id), "known as an agent");
+    ensure!(
+        agent.add_task("Nope").await.is_err(),
+        "an agent only reads"
+    );
+    eventually("Mona lists the agent", || async {
+        Ok(mona.state().await?.is_agent(agent_id))
+    })
+    .await?;
+    agent.go_live();
+    patrick.add_task("Eggs").await?;
+    eventually("the agent sees new events live", || async {
+        agent.sees("Eggs", |_| true).await
+    })
+    .await?;
+
+    // Its time runs out: the head's phone takes it out; the relay is closed to it.
+    tokio::time::sleep(Duration::from_millis(2_200)).await;
+    patrick.device.lock().await.tick().await?;
+    eventually("the agent is gone from the family", || async {
+        Ok(!patrick.state().await?.members.contains_key(&agent_id)
+            && !mona.state().await?.members.contains_key(&agent_id))
+    })
+    .await?;
+    ensure!(
+        agent.device.lock().await.pull().await.is_err(),
+        "the relay turns the agent away"
+    );
+    let _ = &mut phone;
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_head_comes_back_on_a_new_phone_with_the_recovery_code() -> Result<()> {
+    let dir = scratch_dir("recovery")?;
+    let mut relay = Relay::reserve(&dir)?;
+    relay.start().await?;
+    let (mut patrick, mona, mara) = family_of_three(&dir, &relay).await?;
+    let words = patrick.device.lock().await.new_recovery_code().await?;
+    ensure!(words.split(' ').count() == 24, "24 words");
+    patrick.add_task("Milk").await?;
+    eventually("Mona sees Milk", || async { mona.sees("Milk", |_| true).await }).await?;
+    mona.add_task("Eggs").await?;
+    eventually("Patrick sees Eggs", || async {
+        patrick.sees("Eggs", |_| true).await
+    })
+    .await?;
+    // Every flush on the head's phone refreshes the backup.
+    patrick.device.lock().await.flush().await?;
+
+    // Patrick's phone is lost (its sync stops); the family goes on meanwhile.
+    let lost_id = patrick.id().await;
+    if let Some(live) = patrick.live.take() {
+        live.abort();
+    }
+    mona.add_task("Cheese").await?;
+    eventually("Mara sees Cheese", || async {
+        mara.sees("Cheese", |_| true).await
+    })
+    .await?;
+
+    // A new phone with the words is the head again, with the whole history,
+    // including what happened after the backup (the others send it).
+    let mut back = Phone::new("patrick-again", &dir)?;
+    ensure!(
+        back.device
+            .lock()
+            .await
+            .restore(&relay.url(), "wrong words here")
+            .await
+            .is_err(),
+        "wrong words open nothing"
+    );
+    back.device.lock().await.restore(&relay.url(), &words).await?;
+    back.go_live();
+    ensure!(back.id().await == lost_id, "the same head");
+    ensure!(
+        back.device
+            .lock()
+            .await
+            .membership()
+            .is_some_and(|membership| membership.owner),
+        "the head"
+    );
+    let state = back.state().await?;
+    ensure!(
+        state.task_by_title("Milk").is_some() && state.task_by_title("Eggs").is_some(),
+        "the history from the backup"
+    );
+    ensure!(state.people().count() == 3, "all three people");
+    eventually("the new phone has what came after the backup", || async {
+        back.sees("Cheese", |_| true).await
+    })
+    .await?;
+
+    // The family takes the new phone for the head, both ways.
+    back.add_task("Bread").await?;
+    eventually("Mona and Mara see Bread", || async {
+        Ok(mona.sees("Bread", |_| true).await? && mara.sees("Bread", |_| true).await?)
+    })
+    .await?;
+    mara.add_task("Butter").await?;
+    eventually("the new phone sees Butter", || async {
+        back.sees("Butter", |_| true).await
+    })
+    .await?;
+    let mara_id = mara.id().await;
+    back.device.lock().await.remove_member(mara_id).await?;
+    eventually("Mona sees Mara gone", || async {
+        Ok(!mona.state().await?.members.contains_key(&mara_id))
+    })
+    .await?;
+
+    // The lost phone is out: the relay refuses its token, and whatever it
+    // signs is no longer the head's.
+    ensure!(
+        patrick.device.lock().await.pull().await.is_err(),
+        "the lost phone's token is dead"
+    );
+    ensure!(
+        patrick.device.lock().await.create_invite().await.is_err(),
+        "the lost phone cannot invite"
     );
     Ok(())
 }

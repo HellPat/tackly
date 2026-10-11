@@ -42,7 +42,11 @@ database; the file and its write-ahead log both need backing up.
 | `GET`/`DELETE /v1/families/{id}/invites/{invite}` | its status; cancel it |
 | `POST /v1/families/{id}/invites/{invite}/approve` | leave the MLS welcome for the new phone |
 | `POST /v1/invites/{invite}/request` | a new phone asks to join |
-| `POST /v1/invites/{invite}/claim` | the new phone collects the key and joins |
+| `POST /v1/invites/{invite}/claim` | the new phone collects the welcome and joins (an agent's token ends at the time given) |
+| `DELETE /v1/families/{id}/devices/{device}` | the head takes a device out: its token stops working |
+| `POST /v1/families/{id}/token` | a device moves to a new token (after coming back from a backup) |
+| `PUT`/`DELETE /v1/families/{id}/recovery/{rid}` | the head leaves its sealed recovery backup; removes it |
+| `GET /v1/recovery/{rid}` | the backup, for whoever knows the recovery code (and so the ID) |
 
 The request and response types live in `crates/protocol/src/wire.rs`, shared
 with the app.
@@ -76,6 +80,16 @@ A reconnecting client sends it back as `Last-Event-ID`. Keep-alives come every
   changes nothing. A message must come from the device that sends it. Writes
   use one SQLite connection, so sequence numbers are allocated in commit order
   and a cursor cannot skip a late commit.
+- **Roles.** The head's device (`is_owner`) is the only one that commits,
+  invites, takes devices out and keeps the recovery backup. A member sends
+  events. An AI agent (`is_agent`) only reads, and only until `expires_at`.
+  A device the head took out keeps `revoked_at` and is turned away. The
+  phones enforce the same rules on the contents; the server's checks are a
+  second line.
+- **Recovery.** The backup is an opaque blob under an ID the phone derived
+  from its recovery code; the server keeps one per ID, lets only the family's
+  head replace or remove it, and hands it to anyone who asks by ID (the
+  words are the key; the ID says nothing about them).
 - **Retention.** Every accepted event is kept forever. There is no expiry,
   pruning or delete API, and database triggers reject updates and deletes of the
   event table (a database administrator can still bypass them). Corrections,
@@ -89,10 +103,10 @@ numbers messages per sender. The server is never in the group.
 
 ## Not done
 
-Device revocation, family-key rotation (old events are never re-encrypted, so
-old keys must stay available to clients), signed client event histories, and
-protection against a malicious server withholding events. It should not be
-treated as a complete zero-knowledge production service until those exist.
+Protection against a malicious server withholding events (the phones would
+not notice a gap in another phone's messages that the server never relayed),
+and rate limits. It should not be treated as a complete zero-knowledge
+production service until those exist.
 
 ## Tests
 

@@ -95,6 +95,10 @@ pub struct AppState {
     pub plan_snoozed_until: Signal<Option<DateTime<Local>>>,
     /// All of today's priorities are done: which kitten celebrates.
     pub celebrate: Signal<Option<usize>>,
+    /// The head's phone keeps a recovery backup.
+    pub has_recovery: Signal<bool>,
+    /// Freshly made recovery words, shown once.
+    pub recovery_words: Signal<Option<String>>,
 }
 
 impl AppState {
@@ -117,6 +121,8 @@ impl AppState {
             upcoming: Signal::new(Upcoming::default()),
             plan_snoozed_until: Signal::new(None),
             celebrate: Signal::new(None),
+            has_recovery: Signal::new(false),
+            recovery_words: Signal::new(None),
         })
     }
 
@@ -126,17 +132,20 @@ impl AppState {
 
     /// Reads the device into the signals. Cheap enough to call after any change.
     pub async fn refresh(self) {
-        let (family, membership, online, my_id) = {
+        let (family, membership, online, my_id, has_recovery) = {
             let device = self.device().lock_owned().await;
             (
                 device.state(),
                 device.membership().cloned(),
                 device.online_flag().load(Ordering::Relaxed),
                 device.device_id(),
+                device.has_recovery_code().unwrap_or(false),
             )
         };
         let (mut family_signal, mut membership_signal) = (self.family, self.membership);
         let (mut my_id_signal, mut online_signal) = (self.my_id, self.online);
+        let mut has_recovery_signal = self.has_recovery;
+        has_recovery_signal.set(has_recovery);
         if let Ok(family) = family
             && *family_signal.peek() != family
         {
@@ -554,6 +563,30 @@ impl AppState {
                 .await
                 .approve_join(&ticket, joining_device)
                 .await
+        });
+    }
+
+    /// The head takes someone out of the family.
+    pub fn remove_member(self, member: Uuid) {
+        let name = self.family.peek().member_name(member).to_owned();
+        self.act_then(move |device| async move {
+            device.lock().await.remove_member(member).await?;
+            Ok((format!("{name} is out of the family"), None))
+        });
+    }
+
+    /// New recovery words: shown once, in the sheet.
+    pub fn new_recovery_code(self) {
+        spawn_forever(async move {
+            let made = self.device().lock().await.new_recovery_code().await;
+            match made {
+                Ok(words) => {
+                    let mut shown = self.recovery_words;
+                    shown.set(Some(words));
+                }
+                Err(error) => self.say(format!("Making a recovery code needs the server: {error:#}")),
+            }
+            self.refresh().await;
         });
     }
 

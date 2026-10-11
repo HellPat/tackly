@@ -174,7 +174,14 @@ pub fn InviteSheet() -> Element {
     let ticket = use_signal(|| None::<InviteTicket>);
     let progress = use_signal(|| InviteProgress::Waiting);
     use_hook(move || {
-        spawn(open_invitation(state, sheet, ticket, progress));
+        spawn(open_invitation(
+            state,
+            sheet,
+            SheetKind::Invite,
+            None,
+            ticket,
+            progress,
+        ));
     });
     rsx! {
         Sheet { close: move |_| sheet.set(None), label: "Invite member",
@@ -206,15 +213,86 @@ pub fn InviteSheet() -> Element {
     }
 }
 
-/// Creates an invitation, shows it, and keeps checking how it is doing until
-/// someone is let in, it runs out, or the sheet closes.
+/// The head lets an AI agent read along for a while: how long, then the
+/// invitation (a QR code, or the link for `tackly-agent join`), the digits
+/// to compare, and the agent is in.
+#[component]
+pub fn AgentSheet() -> Element {
+    let state = use_context::<AppState>();
+    let mut sheet = use_context::<Signal<Option<SheetKind>>>();
+    let ticket = use_signal(|| None::<InviteTicket>);
+    let progress = use_signal(|| InviteProgress::Waiting);
+    let mut minutes = use_signal(|| 30_i64);
+    let mut started = use_signal(|| false);
+    rsx! {
+        Sheet { close: move |_| sheet.set(None), label: "AI agent",
+            div { class: "flex flex-col items-center gap-5 text-center",
+                h2 { class: "text-xl font-semibold", "AI agent" }
+                if !started() {
+                    p { class: "text-stone-700", "An agent reads everything in the family until its time is over. It cannot change anything." }
+                    div { class: "flex flex-wrap justify-center gap-2", role: "radiogroup", aria_label: "Access for",
+                        for (label, value) in [("30 minutes", 30_i64), ("2 hours", 120), ("1 day", 1440)] {
+                            button {
+                                key: "{value}",
+                                role: "radio",
+                                aria_checked: "{minutes() == value}",
+                                aria_label: "{label}",
+                                class: if minutes() == value { PRIMARY } else { SECONDARY },
+                                onclick: move |_| minutes.set(value),
+                                "{label}"
+                            }
+                        }
+                    }
+                    button { class: PRIMARY, onclick: move |_| {
+                        started.set(true);
+                        spawn(open_invitation(state, sheet, SheetKind::Agent, Some(chrono::Duration::minutes(minutes())), ticket, progress));
+                    }, "Create invitation" }
+                } else {
+                    match (ticket(), progress()) {
+                        (Some(shown), InviteProgress::Requested { device_id, confirmation }) => rsx! {
+                            p { class: "text-stone-700", "The agent asked to join. Does it show this code?" }
+                            div { class: "text-4xl font-semibold tracking-[0.3em] tabular-nums text-accent-800", aria_label: "Confirmation code", "{confirmation}" }
+                            div { class: "flex gap-2",
+                                button { class: SECONDARY, onclick: move |_| sheet.set(None), "No" }
+                                button { class: PRIMARY, onclick: move |_| state.approve_join(shown.clone(), device_id), "Yes, let it in" }
+                            }
+                        },
+                        (Some(shown), _) => rsx! {
+                            div { class: "bg-white p-3 rounded-2xl [&_svg]:size-56", role: "img", aria_label: "Invitation QR code",
+                                dangerous_inner_html: tackly_client::qr::qr_svg(&shown.link),
+                            }
+                            p { class: "text-sm text-stone-600", "Give the link to the agent: tackly-agent join <link>. Works once, for 5 minutes." }
+                            button { class: PRIMARY, onclick: move |_| copy_link(state, &shown.link),
+                                crate::ui::Icon { name: "content_copy", class: "!text-[18px]" }
+                                "Copy link"
+                            }
+                        },
+                        (None, _) => rsx! { p { class: "text-stone-600 py-10", "Preparing the invitation…" } },
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Creates an invitation (for an agent, with how long it may read), shows
+/// it, and keeps checking how it is doing until someone is let in, it runs
+/// out, or the sheet closes.
 async fn open_invitation(
     state: AppState,
     mut sheet: Signal<Option<SheetKind>>,
+    kind: SheetKind,
+    agent: Option<chrono::Duration>,
     mut ticket: Signal<Option<InviteTicket>>,
     mut progress: Signal<InviteProgress>,
 ) {
-    let created = state.device().lock().await.create_invite().await;
+    let device = state.device();
+    let mut device = device.lock().await;
+    let created = match agent {
+        Some(duration) => device.create_agent_invite(duration).await,
+        None => device.create_invite().await,
+    };
+    drop(device);
     let invitation = match created {
         Ok(invitation) => invitation,
         Err(error) => {
@@ -225,7 +303,7 @@ async fn open_invitation(
     ticket.set(Some(invitation.clone()));
     loop {
         tokio::time::sleep(INVITE_POLL).await;
-        if *sheet.peek() != Some(SheetKind::Invite) {
+        if *sheet.peek() != Some(kind) {
             return;
         }
         // Read in its own statement: a lock taken in a `match` head would be
@@ -239,7 +317,7 @@ async fn open_invitation(
         match latest {
             Ok(InviteProgress::Approved) => {
                 sheet.set(None);
-                state.say("They’re in");
+                state.say(if agent.is_some() { "The agent is in" } else { "They’re in" });
                 state.refresh().await;
                 return;
             }

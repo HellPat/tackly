@@ -55,3 +55,48 @@ Feature: A family of three shares its tasks
     When Mona shows Mine
     Then Mona sees the task "Pick up the parcel"
     And Mona sees 1 in Mine
+
+  Scenario: Patrick removes Mara; her phone keeps the past and sees nothing new
+    Given the sync server is running
+    And Patrick, Mona and Mara have opened Tackly
+    And Patrick has created the family "The Smiths" with Mona and Mara
+    And Patrick has added the task "Before"
+    And Mara shows All
+    And Mara sees the task "Before"
+    When Patrick removes Mara from the family
+    Then Patrick and Mona see the members Patrick and Mona
+    And Patrick and Mona do not see the member Mara
+    And Mara's app says she was removed
+    When Patrick adds the task "After"
+    And Mona shows All
+    Then Mona sees the task "After"
+    And Mara sees the task "Before"
+    And Mara does not see "After"
+
+  Scenario: Patrick lets an AI agent read for 30 minutes, then revokes it
+    Given the sync server is running
+    And Patrick, Mona and Mara have opened Tackly
+    And Patrick has created the family "The Smiths" with Mona and Mara
+    And Patrick has added the task "Water the plants"
+    When Patrick lets an AI agent in for "30 minutes"
+    Then the AI agent sees the task "Water the plants"
+    And Patrick, Mona and Mara see the AI agent with "30 min left"
+    When Patrick revokes the AI agent
+    Then Patrick, Mona and Mara see no AI agent
+
+  Scenario: Patrick loses his phone and comes back on a new one with the recovery code
+    Given the sync server is running
+    And Patrick, Mona and Mara have opened Tackly
+    And Patrick has created the family "The Smiths" with Mona and Mara
+    And Patrick has added the task "Before the backup"
+    When Patrick makes a recovery code
+    And Patrick's phone is lost
+    And Mona adds the task "While the phone was lost"
+    And Pat opens Tackly
+    And Pat restores the family with the recovery code
+    And Pat shows All
+    Then Pat sees the tasks "Before the backup" and "While the phone was lost"
+    And Pat, Mona and Mara see the members Patrick, Mona and Mara
+    When Pat adds the task "Back again"
+    And Mona shows All
+    Then Mona sees the task "Back again"

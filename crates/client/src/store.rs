@@ -202,6 +202,15 @@ impl EventStore {
         Ok(())
     }
 
+    /// Takes over another device's identity (the head's lost phone, from its
+    /// backup). Only before anything was recorded here.
+    pub fn adopt_identity(&mut self, device_id: Uuid, secrets: &Secrets) -> Result<()> {
+        ensure!(self.is_empty()?, "this phone already has a history");
+        secrets.write("device_id", device_id.to_string().as_bytes())?;
+        self.device_id = device_id;
+        Ok(())
+    }
+
     pub fn is_empty(&self) -> Result<bool> {
         let count: i64 = self
             .db

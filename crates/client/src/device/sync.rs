@@ -3,7 +3,9 @@
 //! MLS group: an event is an application message; a new member gets the
 //! history as a snapshot from the head.
 
-use anyhow::{Context, Result};
+use std::collections::HashSet;
+
+use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use tackly_protocol::{
     FamilyEvent,
@@ -102,9 +104,46 @@ impl Device {
         unreachable!("the loop returns")
     }
 
+    /// Sends one commit (a change to who is in the group) to the relay. It is
+    /// merged into the group once the relay took it, and dropped otherwise.
+    pub(super) async fn commit(
+        &mut self,
+        mut make: impl FnMut(&mut Self) -> Result<Vec<u8>>,
+    ) -> Result<()> {
+        let family_id = self.joined()?.family_id;
+        let sent = self
+            .send(|device| {
+                let _ = device.mls.clear_pending(family_id);
+                let commit = make(device)?;
+                Ok(vec![EncryptedEvent {
+                    event_id: Uuid::new_v4(),
+                    origin_device_id: device.device_id(),
+                    message: crypto::encode(&commit),
+                }])
+            })
+            .await;
+        match sent {
+            Ok(()) => self.mls.merge_pending(family_id),
+            Err(error) => {
+                let _ = self.mls.clear_pending(family_id);
+                Err(error)
+            }
+        }
+    }
+
+    /// What the live loop does now and then: the head's phone takes expired
+    /// AI agents out, then everything pending goes up.
+    pub async fn tick(&mut self) -> Result<()> {
+        self.expire_agents().await?;
+        self.flush().await
+    }
+
     /// Uploads local events the relay has not acknowledged.
     pub async fn flush(&mut self) -> Result<()> {
-        if self.membership.is_none() {
+        let Some(membership) = &self.membership else {
+            return Ok(());
+        };
+        if membership.agent || membership.removed {
             return Ok(());
         }
         self.ensure_registered().await?;
@@ -122,12 +161,22 @@ impl Device {
                 store.mark_pushed(event.id)?;
             }
         }
-        Ok(())
+        if std::mem::take(&mut self.owes_snapshot) {
+            self.send_snapshot().await?;
+        }
+        self.backup().await
+    }
+
+    /// Whether the head came back and still needs the history from this phone.
+    pub fn owes_snapshot(&self) -> bool {
+        self.owes_snapshot
     }
 
     /// Sends the whole history to the group, in chunks, for a member that
-    /// just joined (only the head does this).
+    /// just joined (only the head does this). Everything the relay has goes
+    /// in, so that the new member can skip what came before.
     pub(super) async fn send_snapshot(&mut self) -> Result<()> {
+        self.pull().await?;
         let events = self.events.lock().read_events()?;
         let mut chunks: Vec<Vec<FamilyEvent>> = vec![Vec::new()];
         let mut size = 0;
@@ -177,11 +226,19 @@ impl Device {
     /// A message that fails is skipped and reported; the cursor still moves.
     pub fn ingest(&mut self, page: EventsPage) -> Result<()> {
         let (family_id, head, me) = (self.joined()?.family_id, self.head()?, self.device_id());
+        // AI agents read along; what they send is not taken.
+        let agents: HashSet<Uuid> = self
+            .state()?
+            .agents()
+            .map(|agent| agent.device_id)
+            .collect();
         for update in page.events {
             let wire = update.event;
             if wire.origin_device_id == me {
                 self.events.lock().confirm(wire.event_id, update.sequence)?;
-            } else if let Err(error) = self.take_in(family_id, head, &wire, update.sequence) {
+            } else if let Err(error) =
+                self.take_in(family_id, head, &agents, &wire, update.sequence)
+            {
                 eprintln!("skipping message {}: {error:#}", wire.event_id);
             }
             self.events.lock().advance_cursor(update.sequence)?;
@@ -193,35 +250,71 @@ impl Device {
         &mut self,
         family_id: Uuid,
         head: Uuid,
+        agents: &HashSet<Uuid>,
         wire: &EncryptedEvent,
         sequence: i64,
     ) -> Result<()> {
         let bytes = crypto::decode(&wire.message)?;
         // Only the head changes who is in the family.
-        let incoming = self
-            .mls
-            .decrypt(family_id, &bytes, |sender| sender == head)?;
-        let Incoming::Application { sender, bytes } = incoming else {
-            return Ok(());
+        let (sender, bytes) = match self.mls.decrypt(family_id, &bytes, head)? {
+            Incoming::Application { sender, bytes } => (sender, bytes),
+            Incoming::Commit {
+                removed_me: true, ..
+            } => {
+                let membership = self.joined()?.clone();
+                return self.save_membership(Membership {
+                    removed: true,
+                    ..membership
+                });
+            }
+            Incoming::Commit {
+                merged: true,
+                from_outside: true,
+                ..
+            } => {
+                // The head lost its phone and is back: it needs the history.
+                self.owes_snapshot = true;
+                return Ok(());
+            }
+            Incoming::Commit { .. } | Incoming::Other => return Ok(()),
         };
-        anyhow::ensure!(
+        ensure!(
             sender == wire.origin_device_id,
             "the sender is not who the relay says"
         );
+        ensure!(!agents.contains(&sender), "AI agents only read");
         match serde_json::from_slice::<Payload>(&bytes).context("not a Tackly message")? {
             Payload::Event(event) => {
-                anyhow::ensure!(
+                ensure!(
                     event.id == wire.event_id && event.origin_device_id == sender,
                     "the event is not what the relay says it is"
                 );
-                self.events.lock().insert(&event, Some(sequence))?;
+                // Before the history is here, an event has nothing to follow.
+                if self.events.lock().is_empty()? {
+                    self.early.push((event, sequence));
+                } else {
+                    self.events.lock().insert(&event, Some(sequence))?;
+                }
             }
             Payload::Snapshot { events, .. } => {
-                anyhow::ensure!(sender == head, "only the head sends history");
+                let restoring = self.joined()?.restoring;
+                ensure!(sender == head || restoring, "only the head sends history");
                 let store = self.events.lock();
                 for event in &events {
                     // Our own history, if any, keeps its place; the rest comes in order.
                     store.insert(event, Some(sequence))?;
+                }
+                // What came in the meantime goes after the history.
+                for (event, _) in self.early.drain(..) {
+                    store.insert(&event, Some(sequence))?;
+                }
+                drop(store);
+                if restoring {
+                    let membership = self.joined()?.clone();
+                    self.save_membership(Membership {
+                        restoring: false,
+                        ..membership
+                    })?;
                 }
             }
         }

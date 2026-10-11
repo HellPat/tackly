@@ -11,6 +11,9 @@ pub mod qr;
 pub mod secrets;
 pub mod store;
 
-pub use device::{Device, InviteProgress, InviteTicket, JoinRequest, LiveTarget, Membership};
+pub use device::{
+    AGENT_NAME, Device, InviteProgress, InviteTicket, JoinRequest, LiveTarget, Membership,
+    RecoveryKey,
+};
 pub use geocode::Geocoder;
 pub use live::{SharedDevice, run_live};

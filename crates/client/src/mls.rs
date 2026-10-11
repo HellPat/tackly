@@ -8,7 +8,7 @@
 //! this one lives in memory and is written to the secrets folder after every
 //! change, so the phone finds its group again after a restart.
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use openmls::prelude::{tls_codec::Deserialize as _, *};
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::{MemoryStorage, RustCrypto};
@@ -20,6 +20,8 @@ use crate::secrets::Secrets;
 const CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 const STORAGE: &str = "mls-storage";
 const SIGNER: &str = "mls-signer";
+/// The public key of a fresh signing key while its rotation commit is out.
+const SIGNER_NEXT: &str = "mls-signer-next";
 
 /// OpenMLS' crypto with a storage this module persists itself.
 #[derive(Default)]
@@ -50,10 +52,24 @@ impl OpenMlsProvider for Provider {
 pub enum Incoming {
     /// An application message: `sender` wrote `bytes`.
     Application { sender: Uuid, bytes: Vec<u8> },
-    /// A commit by `sender`; merged when `allowed` said so.
-    Commit { sender: Uuid, merged: bool },
+    /// A commit by `sender`, merged only when it came from the head.
+    /// `removed_me`: this phone is out of the group now. `from_outside`:
+    /// the head came back from a backup and needs the history again.
+    Commit {
+        sender: Uuid,
+        merged: bool,
+        removed_me: bool,
+        from_outside: bool,
+    },
     /// A proposal or something else this app does not use.
     Other,
+}
+
+/// A commit tells who sent it in one of two ways: a member, by its leaf, or
+/// someone (re)joining from outside, by the leaf it brings along.
+enum Commiter<'a> {
+    Member(LeafNodeIndex),
+    Outsider(&'a LeafNode),
 }
 
 pub struct Mls {
@@ -130,6 +146,7 @@ impl Mls {
     pub fn clear(&mut self, device_id: Uuid) -> Result<()> {
         self.secrets.delete(STORAGE)?;
         self.secrets.delete(SIGNER)?;
+        self.secrets.delete(SIGNER_NEXT)?;
         *self = Self::open(&self.secrets.clone(), device_id)?;
         Ok(())
     }
@@ -203,11 +220,14 @@ impl Mls {
             .map_err(|error| anyhow!("encode the key package: {error:?}"))
     }
 
-    /// Adds a device to the group: the commit (for the group) and the welcome
+    /// Adds `device` to the group: the commit (for the group) and the welcome
     /// (for the device). The commit is pending until [`Self::merge_pending`].
+    /// The key package must be that device's, and the device must be new:
+    /// a leaf claiming to be the head, or another member, is refused.
     pub fn add_member(
         &mut self,
         family_id: Uuid,
+        device: Uuid,
         key_package: &[u8],
     ) -> Result<(Vec<u8>, Vec<u8>)> {
         let key_package = match MlsMessageIn::tls_deserialize_exact(key_package)
@@ -219,7 +239,17 @@ impl Mls {
                 .map_err(|error| anyhow!("invalid key package: {error:?}"))?,
             _ => bail!("not a key package"),
         };
+        ensure!(
+            device_of(key_package.leaf_node().credential()) == Some(device),
+            "the key package is not that device's"
+        );
         let mut group = self.group(family_id)?;
+        ensure!(
+            !group
+                .members()
+                .any(|member| device_of(&member.credential) == Some(device)),
+            "that device is in the family already"
+        );
         let (commit, welcome, _) = group
             .add_members(&self.provider, &self.signer, &[key_package])
             .map_err(|error| anyhow!("add the member: {error:?}"))?;
@@ -232,6 +262,24 @@ impl Mls {
                 .to_bytes()
                 .map_err(|error| anyhow!("encode the welcome: {error:?}"))?,
         ))
+    }
+
+    /// Takes a device out of the group: the commit, pending until
+    /// [`Self::merge_pending`]. The device's keys stop at this epoch.
+    pub fn remove_member(&mut self, family_id: Uuid, device: Uuid) -> Result<Vec<u8>> {
+        let mut group = self.group(family_id)?;
+        let leaf = group
+            .members()
+            .find(|member| device_of(&member.credential) == Some(device))
+            .map(|member| member.index)
+            .context("that device is not in the family")?;
+        let (commit, _, _) = group
+            .remove_members(&self.provider, &self.signer, &[leaf])
+            .map_err(|error| anyhow!("remove the member: {error:?}"))?;
+        self.persist()?;
+        commit
+            .to_bytes()
+            .map_err(|error| anyhow!("encode the commit: {error:?}"))
     }
 
     /// The relay accepted this phone's commit: the group moves on.
@@ -288,14 +336,11 @@ impl Mls {
             .map_err(|error| anyhow!("encode the message: {error:?}"))
     }
 
-    /// Decrypts and checks a message from the group. A commit is merged only
-    /// when `allow_commit` says its sender may change the family.
-    pub fn decrypt(
-        &mut self,
-        family_id: Uuid,
-        bytes: &[u8],
-        allow_commit: impl Fn(Uuid) -> bool,
-    ) -> Result<Incoming> {
+    /// Decrypts and checks a message from the group. Only the head changes
+    /// who is in the family, so a commit is merged only when it comes from
+    /// the head's leaf, or from outside with the head's own signing key (the
+    /// head's phone was lost and comes back, see [`Self::rejoin`]).
+    pub fn decrypt(&mut self, family_id: Uuid, bytes: &[u8], head: Uuid) -> Result<Incoming> {
         let message = MlsMessageIn::tls_deserialize_exact(bytes)
             .context("read the message")?
             .try_into_protocol_message()
@@ -305,24 +350,187 @@ impl Mls {
             .process_message(&self.provider, message)
             .map_err(|error| anyhow!("message failed verification: {error:?}"))?;
         let sender = device_of(processed.credential()).context("sender without a device ID")?;
+        let commiter = match processed.sender() {
+            Sender::Member(leaf) => Some(Commiter::Member(*leaf)),
+            Sender::NewMemberCommit => None,
+            _ => return Ok(Incoming::Other),
+        };
         let incoming = match processed.into_content() {
             ProcessedMessageContent::ApplicationMessage(message) => Incoming::Application {
                 sender,
                 bytes: message.into_bytes(),
             },
             ProcessedMessageContent::StagedCommitMessage(commit) => {
-                let merged = allow_commit(sender);
+                let commiter = match commiter {
+                    Some(commiter) => commiter,
+                    None => Commiter::Outsider(
+                        commit
+                            .update_path_leaf_node()
+                            .context("an outsider's commit without its leaf")?,
+                    ),
+                };
+                let merged = Self::is_head(&group, head, &commiter);
+                let from_outside = matches!(commiter, Commiter::Outsider(_));
+                let removed_me = merged && commit.self_removed();
                 if merged {
                     group
                         .merge_staged_commit(&self.provider, *commit)
                         .map_err(|error| anyhow!("merge the commit: {error:?}"))?;
                 }
-                Incoming::Commit { sender, merged }
+                Incoming::Commit {
+                    sender,
+                    merged,
+                    removed_me,
+                    from_outside,
+                }
             }
             _ => Incoming::Other,
         };
         self.persist()?;
         Ok(incoming)
+    }
+
+    /// Whether a commit comes from the head: from the head's leaf, or from
+    /// outside with the head's current signing key (nobody else has it).
+    fn is_head(group: &MlsGroup, head: Uuid, commiter: &Commiter<'_>) -> bool {
+        let head_leaf = group
+            .members()
+            .find(|member| device_of(&member.credential) == Some(head));
+        match commiter {
+            Commiter::Member(leaf) => head_leaf.is_some_and(|member| member.index == *leaf),
+            Commiter::Outsider(leaf) => {
+                device_of(leaf.credential()) == Some(head)
+                    && head_leaf.is_some_and(|member| {
+                        member.signature_key == leaf.signature_key().as_slice()
+                    })
+            }
+        }
+    }
+
+    // ---- for the head's recovery ------------------------------------------------------
+
+    /// This phone's signing key, for the head's recovery backup.
+    pub fn export_signer(&self) -> Result<Vec<u8>> {
+        Ok(serde_json::to_vec(&self.signer)?)
+    }
+
+    /// The group's public state with its tree: what a phone that lost
+    /// everything needs to come back by an external commit.
+    pub fn export_group_info(&self, family_id: Uuid) -> Result<Vec<u8>> {
+        self.group(family_id)?
+            .export_group_info(self.provider.crypto(), &self.signer, true)
+            .map_err(|error| anyhow!("export the group info: {error:?}"))?
+            .to_bytes()
+            .map_err(|error| anyhow!("encode the group info: {error:?}"))
+    }
+
+    /// Takes over a backed-up signing key (the lost phone's), so that this
+    /// phone can come back as the head.
+    pub fn adopt_signer(&mut self, signer: &[u8], device_id: Uuid) -> Result<()> {
+        let signer: SignatureKeyPair =
+            serde_json::from_slice(signer).context("read the backed-up signing key")?;
+        signer
+            .store(self.provider.storage())
+            .map_err(|error| anyhow!("store the signing key: {error:?}"))?;
+        self.secrets.write(SIGNER, signer.public())?;
+        self.credential = CredentialWithKey {
+            credential: BasicCredential::new(device_id.as_bytes().to_vec()).into(),
+            signature_key: signer.to_public_vec().into(),
+        };
+        self.signer = signer;
+        self.persist()
+    }
+
+    /// Comes back into the group from outside, by an external commit with
+    /// the (adopted) head key: the old leaf with that key is removed by the
+    /// same commit. The commit is for the relay; the group is merged already.
+    pub fn rejoin(&mut self, family_id: Uuid, group_info: &[u8]) -> Result<Vec<u8>> {
+        let group_info = match MlsMessageIn::tls_deserialize_exact(group_info)
+            .context("read the group info")?
+            .extract()
+        {
+            MlsMessageBodyIn::GroupInfo(group_info) => group_info,
+            _ => bail!("not a group info"),
+        };
+        ensure!(
+            group_info.group_id().as_slice() == family_id.as_bytes(),
+            "the group info is for another family"
+        );
+        let (group, bundle) = MlsGroup::external_commit_builder()
+            .with_config(Self::join_config())
+            .build_group(&self.provider, group_info, self.credential.clone())
+            .map_err(|error| anyhow!("prepare the external commit: {error:?}"))?
+            .load_psks(self.provider.storage())
+            .map_err(|error| anyhow!("prepare the external commit: {error:?}"))?
+            .build(
+                self.provider.rand(),
+                self.provider.crypto(),
+                &self.signer,
+                |_| true,
+            )
+            .map_err(|error| anyhow!("build the external commit: {error:?}"))?
+            .finalize(&self.provider)
+            .map_err(|error| anyhow!("finish the external commit: {error:?}"))?;
+        drop(group);
+        self.persist()?;
+        bundle
+            .commit()
+            .to_bytes()
+            .map_err(|error| anyhow!("encode the commit: {error:?}"))
+    }
+
+    /// Moves this phone to a fresh signing key, signed by the old one: after
+    /// this commit the lost phone's key is no longer the head's. Pending
+    /// until [`Self::merge_pending`]; the new key is kept aside until then.
+    pub fn rotate_signer(&mut self, family_id: Uuid, device_id: Uuid) -> Result<Vec<u8>> {
+        let scheme = CIPHERSUITE.signature_algorithm();
+        let fresh = SignatureKeyPair::new(scheme)
+            .map_err(|error| anyhow!("make a signing key: {error:?}"))?;
+        fresh
+            .store(self.provider.storage())
+            .map_err(|error| anyhow!("store the signing key: {error:?}"))?;
+        let credential = CredentialWithKey {
+            credential: BasicCredential::new(device_id.as_bytes().to_vec()).into(),
+            signature_key: fresh.to_public_vec().into(),
+        };
+        let mut group = self.group(family_id)?;
+        let bundle = group
+            .self_update_with_new_signer(
+                &self.provider,
+                &self.signer,
+                NewSignerBundle {
+                    signer: &fresh,
+                    credential_with_key: credential.clone(),
+                },
+                LeafNodeParameters::default(),
+            )
+            .map_err(|error| anyhow!("rotate the signing key: {error:?}"))?;
+        self.secrets.write(SIGNER_NEXT, fresh.public())?;
+        self.persist()?;
+        bundle
+            .commit()
+            .to_bytes()
+            .map_err(|error| anyhow!("encode the commit: {error:?}"))
+    }
+
+    /// The relay took the rotation commit: the fresh key is ours now.
+    pub fn merge_rotation(&mut self, family_id: Uuid, device_id: Uuid) -> Result<()> {
+        let scheme = CIPHERSUITE.signature_algorithm();
+        let public = self
+            .secrets
+            .read(SIGNER_NEXT)?
+            .context("no rotation is pending")?;
+        let fresh = SignatureKeyPair::read(self.provider.storage(), &public, scheme)
+            .context("the fresh signing key is gone")?;
+        self.merge_pending(family_id)?;
+        self.secrets.write(SIGNER, &public)?;
+        self.secrets.delete(SIGNER_NEXT)?;
+        self.credential = CredentialWithKey {
+            credential: BasicCredential::new(device_id.as_bytes().to_vec()).into(),
+            signature_key: fresh.to_public_vec().into(),
+        };
+        self.signer = fresh;
+        self.persist()
     }
 }
 
@@ -361,28 +569,134 @@ mod tests {
         head.create_group(family).expect("create");
 
         let key_package = joiner.key_package().expect("key package");
-        let (commit, welcome) = head.add_member(family, &key_package).expect("add");
+        assert!(
+            head.add_member(family, Uuid::new_v4(), &key_package)
+                .is_err(),
+            "a key package under another device's name is refused"
+        );
+        head.clear_pending(family).expect("clear");
+        let (commit, welcome) = head
+            .add_member(family, joiner_id, &key_package)
+            .expect("add");
         head.merge_pending(family).expect("merge");
         let (joined, sender) = joiner.join(&welcome).expect("join");
         assert_eq!((joined, sender), (family, head_id));
         assert_eq!(head.members(family).expect("members").len(), 2);
 
         let secret = head.encrypt(family, b"milk").expect("encrypt");
-        match joiner.decrypt(family, &secret, |_| false).expect("decrypt") {
+        match joiner.decrypt(family, &secret, head_id).expect("decrypt") {
             Incoming::Application { sender, bytes } => {
                 assert_eq!((sender, bytes.as_slice()), (head_id, b"milk".as_slice()));
             }
             _ => panic!("expected an application message"),
         }
         assert!(
-            stranger.decrypt(family, &secret, |_| false).is_err(),
+            stranger.decrypt(family, &secret, head_id).is_err(),
             "no group, no reading"
         );
         assert!(
-            joiner.decrypt(family, &commit, |_| true).is_err(),
+            joiner.decrypt(family, &commit, head_id).is_err(),
             "the commit that added us is not for us"
         );
-        let _ = joiner_id;
+    }
+
+    /// Head, one member in, and the member's view of the group.
+    fn family() -> (Mls, Uuid, Mls, Uuid, Uuid, Vec<tempfile::TempDir>) {
+        let family = Uuid::new_v4();
+        let (mut head, head_id, a) = phone("head");
+        let (mut member, member_id, b) = phone("member");
+        head.create_group(family).expect("create");
+        let key_package = member.key_package().expect("key package");
+        let (_, welcome) = head
+            .add_member(family, member_id, &key_package)
+            .expect("add");
+        head.merge_pending(family).expect("merge");
+        member.join(&welcome).expect("join");
+        (head, head_id, member, member_id, family, vec![a, b])
+    }
+
+    #[test]
+    fn only_the_heads_commits_count_and_a_removed_phone_reads_nothing_new() {
+        let (mut head, head_id, mut member, member_id, family, _dirs) = family();
+        let (mut third, third_id, _c) = phone("third");
+        let key_package = third.key_package().expect("key package");
+        let (added, welcome) = head
+            .add_member(family, third_id, &key_package)
+            .expect("add");
+        head.merge_pending(family).expect("merge");
+        third.join(&welcome).expect("join");
+        match member.decrypt(family, &added, head_id).expect("decrypt") {
+            Incoming::Commit { merged, .. } => assert!(merged, "the head added someone"),
+            _ => panic!("expected a commit"),
+        }
+
+        // The member tries to throw the head out: nobody listens.
+        let coup = member.remove_member(family, head_id).expect("commit");
+        match third.decrypt(family, &coup, head_id).expect("decrypt") {
+            Incoming::Commit { merged, .. } => assert!(!merged, "not from the head"),
+            _ => panic!("expected a commit"),
+        }
+        assert_eq!(third.members(family).expect("members").len(), 3);
+        member.clear_pending(family).expect("clear");
+
+        // The head removes the third: it is out, the member sees that.
+        let out = head.remove_member(family, third_id).expect("commit");
+        head.merge_pending(family).expect("merge");
+        match third.decrypt(family, &out, head_id).expect("decrypt") {
+            Incoming::Commit {
+                merged, removed_me, ..
+            } => assert!(merged && removed_me),
+            _ => panic!("expected a commit"),
+        }
+        let later = head.encrypt(family, b"after").expect("encrypt");
+        assert!(third.decrypt(family, &later, head_id).is_err());
+        assert_eq!(head.members(family).expect("members").len(), 2);
+        let _ = member_id;
+    }
+
+    #[test]
+    fn the_head_comes_back_from_a_backup_and_rotates_its_key() {
+        let (head, head_id, mut member, _member_id, family, _dirs) = family();
+        let signer = head.export_signer().expect("signer");
+        let group_info = head.export_group_info(family).expect("group info");
+        let (mut thief, _, _t) = phone("thief");
+
+        // A new phone with the backed-up key comes back; the member takes it
+        // for the head. A phone without the head's key is turned away.
+        let (mut back, _, _d) = phone("back");
+        back.adopt_signer(&signer, head_id).expect("adopt");
+        let commit = back.rejoin(family, &group_info).expect("rejoin");
+        match member.decrypt(family, &commit, head_id).expect("decrypt") {
+            Incoming::Commit { merged, .. } => assert!(merged, "the head's key"),
+            _ => panic!("expected a commit"),
+        }
+        assert_eq!(member.members(family).expect("members").len(), 2);
+        let hello = back.encrypt(family, b"back").expect("encrypt");
+        assert!(matches!(
+            member.decrypt(family, &hello, head_id).expect("decrypt"),
+            Incoming::Application { sender, .. } if sender == head_id
+        ));
+
+        // Now the head moves to a fresh key: the old one (still on the lost
+        // phone) is no longer the head's.
+        let rotation = back.rotate_signer(family, head_id).expect("rotate");
+        back.merge_rotation(family, head_id).expect("merge");
+        match member.decrypt(family, &rotation, head_id).expect("decrypt") {
+            Incoming::Commit { merged, .. } => assert!(merged),
+            _ => panic!("expected a commit"),
+        }
+        let fresh_info = back.export_group_info(family).expect("group info");
+        thief.adopt_signer(&signer, head_id).expect("adopt");
+        let stale = thief.rejoin(family, &fresh_info).expect("rejoin");
+        match member.decrypt(family, &stale, head_id).expect("decrypt") {
+            Incoming::Commit { merged, .. } => assert!(!merged, "the old key is out"),
+            _ => panic!("expected a commit"),
+        }
+        let after = back.encrypt(family, b"still me").expect("encrypt");
+        assert!(matches!(
+            member.decrypt(family, &after, head_id).expect("decrypt"),
+            Incoming::Application { sender, .. } if sender == head_id
+        ));
     }
 
     #[test]

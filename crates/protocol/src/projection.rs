@@ -18,6 +18,14 @@ pub struct Member {
     pub name: String,
     pub owner: bool,
     pub picture: Option<Picture>,
+    /// An AI agent, reading along until then.
+    pub agent_until: Option<DateTime<Utc>>,
+}
+
+impl Member {
+    pub fn is_agent(&self) -> bool {
+        self.agent_until.is_some()
+    }
 }
 
 /// A list people made. "Other" is not one of these: it is where tasks
@@ -189,6 +197,35 @@ impl Family {
         state
     }
 
+    /// The head of the family: whoever created it.
+    pub fn head(&self) -> Option<Uuid> {
+        self.members
+            .values()
+            .find(|member| member.owner)
+            .map(|member| member.device_id)
+    }
+
+    pub fn is_head(&self, device_id: Uuid) -> bool {
+        self.members
+            .get(&device_id)
+            .is_some_and(|member| member.owner)
+    }
+
+    pub fn is_agent(&self, device_id: Uuid) -> bool {
+        self.members
+            .get(&device_id)
+            .is_some_and(Member::is_agent)
+    }
+
+    /// The people in the family, without the AI agents.
+    pub fn people(&self) -> impl Iterator<Item = &Member> {
+        self.members.values().filter(|member| !member.is_agent())
+    }
+
+    pub fn agents(&self) -> impl Iterator<Item = &Member> {
+        self.members.values().filter(|member| member.is_agent())
+    }
+
     pub fn member_name(&self, device_id: Uuid) -> &str {
         self.members
             .get(&device_id)
@@ -280,6 +317,7 @@ impl Family {
                         name: owner_name.clone(),
                         owner: true,
                         picture: None,
+                        agent_until: None,
                     },
                 );
             }
@@ -289,8 +327,32 @@ impl Family {
                     name: String::new(),
                     owner: false,
                     picture: None,
+                    agent_until: None,
                 });
                 member.name = name.clone();
+            }
+            DomainEvent::MemberRemoved { member_id } => {
+                if self.is_head(by) && *member_id != by {
+                    self.members.remove(member_id);
+                }
+            }
+            DomainEvent::AgentAdmitted {
+                member_id,
+                name,
+                until,
+            } => {
+                if self.is_head(by) && *member_id != by {
+                    self.members.insert(
+                        *member_id,
+                        Member {
+                            device_id: *member_id,
+                            name: name.clone(),
+                            owner: false,
+                            picture: None,
+                            agent_until: Some(*until),
+                        },
+                    );
+                }
             }
             DomainEvent::MemberRenamed { name } => {
                 if let Some(member) = self.members.get_mut(&by) {

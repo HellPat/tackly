@@ -21,6 +21,16 @@ pub struct Membership {
     pub registered: bool,
     pub owner: bool,
     pub name: String,
+    /// An AI agent: reads along, sends nothing.
+    #[serde(default)]
+    pub agent: bool,
+    /// The head took this phone out of the family.
+    #[serde(default)]
+    pub removed: bool,
+    /// The head's phone came back from a backup and takes the history from
+    /// any member, until the first snapshot is in.
+    #[serde(default)]
+    pub restoring: bool,
 }
 
 impl Membership {

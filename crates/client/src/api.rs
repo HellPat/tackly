@@ -1,6 +1,7 @@
 //! Typed HTTP client for the sync relay.
 
 use anyhow::{Result, bail};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use reqwest::{Client, RequestBuilder, Response, StatusCode};
 use reqwest_eventsource::EventSource;
 use serde::{Serialize, de::DeserializeOwned};
@@ -173,6 +174,56 @@ impl Api {
             .delete(self.url(&format!("/v1/families/{family}/invites/{invite}")))
             .bearer_auth(token);
         self.send(request).await
+    }
+
+    /// The head takes a device's access to the relay away.
+    pub async fn revoke_device(&self, family: Uuid, token: &str, device: Uuid) -> Result<()> {
+        let request = self
+            .http
+            .delete(self.url(&format!("/v1/families/{family}/devices/{device}")))
+            .bearer_auth(token);
+        self.send::<serde_json::Value>(request).await?;
+        Ok(())
+    }
+
+    /// This device moves to a new token.
+    pub async fn rotate_token(&self, family: Uuid, token: &str, new_token: &str) -> Result<()> {
+        let path = format!("/v1/families/{family}/token");
+        let body = RotateToken {
+            token_hash: token_hash(new_token),
+        };
+        self.send::<serde_json::Value>(self.post(&path, Some(token), &body))
+            .await?;
+        Ok(())
+    }
+
+    /// Leaves the head's sealed recovery backup with the relay.
+    pub async fn put_recovery(&self, family: Uuid, token: &str, id: &str, blob: &[u8]) -> Result<()> {
+        let request = self
+            .http
+            .put(self.url(&format!("/v1/families/{family}/recovery/{id}")))
+            .bearer_auth(token)
+            .json(&RecoveryBlob {
+                blob: URL_SAFE_NO_PAD.encode(blob),
+            });
+        self.send::<serde_json::Value>(request).await?;
+        Ok(())
+    }
+
+    pub async fn delete_recovery(&self, family: Uuid, token: &str, id: &str) -> Result<()> {
+        let request = self
+            .http
+            .delete(self.url(&format!("/v1/families/{family}/recovery/{id}")))
+            .bearer_auth(token);
+        self.send::<serde_json::Value>(request).await?;
+        Ok(())
+    }
+
+    /// The backup, for a phone that knows the recovery code (and so the ID).
+    pub async fn get_recovery(&self, id: &str) -> Result<Vec<u8>> {
+        let request = self.http.get(self.url(&format!("/v1/recovery/{id}")));
+        let blob: RecoveryBlob = self.send(request).await?;
+        Ok(URL_SAFE_NO_PAD.decode(blob.blob)?)
     }
 
     pub async fn request_join(&self, invite: Uuid, body: &InviteProof) -> Result<InviteStatus> {
