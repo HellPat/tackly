@@ -136,6 +136,7 @@ const state = {
     { id: 'i7', title: 'Shampoo', list: 'drugstore', at: ['dm', 'lidl'] },
   ],
   trip: null, // { task, step: 'where' | 'shop', chosen: [store ids] }
+  dismissed: new Set(), // swiped away in this Upcoming round: hidden until the next one
   order: { today: [], tomorrow: [] }, // the order of the focus, as refs ('t:1', 'p:food'); new ones go last
   reorder: false, // showing ↑ ↓ on the focus instead of dragging
 };
@@ -326,7 +327,7 @@ function donePanel() {
   </section>`;
 }
 
-/* Tomorrow (plan mode): tomorrow's focus on top (the free slots), then my open problems, then what is left over.
+/* Upcoming (plan mode): the upcoming focus on top (the free slots), then my open problems, then what is left over.
    Anything below moves up into a free slot: tap its arrow, or drag it by the handle. Up there, it moves back the same way. */
 const leftovers = () => state.tasks.filter((t) => open(t) && t.day !== 'tomorrow'
   && ((t.day === 'today' && t.on === me.id) || (t.overdue && !t.day && (t.on === me.id || !t.on))));
@@ -334,7 +335,7 @@ function planRow(ref, lead, title, sub, inFocus, full, order = '') {
   const move = order || (inFocus
     ? `<button class="size-11 shrink-0 grid place-items-center rounded-full text-stone-600 hover:bg-stone-100" data-unfocus="${ref}" aria-label="Move ${title} back">${icon('arrow_downward')}</button>`
     : `<button class="size-11 shrink-0 grid place-items-center rounded-full ${full ? 'text-stone-300' : 'text-accent-700 hover:bg-accent-50'}" data-focus="${ref}" aria-label="Move ${title} into focus" ${full ? 'aria-disabled="true"' : ''}>${icon('arrow_upward')}</button>`);
-  return `<li class="${CARD} mb-2 flex items-center gap-2 pl-1 pr-1 min-h-16" data-ref="${ref}">
+  return `<li class="${CARD} mb-2 flex items-center gap-2 pl-1 pr-1 min-h-16 ${inFocus ? '' : 'touch-pan-y'}" data-ref="${ref}" ${inFocus ? '' : 'data-swipe'}>
     <span class="size-11 shrink-0 grid place-items-center text-stone-400 touch-none cursor-grab active:cursor-grabbing" data-drag aria-hidden="true">${icon('drag_indicator')}</span>
     ${lead}<span class="flex-1 min-w-0"><span class="block truncate">${title}</span>${sub ? `<span class="block text-sm text-stone-600 truncate">${sub}</span>` : ''}</span>${move}</li>`;
 }
@@ -349,17 +350,17 @@ function renderTomorrow() {
   });
   const free = Array.from({ length: SLOTS - inFocus.length }, () => `<li class="mb-2 flex items-center gap-3 pl-4 pr-3 min-h-16 rounded-2xl border-2 border-dashed border-stone-400/70 bg-white/40 text-stone-600">
     <span class="size-6 rounded-full border-2 border-dashed border-stone-400"></span><span class="flex-1">Free slot</span></li>`).join('');
-  const problems = myProblems().filter((k) => k.focus !== 'tomorrow');
-  const rest = leftovers();
+  const problems = myProblems().filter((k) => k.focus !== 'tomorrow' && !state.dismissed.has(`p:${k.id}`));
+  const rest = leftovers().filter((t) => !state.dismissed.has(`t:${t.id}`));
   const pool = `${problems.length ? `${heading('Problems')}<ul>${problems.map((k) => planRow(`p:${k.id}`, problemIcon(k), k.title, openFor(k), false, full)).join('')}</ul>` : ''}
     ${rest.length ? `${heading('Left over')}<ul>${rest.map((t) => planRow(`t:${t.id}`, taskLead(), t.title, t.day === 'today' ? 'From today' : 'Overdue', false, full)).join('')}</ul>` : ''}
     ${!problems.length && !rest.length ? '<p class="py-8 text-center text-stone-600">Nothing left over. Fresh start tomorrow.</p>' : ''}`;
-  return `${heading(`Tomorrow’s focus <span class="font-normal text-stone-500">${inFocus.length}/${SLOTS}</span>`, reorderToggle(inFocus.length))}
+  return `${heading(`Focus <span class="font-normal text-stone-500">${inFocus.length}/${SLOTS}</span>`, reorderToggle(inFocus.length))}
     <ul id="focusZone" class="rounded-2xl transition-shadow">${inFocus.join('')}${free}</ul>
     <div id="planPool" class="rounded-2xl transition-shadow">${pool}</div>`;
 }
 function moveIntoFocus(ref) {
-  if (!freeSlots('tomorrow')) { toast('Tomorrow’s focus is full. Move one back first.'); return false; }
+  if (!freeSlots('tomorrow')) { toast('The focus is full. Move one back first.'); return false; }
   const [kind, id] = ref.split(':');
   if (kind === 't') { const t = find(id); t.prevDay = t.day; t.day = 'tomorrow'; t.on = me.id; }
   else kindById(id).focus = 'tomorrow';
@@ -370,6 +371,32 @@ function moveBack(ref) {
   if (kind === 't') { const t = find(id); t.day = t.prevDay ?? null; }
   else kindById(id).focus = null;
 }
+/* Swipe a row below the focus to the right: gone for this Upcoming round (Undo in the toast). */
+let swipe = null;
+document.addEventListener('pointerdown', (e) => {
+  const row = e.target.closest('[data-swipe]');
+  if (!row || e.target.closest('[data-drag], button')) return;
+  swipe = { row, x: e.clientX, y: e.clientY, dx: 0 };
+});
+document.addEventListener('pointermove', (e) => {
+  if (!swipe) return;
+  swipe.dx = Math.max(0, e.clientX - swipe.x);
+  if (Math.abs(e.clientY - swipe.y) > 24 && swipe.dx < 24) { swipe.row.style.transform = ''; swipe = null; return; } // scrolling
+  Object.assign(swipe.row.style, { transform: `translateX(${swipe.dx}px)`, opacity: String(1 - swipe.dx / 400), transition: 'none' });
+});
+document.addEventListener('pointerup', () => {
+  if (!swipe) return;
+  const { row, dx } = swipe; swipe = null;
+  Object.assign(row.style, { transition: 'transform .2s, opacity .2s' });
+  if (dx < 110) { Object.assign(row.style, { transform: '', opacity: '' }); return; }
+  Object.assign(row.style, { transform: 'translateX(110%)', opacity: '0' });
+  const ref = row.dataset.ref, title = row.querySelector('.truncate')?.textContent ?? 'It';
+  setTimeout(() => {
+    state.dismissed.add(ref); render();
+    toast(`${title}: not this time`, 'Undo', () => { state.dismissed.delete(ref); render(); });
+  }, 200);
+});
+
 /* Drag by the handle (mouse, pen or finger): within the focus it reorders; in plan mode, dropped on the focus it moves
    up (where it is dropped), dropped below it moves back. */
 const dropIndex = (zone, e, ref) => [...zone.querySelectorAll('[data-ref]')].filter((r) => r.dataset.ref !== ref)
@@ -520,7 +547,7 @@ function renderDock() {
 }
 function render() {
   const view = state.view === 'tomorrow' ? 'tomorrow' : state.tab === 'today' ? state.view : state.tab === 'problems' && state.edit ? 'edit' : state.tab === 'problems' && state.problem ? 'problem' : ['problems', 'family'].includes(state.tab) ? state.tab : 'other';
-  $('#title').textContent = { today: 'Today', tomorrow: 'Tomorrow', pick: 'Pick more', problems: 'Problems', problem: state.problem && kindById(state.problem).title, edit: 'Edit problem', family: 'Family', other: state.tab[0].toUpperCase() + state.tab.slice(1) }[view];
+  $('#title').textContent = { today: 'Today', tomorrow: 'Upcoming', pick: 'Pick more', problems: 'Problems', problem: state.problem && kindById(state.problem).title, edit: 'Edit problem', family: 'Family', other: state.tab[0].toUpperCase() + state.tab.slice(1) }[view];
   $('#meBtn').innerHTML = avatar(me, 'size-10');
   $('#subtitle').textContent = view === 'tomorrow' ? dateLabel(1) : '';
   const back = ['pick', 'family', 'edit', 'problem'].includes(view);
@@ -600,7 +627,7 @@ document.addEventListener('click', (e) => {
     // Tomorrow becomes today (in the prototype, at once).
     state.tasks.forEach((t) => { if (t.day === 'today' && open(t) && t.on === me.id) t.day = null; if (t.day === 'tomorrow') t.day = 'today'; });
     problemKinds.forEach((k) => { k.focus = k.focus === 'tomorrow' ? 'today' : null; });
-    state.order = { today: state.order.tomorrow, tomorrow: [] }; state.reorder = false;
+    state.order = { today: state.order.tomorrow, tomorrow: [] }; state.reorder = false; state.dismissed.clear();
     state.view = 'today'; state.tasks.forEach((t) => (t.doneToday = false)); toast('Planned. See you tomorrow.');
   }
   else if (d.pick) { state.celebrate = false; state.view = 'pick'; }
