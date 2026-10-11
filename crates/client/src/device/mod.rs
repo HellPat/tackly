@@ -4,12 +4,14 @@
 //! The work is split by what it is about:
 //! - [`tasks`]: commands a person gives (add, take, start, pause, finish, lists, their name)
 //! - [`places`]: groups of places, places, and which task belongs where
+//! - [`problems`]: problems with their solutions, and each person's plan for a day
 //! - [`pairing`]: inviting someone, and joining
 //! - [`sync`]: uploading local events and downloading the others'
 
 mod membership;
 mod pairing;
 mod places;
+mod problems;
 mod sync;
 mod tasks;
 

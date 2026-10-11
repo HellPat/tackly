@@ -5,6 +5,7 @@ mod support;
 
 use support::*;
 use tackly_protocol::{DomainEvent as Happened, FamilyCommand as Do, FamilyError};
+use uuid::Uuid;
 
 // ---- tasks and lists -------------------------------------------------------------------
 
@@ -25,6 +26,8 @@ fn a_new_task_lands_in_other() {
                 list_id: None,
                 title: "Milk".into(),
                 place_ids: vec![],
+                problem_id: None,
+                trip: false,
             },
         )]);
 }
@@ -59,6 +62,8 @@ fn a_task_can_go_into_a_list_that_exists() {
                 list_id: Some(SHOPPING),
                 title: "Milk".into(),
                 place_ids: vec![],
+                problem_id: None,
+                trip: false,
             },
         )]);
 }
@@ -77,6 +82,8 @@ fn a_list_with_open_tasks_cannot_be_deleted() {
                         list_id: Some(SHOPPING),
                         title: "Milk".into(),
                         place_ids: vec![],
+                        problem_id: None,
+                        trip: false,
                     },
                 ),
             ],
@@ -537,4 +544,243 @@ fn only_a_jpeg_is_a_photo() {
             picture: not_a_jpeg,
         })
         .then_expect_error(FamilyError::BadPhoto);
+}
+
+// ---- problems -----------------------------------------------------------------------------------
+
+#[test]
+fn a_problem_is_created_with_its_solutions() {
+    as_member(PATRICK)
+        .given(the_smiths())
+        .when(Do::CreateProblem {
+            problem_id: OUT_OF_FOOD,
+            title: " Out of food ".into(),
+            icon: "kitchen".into(),
+            solutions: vec![go_shopping(), cook_pasta()],
+        })
+        .then_expect_events(out_of_food());
+}
+
+#[test]
+fn noticing_a_problem_makes_a_step_of_each_solution_for_me() {
+    as_member(PATRICK)
+        .given(given(vec![the_smiths(), out_of_food()]))
+        .when(Do::NoticeProblem {
+            problem_id: OUT_OF_FOOD,
+            member_id: PATRICK,
+            task_ids: vec![SHOPPING_TRIP, PASTA],
+        })
+        .then_expect_events(out_of_food_noticed_for(PATRICK));
+}
+
+#[test]
+fn raising_a_problem_gives_its_steps_to_someone_else() {
+    as_member(PATRICK)
+        .given(given(vec![the_smiths(), out_of_food()]))
+        .when(Do::NoticeProblem {
+            problem_id: OUT_OF_FOOD,
+            member_id: MONA,
+            task_ids: vec![SHOPPING_TRIP, PASTA],
+        })
+        .then_expect_events(out_of_food_noticed_for(MONA));
+}
+
+#[test]
+fn an_open_problem_is_not_noticed_twice() {
+    as_member(MONA)
+        .given(given(vec![
+            the_smiths(),
+            out_of_food(),
+            out_of_food_noticed_for(PATRICK),
+        ]))
+        .when(Do::NoticeProblem {
+            problem_id: OUT_OF_FOOD,
+            member_id: MONA,
+            task_ids: vec![Uuid::from_u128(0x80), Uuid::from_u128(0x81)],
+        })
+        .then_expect_error(FamilyError::ProblemOpen);
+}
+
+#[test]
+fn noticing_needs_one_new_task_per_solution() {
+    as_member(PATRICK)
+        .given(given(vec![the_smiths(), out_of_food()]))
+        .when(Do::NoticeProblem {
+            problem_id: OUT_OF_FOOD,
+            member_id: PATRICK,
+            task_ids: vec![SHOPPING_TRIP],
+        })
+        .then_expect_error(FamilyError::WrongSteps);
+}
+
+#[test]
+fn assigning_a_problem_hands_over_its_open_steps() {
+    as_member(PATRICK)
+        .given(given(vec![
+            the_smiths(),
+            out_of_food(),
+            out_of_food_noticed_for(PATRICK),
+            vec![by(
+                PATRICK,
+                PASTA,
+                Happened::TaskCompleted { location: None },
+            )],
+        ]))
+        .when(Do::AssignProblem {
+            problem_id: OUT_OF_FOOD,
+            member_id: MARA,
+        })
+        .then_expect_events(vec![
+            by(
+                PATRICK,
+                OUT_OF_FOOD,
+                Happened::ProblemAssigned { member_id: MARA },
+            ),
+            by(
+                PATRICK,
+                SHOPPING_TRIP,
+                Happened::TaskAssigned {
+                    member_id: Some(MARA),
+                },
+            ),
+        ]);
+}
+
+#[test]
+fn a_new_solution_of_an_open_problem_is_a_step_right_away() {
+    let tidy_up = tackly_protocol::Solution {
+        id: Uuid::from_u128(0x63),
+        title: "Write a shopping list".into(),
+        trip: false,
+    };
+    let task_id = Uuid::from_u128(0x72);
+    let mut expected = vec![by(
+        MONA,
+        OUT_OF_FOOD,
+        Happened::ProblemSolutionAdded {
+            solution: tidy_up.clone(),
+        },
+    )];
+    expected.extend(step(
+        MONA,
+        OUT_OF_FOOD,
+        task_id,
+        "Write a shopping list",
+        false,
+        PATRICK,
+    ));
+    as_member(MONA)
+        .given(given(vec![
+            the_smiths(),
+            out_of_food(),
+            out_of_food_noticed_for(PATRICK),
+        ]))
+        .when(Do::AddSolution {
+            problem_id: OUT_OF_FOOD,
+            solution: tidy_up,
+            task_id,
+        })
+        .then_expect_events(expected);
+}
+
+#[test]
+fn a_problem_is_resolved_by_hand_and_undo_reopens_it() {
+    let open = given(vec![
+        the_smiths(),
+        out_of_food(),
+        out_of_food_noticed_for(PATRICK),
+    ]);
+    as_member(PATRICK)
+        .given(open.clone())
+        .when(Do::ResolveProblem {
+            problem_id: OUT_OF_FOOD,
+        })
+        .then_expect_events(vec![by(PATRICK, OUT_OF_FOOD, Happened::ProblemResolved)]);
+    let mut resolved = open;
+    resolved.push(by(PATRICK, OUT_OF_FOOD, Happened::ProblemResolved));
+    as_member(PATRICK)
+        .given(resolved)
+        .when(Do::ReopenProblem {
+            problem_id: OUT_OF_FOOD,
+        })
+        .then_expect_events(vec![by(PATRICK, OUT_OF_FOOD, Happened::ProblemReopened)]);
+}
+
+#[test]
+fn a_problem_that_is_not_open_cannot_be_resolved() {
+    as_member(PATRICK)
+        .given(given(vec![the_smiths(), out_of_food()]))
+        .when(Do::ResolveProblem {
+            problem_id: OUT_OF_FOOD,
+        })
+        .then_expect_error(FamilyError::ProblemNotOpen);
+}
+
+// ---- plans --------------------------------------------------------------------------------------
+
+fn tomorrow() -> chrono::NaiveDate {
+    nine_o_clock().date_naive() + chrono::Duration::days(1)
+}
+
+#[test]
+fn planning_a_day_takes_free_tasks_and_keeps_my_order() {
+    as_member(PATRICK)
+        .given(given(vec![
+            the_smiths(),
+            vec![
+                task(MILK, "Milk"),
+                task(DISHES, "Dishes"),
+                by(
+                    PATRICK,
+                    DISHES,
+                    Happened::TaskAssigned {
+                        member_id: Some(PATRICK),
+                    },
+                ),
+            ],
+        ]))
+        .when(Do::PlanDay {
+            day: tomorrow(),
+            task_ids: vec![DISHES, MILK, DISHES],
+        })
+        .then_expect_events(vec![
+            by(
+                PATRICK,
+                MILK,
+                Happened::TaskAssigned {
+                    member_id: Some(PATRICK),
+                },
+            ),
+            by(
+                PATRICK,
+                PATRICK,
+                Happened::DayPlanned {
+                    day: tomorrow(),
+                    task_ids: vec![DISHES, MILK],
+                },
+            ),
+        ]);
+}
+
+#[test]
+fn someone_elses_task_cannot_be_in_my_plan() {
+    as_member(PATRICK)
+        .given(given(vec![
+            the_smiths(),
+            vec![
+                task(DISHES, "Dishes"),
+                by(
+                    MONA,
+                    DISHES,
+                    Happened::TaskAssigned {
+                        member_id: Some(MONA),
+                    },
+                ),
+            ],
+        ]))
+        .when(Do::PlanDay {
+            day: tomorrow(),
+            task_ids: vec![DISHES],
+        })
+        .then_expect_error(FamilyError::Taken);
 }

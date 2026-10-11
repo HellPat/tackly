@@ -5,7 +5,14 @@ mod support;
 
 use chrono::Duration;
 use support::*;
-use tackly_protocol::{DomainEvent as Happened, Progress};
+use tackly_protocol::{DomainEvent as Happened, FamilyEvent, Progress};
+use uuid::Uuid;
+
+/// The same event, `minutes` after 9:00.
+fn later(mut event: FamilyEvent, minutes: i64) -> FamilyEvent {
+    event.occurred_at = nine_o_clock() + Duration::minutes(minutes);
+    event
+}
 
 #[test]
 fn tasks_without_a_list_are_in_other() {
@@ -25,6 +32,8 @@ fn a_task_for_a_list_that_is_gone_ends_up_in_other() {
                 list_id: Some(SHOPPING),
                 title: "Milk".into(),
                 place_ids: vec![],
+                problem_id: None,
+                trip: false,
             },
         )],
     ]));
@@ -173,6 +182,8 @@ fn a_deleted_place_disappears_from_its_tasks() {
                     list_id: None,
                     title: "Milk".into(),
                     place_ids: vec![LIDL],
+                    problem_id: None,
+                    trip: false,
                 },
             ),
             by(PATRICK, LIDL, Happened::PlaceDeleted),
@@ -223,4 +234,151 @@ fn members_names_and_pictures_follow_their_changes() {
         Some("pets")
     );
     assert!(family.members[&PATRICK].owner);
+}
+
+// ---- problems and plans ---------------------------------------------------------------------------
+
+#[test]
+fn an_open_problem_shows_its_steps_and_who_has_it() {
+    let family = replay(&given(vec![
+        the_smiths(),
+        out_of_food(),
+        out_of_food_noticed_for(MONA),
+    ]));
+    let problem = &family.problems[&OUT_OF_FOOD];
+    assert_eq!(problem.holder(), Some(MONA));
+    let steps: Vec<(&str, bool)> = family
+        .steps(OUT_OF_FOOD)
+        .map(|task| (task.title.as_str(), task.trip))
+        .collect();
+    assert_eq!(steps, vec![("Go shopping", true), ("Cook pasta", false)]);
+    assert_eq!(
+        family.open_tasks_in(None).count(),
+        0,
+        "steps are not in Other"
+    );
+}
+
+#[test]
+fn a_resolved_problem_hides_its_steps_and_reopening_brings_them_back() {
+    let mut events = given(vec![
+        the_smiths(),
+        out_of_food(),
+        out_of_food_noticed_for(PATRICK),
+    ]);
+    events.push(by_at(PATRICK, OUT_OF_FOOD, 5, Happened::ProblemResolved));
+    let resolved = replay(&events);
+    assert_eq!(resolved.open_problems().count(), 0);
+    assert_eq!(resolved.steps(OUT_OF_FOOD).count(), 0);
+
+    events.push(by_at(PATRICK, OUT_OF_FOOD, 6, Happened::ProblemReopened));
+    assert_eq!(replay(&events).steps(OUT_OF_FOOD).count(), 2);
+}
+
+#[test]
+fn noticed_again_it_has_only_the_new_steps() {
+    let mut events = given(vec![
+        the_smiths(),
+        out_of_food(),
+        out_of_food_noticed_for(PATRICK),
+    ]);
+    events.push(by_at(PATRICK, OUT_OF_FOOD, 5, Happened::ProblemResolved));
+    events.push(by_at(
+        PATRICK,
+        OUT_OF_FOOD,
+        60,
+        Happened::ProblemNoticed { member_id: MONA },
+    ));
+    for event in step(
+        PATRICK,
+        OUT_OF_FOOD,
+        Uuid::from_u128(0x90),
+        "Go shopping",
+        true,
+        MONA,
+    ) {
+        events.push(later(event, 60));
+    }
+    let family = replay(&events);
+    let steps: Vec<Uuid> = family.steps(OUT_OF_FOOD).map(|task| task.id).collect();
+    assert_eq!(steps, vec![Uuid::from_u128(0x90)]);
+    assert_eq!(family.problems[&OUT_OF_FOOD].holder(), Some(MONA));
+}
+
+#[test]
+fn a_plan_is_my_focus_in_my_order_without_what_is_done() {
+    let day = nine_o_clock().date_naive();
+    let family = replay(&given(vec![
+        the_smiths(),
+        vec![
+            task(MILK, "Milk"),
+            task(DISHES, "Dishes"),
+            by(
+                PATRICK,
+                MILK,
+                Happened::TaskAssigned {
+                    member_id: Some(PATRICK),
+                },
+            ),
+            by(
+                PATRICK,
+                DISHES,
+                Happened::TaskAssigned {
+                    member_id: Some(PATRICK),
+                },
+            ),
+            by(
+                PATRICK,
+                PATRICK,
+                Happened::DayPlanned {
+                    day,
+                    task_ids: vec![DISHES, MILK],
+                },
+            ),
+        ],
+    ]));
+    let focus: Vec<&str> = family
+        .focus(PATRICK, day)
+        .iter()
+        .map(|t| t.title.as_str())
+        .collect();
+    assert_eq!(focus, vec!["Dishes", "Milk"]);
+
+    let done = replay(&given(vec![
+        the_smiths(),
+        vec![
+            task(MILK, "Milk"),
+            task(DISHES, "Dishes"),
+            by(
+                PATRICK,
+                MILK,
+                Happened::TaskAssigned {
+                    member_id: Some(PATRICK),
+                },
+            ),
+            by(
+                PATRICK,
+                DISHES,
+                Happened::TaskAssigned {
+                    member_id: Some(PATRICK),
+                },
+            ),
+            by(
+                PATRICK,
+                PATRICK,
+                Happened::DayPlanned {
+                    day,
+                    task_ids: vec![DISHES, MILK],
+                },
+            ),
+            by(PATRICK, DISHES, Happened::TaskCompleted { location: None }),
+        ],
+    ]));
+    let focus: Vec<&str> = done
+        .focus(PATRICK, day)
+        .iter()
+        .map(|t| t.title.as_str())
+        .collect();
+    assert_eq!(focus, vec!["Milk"]);
+    assert!(done.plan(MONA, day).is_none(), "Mona has not planned");
 }

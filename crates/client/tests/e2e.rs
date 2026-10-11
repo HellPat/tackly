@@ -418,6 +418,78 @@ async fn a_photo_as_picture_syncs_and_a_bad_one_is_refused() -> Result<()> {
 }
 
 #[tokio::test]
+async fn a_raised_problem_and_a_plan_sync_to_everyone() -> Result<()> {
+    let dir = scratch_dir("problems")?;
+    let mut relay = Relay::reserve(&dir)?;
+    relay.start().await?;
+    let (patrick, mona, mara) = family_of_three(&dir, &relay).await?;
+    let mona_id = mona.id().await;
+
+    // Patrick knows the problem and raises it for Mona.
+    let problem = {
+        let mut device = patrick.device.lock().await;
+        let problem = device
+            .create_problem(
+                "Out of food",
+                "kitchen",
+                &[("Go shopping", true), ("Cook pasta", false)],
+            )
+            .await?;
+        device.notice_problem(problem, mona_id).await?;
+        problem
+    };
+    // Mona has it, with both steps.
+    eventually("Mona has the problem and its steps", || async {
+        let state = mona.state().await?;
+        Ok(
+            state.problems.get(&problem).and_then(|p| p.holder()) == Some(mona_id)
+                && state
+                    .steps(problem)
+                    .filter(|t| t.assignee == Some(mona_id))
+                    .count()
+                    == 2,
+        )
+    })
+    .await?;
+    let shopping = mona.task_id("Go shopping").await?;
+    ensure!(
+        mona.state().await?.tasks[&shopping].trip,
+        "going shopping is a trip"
+    );
+
+    // She plans tomorrow with one step and a free task, in her order.
+    let free = patrick.add_task("Water the plants").await?;
+    eventually("Mona sees the free task", || async {
+        Ok(mona.state().await?.tasks.contains_key(&free))
+    })
+    .await?;
+    let tomorrow = chrono::Utc::now().date_naive() + chrono::Duration::days(1);
+    mona.device
+        .lock()
+        .await
+        .plan_day(tomorrow, &[free, shopping])
+        .await?;
+    eventually(
+        "the others see Mona's plan and that the free task is hers",
+        || async {
+            let state = mara.state().await?;
+            Ok(state.plan(mona_id, tomorrow) == Some(&[free, shopping][..])
+                && state.tasks[&free].assignee == Some(mona_id))
+        },
+    )
+    .await?;
+
+    // She resolves it; nobody sees it open any more.
+    mona.device.lock().await.resolve_problem(problem).await?;
+    eventually("Patrick sees it resolved", || async {
+        let state = patrick.state().await?;
+        Ok(state.open_problems().count() == 0 && state.steps(problem).count() == 0)
+    })
+    .await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn places_and_their_tasks_sync_to_everyone() -> Result<()> {
     let dir = scratch_dir("places")?;
     let mut relay = Relay::reserve(&dir)?;

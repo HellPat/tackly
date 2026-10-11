@@ -4,11 +4,11 @@
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use cqrs_es::{Aggregate, event_sink::EventSink};
 use uuid::Uuid;
 
-use crate::{DomainEvent, Family, FamilyEvent, GeoPoint, Picture, PlaceLocation};
+use crate::{DomainEvent, Family, FamilyEvent, GeoPoint, Picture, PlaceLocation, Solution};
 
 #[derive(Clone, Debug)]
 pub enum FamilyCommand {
@@ -121,6 +121,53 @@ pub enum FamilyCommand {
     ReopenTask {
         task_id: Uuid,
     },
+
+    /// A problem the family knows from now on, with its solutions.
+    CreateProblem {
+        problem_id: Uuid,
+        title: String,
+        icon: String,
+        solutions: Vec<Solution>,
+    },
+    RenameProblem {
+        problem_id: Uuid,
+        title: String,
+    },
+    /// While the problem is open, the new solution is a step right away: `task_id`.
+    AddSolution {
+        problem_id: Uuid,
+        solution: Solution,
+        task_id: Uuid,
+    },
+    RemoveSolution {
+        problem_id: Uuid,
+        solution_id: Uuid,
+    },
+    /// Noticed for yourself, or raised for someone else. One new task per
+    /// solution, in order: `task_ids`.
+    NoticeProblem {
+        problem_id: Uuid,
+        member_id: Uuid,
+        task_ids: Vec<Uuid>,
+    },
+    /// Someone else has it from now on, with its open steps.
+    AssignProblem {
+        problem_id: Uuid,
+        member_id: Uuid,
+    },
+    ResolveProblem {
+        problem_id: Uuid,
+    },
+    /// Undo of resolving.
+    ReopenProblem {
+        problem_id: Uuid,
+    },
+
+    /// My focus for a day, in order. Free tasks become mine.
+    PlanDay {
+        day: NaiveDate,
+        task_ids: Vec<Uuid>,
+    },
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -161,7 +208,20 @@ pub enum FamilyError {
     NotWorking,
     #[error("only who finished it can undo that")]
     NotYours,
+    #[error("unknown problem")]
+    UnknownProblem,
+    #[error("the problem is already open")]
+    ProblemOpen,
+    #[error("the problem is not open")]
+    ProblemNotOpen,
+    #[error("one new task per solution")]
+    WrongSteps,
+    #[error("a day holds at most {MAX_FOCUS} tasks")]
+    TooMuch,
 }
+
+/// The most tasks one day's plan may hold. The app asks for fewer (3 by default).
+pub const MAX_FOCUS: usize = 10;
 
 /// Who is acting, what time it is, and where new event IDs come from. On a
 /// phone: the system clock and random IDs. In tests: fixed, so expected events
@@ -394,6 +454,8 @@ impl Family {
                         list_id,
                         title: not_empty(&title)?,
                         place_ids,
+                        problem_id: None,
+                        trip: false,
                     },
                 )
             }
@@ -476,8 +538,183 @@ impl Family {
                 }
                 one(task_id, E::TaskReopened)
             }
+
+            C::CreateProblem {
+                problem_id,
+                title,
+                icon,
+                solutions,
+            } => {
+                let mut events = vec![(
+                    problem_id,
+                    E::ProblemCreated {
+                        title: not_empty(&title)?,
+                        icon,
+                    },
+                )];
+                for mut solution in solutions {
+                    solution.title = not_empty(&solution.title)?;
+                    events.push((problem_id, E::ProblemSolutionAdded { solution }));
+                }
+                Ok(events)
+            }
+            C::RenameProblem { problem_id, title } => {
+                self.problem(problem_id)?;
+                one(
+                    problem_id,
+                    E::ProblemRenamed {
+                        title: not_empty(&title)?,
+                    },
+                )
+            }
+            C::AddSolution {
+                problem_id,
+                mut solution,
+                task_id,
+            } => {
+                let problem = self.problem(problem_id)?;
+                solution.title = not_empty(&solution.title)?;
+                let mut events = vec![];
+                if let Some(holder) = problem.holder() {
+                    events.extend(step(problem_id, &solution, task_id, holder));
+                }
+                events.insert(0, (problem_id, E::ProblemSolutionAdded { solution }));
+                Ok(events)
+            }
+            C::RemoveSolution {
+                problem_id,
+                solution_id,
+            } => {
+                self.problem(problem_id)?;
+                one(problem_id, E::ProblemSolutionRemoved { solution_id })
+            }
+            C::NoticeProblem {
+                problem_id,
+                member_id,
+                task_ids,
+            } => {
+                let problem = self.problem(problem_id)?;
+                if problem.open {
+                    return Err(FamilyError::ProblemOpen);
+                }
+                self.members
+                    .get(&member_id)
+                    .ok_or(FamilyError::UnknownMember)?;
+                if task_ids.len() != problem.solutions.len() {
+                    return Err(FamilyError::WrongSteps);
+                }
+                let mut events = vec![(problem_id, E::ProblemNoticed { member_id })];
+                for (solution, task_id) in problem.solutions.iter().zip(task_ids) {
+                    events.extend(step(problem_id, solution, task_id, member_id));
+                }
+                Ok(events)
+            }
+            C::AssignProblem {
+                problem_id,
+                member_id,
+            } => {
+                if !self.problem(problem_id)?.open {
+                    return Err(FamilyError::ProblemNotOpen);
+                }
+                self.members
+                    .get(&member_id)
+                    .ok_or(FamilyError::UnknownMember)?;
+                let mut events = vec![(problem_id, E::ProblemAssigned { member_id })];
+                for task in self.steps(problem_id) {
+                    if task.assignee != Some(member_id) {
+                        events.push((
+                            task.id,
+                            E::TaskAssigned {
+                                member_id: Some(member_id),
+                            },
+                        ));
+                    }
+                }
+                Ok(events)
+            }
+            C::ResolveProblem { problem_id } => {
+                if !self.problem(problem_id)?.open {
+                    return Err(FamilyError::ProblemNotOpen);
+                }
+                one(problem_id, E::ProblemResolved)
+            }
+            C::ReopenProblem { problem_id } => {
+                let problem = self.problem(problem_id)?;
+                if problem.open {
+                    return Err(FamilyError::ProblemOpen);
+                }
+                if problem.opening.is_none() {
+                    return Err(FamilyError::ProblemNotOpen);
+                }
+                one(problem_id, E::ProblemReopened)
+            }
+
+            C::PlanDay { day, task_ids } => {
+                let mut planned: Vec<Uuid> = Vec::new();
+                for id in task_ids {
+                    if !planned.contains(&id) {
+                        planned.push(id);
+                    }
+                }
+                if planned.len() > MAX_FOCUS {
+                    return Err(FamilyError::TooMuch);
+                }
+                let mut events = vec![];
+                for id in &planned {
+                    let task = self.my_open_task(*id, me)?;
+                    if task.assignee.is_none() {
+                        events.push((
+                            *id,
+                            E::TaskAssigned {
+                                member_id: Some(me),
+                            },
+                        ));
+                    }
+                }
+                events.push((
+                    me,
+                    E::DayPlanned {
+                        day,
+                        task_ids: planned,
+                    },
+                ));
+                Ok(events)
+            }
         }
     }
+
+    fn problem(&self, problem_id: Uuid) -> Result<&crate::Problem, FamilyError> {
+        self.problems
+            .get(&problem_id)
+            .ok_or(FamilyError::UnknownProblem)
+    }
+}
+
+/// A solution becomes a task of its own, for whoever has the problem.
+fn step(
+    problem_id: Uuid,
+    solution: &Solution,
+    task_id: Uuid,
+    holder: Uuid,
+) -> [(Uuid, DomainEvent); 2] {
+    [
+        (
+            task_id,
+            DomainEvent::TaskCreated {
+                list_id: None,
+                title: solution.title.clone(),
+                place_ids: vec![],
+                problem_id: Some(problem_id),
+                trip: solution.trip,
+            },
+        ),
+        (
+            task_id,
+            DomainEvent::TaskAssigned {
+                member_id: Some(holder),
+            },
+        ),
+    ]
 }
 
 impl Aggregate for Family {

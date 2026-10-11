@@ -2,13 +2,14 @@
 //! and replays them into [`crate::Family`]. The server relays them as opaque
 //! [`crate::wire::EncryptedEvent`]s and never sees these types in plaintext.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// One fact recorded by a device. The CQRS aggregate is the family; the
 /// `subject_id` names what the fact is about: the family, a list, a place
-/// group, a place, or a task. The whole event is the encrypted body.
+/// group, a place, a task, a problem, or (for a day's plan) the member. The
+/// whole event is the encrypted body.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FamilyEvent {
     pub id: Uuid,
@@ -77,6 +78,12 @@ pub enum DomainEvent {
         title: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         place_ids: Vec<Uuid>,
+        /// A step that fixes this problem (made when the problem was noticed).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        problem_id: Option<Uuid>,
+        /// A shopping trip: done by going to places and getting what is needed there.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        trip: bool,
     },
     #[serde(rename = "task.deleted")]
     TaskDeleted,
@@ -109,6 +116,32 @@ pub enum DomainEvent {
     /// Open again later: the time worked starts over.
     #[serde(rename = "task.reopened")]
     TaskReopened,
+
+    // ---- problems: things that go wrong at home, each with its solutions
+    #[serde(rename = "problem.created")]
+    ProblemCreated { title: String, icon: String },
+    #[serde(rename = "problem.renamed")]
+    ProblemRenamed { title: String },
+    #[serde(rename = "problem.solution_added")]
+    ProblemSolutionAdded { solution: Solution },
+    #[serde(rename = "problem.solution_removed")]
+    ProblemSolutionRemoved { solution_id: Uuid },
+    /// It is back: noticed by the origin, for `member_id` (the origin itself, or
+    /// someone it is raised for). Each solution becomes a step, a task of its own.
+    #[serde(rename = "problem.noticed")]
+    ProblemNoticed { member_id: Uuid },
+    #[serde(rename = "problem.assigned")]
+    ProblemAssigned { member_id: Uuid },
+    #[serde(rename = "problem.resolved")]
+    ProblemResolved,
+    /// Undo of resolving: open again, with the same steps.
+    #[serde(rename = "problem.reopened")]
+    ProblemReopened,
+
+    // ---- plans (subject: the member who plans)
+    /// The origin's focus for a day, in order. A later plan for the same day replaces it.
+    #[serde(rename = "day.planned")]
+    DayPlanned { day: NaiveDate, task_ids: Vec<Uuid> },
 
     /// Written by newer app versions; older replays skip it.
     #[serde(other)]
@@ -171,6 +204,16 @@ impl PlaceLocation {
     }
 }
 
+/// One way to fix a problem. When the problem is noticed it becomes a task.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Solution {
+    pub id: Uuid,
+    pub title: String,
+    /// A shopping trip rather than a plain task.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub trip: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GeoPoint {
     pub latitude: f64,
@@ -218,6 +261,15 @@ impl DomainEvent {
             Self::TaskCompletionLocated { .. } => "task.completion_located",
             Self::TaskCompletionUndone => "task.completion_undone",
             Self::TaskReopened => "task.reopened",
+            Self::ProblemCreated { .. } => "problem.created",
+            Self::ProblemRenamed { .. } => "problem.renamed",
+            Self::ProblemSolutionAdded { .. } => "problem.solution_added",
+            Self::ProblemSolutionRemoved { .. } => "problem.solution_removed",
+            Self::ProblemNoticed { .. } => "problem.noticed",
+            Self::ProblemAssigned { .. } => "problem.assigned",
+            Self::ProblemResolved => "problem.resolved",
+            Self::ProblemReopened => "problem.reopened",
+            Self::DayPlanned { .. } => "day.planned",
             Self::Unknown => "unknown",
         }
     }
@@ -238,6 +290,8 @@ mod tests {
                 list_id: None,
                 title: "Milk".into(),
                 place_ids: vec![],
+                problem_id: None,
+                trip: false,
             },
         };
         let json = serde_json::to_value(&envelope).unwrap();

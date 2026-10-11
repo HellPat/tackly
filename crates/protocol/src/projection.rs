@@ -6,11 +6,11 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::events::{DomainEvent, FamilyEvent, GeoPoint, Picture, PlaceLocation};
+use crate::events::{DomainEvent, FamilyEvent, GeoPoint, Picture, PlaceLocation, Solution};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Member {
@@ -75,6 +75,43 @@ pub struct Task {
     /// Work since the task was created or last reopened.
     pub sessions: Vec<Session>,
     pub done: Option<Completion>,
+    /// A step of this problem.
+    pub problem_id: Option<Uuid>,
+    /// A shopping trip.
+    pub trip: bool,
+}
+
+/// Something that goes wrong at home, again and again, and how to fix it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Problem {
+    pub id: Uuid,
+    pub title: String,
+    /// A Material Symbols name.
+    pub icon: String,
+    pub solutions: Vec<Solution>,
+    /// The last time it was noticed; kept when resolved, so Undo can reopen it.
+    pub opening: Option<Opening>,
+    pub open: bool,
+}
+
+/// One time a problem was noticed.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Opening {
+    /// Who has it now.
+    pub member_id: Uuid,
+    /// Who noticed it (raised it, when that is someone else).
+    pub by: Uuid,
+    pub since: DateTime<Utc>,
+}
+
+impl Problem {
+    /// Who has it, while it is open.
+    pub fn holder(&self) -> Option<Uuid> {
+        self.opening
+            .as_ref()
+            .filter(|_| self.open)
+            .map(|opening| opening.member_id)
+    }
 }
 
 /// What the person who has a task is doing with it.
@@ -139,6 +176,9 @@ pub struct Family {
     pub place_groups: BTreeMap<Uuid, PlaceGroup>,
     pub places: BTreeMap<Uuid, Place>,
     pub tasks: BTreeMap<Uuid, Task>,
+    pub problems: BTreeMap<Uuid, Problem>,
+    /// Each member's focus per day, in their order (tasks as planned, done or not).
+    pub plans: BTreeMap<Uuid, BTreeMap<NaiveDate, Vec<Uuid>>>,
 }
 
 impl Family {
@@ -161,10 +201,47 @@ impl Family {
         self.tasks.values().filter(|task| !task.is_done())
     }
 
-    /// Open tasks in a list; `None` is "Other".
+    /// Open tasks in a list; `None` is "Other". Steps of problems are not in
+    /// any list: they live with their problem.
     pub fn open_tasks_in(&self, list_id: Option<Uuid>) -> impl Iterator<Item = &Task> {
         self.open_tasks()
-            .filter(move |task| task.list_id == list_id)
+            .filter(move |task| task.list_id == list_id && task.problem_id.is_none())
+    }
+
+    /// The open steps of an open problem (from the time it was last noticed).
+    pub fn steps(&self, problem_id: Uuid) -> impl Iterator<Item = &Task> {
+        let since = self
+            .problems
+            .get(&problem_id)
+            .filter(|problem| problem.open)
+            .and_then(|problem| problem.opening.as_ref())
+            .map(|opening| opening.since);
+        self.open_tasks().filter(move |task| {
+            task.problem_id == Some(problem_id)
+                && since.is_some_and(|since| task.created_at >= since)
+        })
+    }
+
+    pub fn open_problems(&self) -> impl Iterator<Item = &Problem> {
+        self.problems.values().filter(|problem| problem.open)
+    }
+
+    /// A member's plan for a day, as planned (`None`: not planned yet).
+    pub fn plan(&self, member: Uuid, day: NaiveDate) -> Option<&[Uuid]> {
+        self.plans
+            .get(&member)
+            .and_then(|days| days.get(&day))
+            .map(Vec::as_slice)
+    }
+
+    /// What a member still has to do of a day's plan, in their order.
+    pub fn focus(&self, member: Uuid, day: NaiveDate) -> Vec<&Task> {
+        self.plan(member, day)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|id| self.tasks.get(id))
+            .filter(|task| !task.is_done() && task.assignee == Some(member))
+            .collect()
     }
 
     /// Open tasks to do at a place.
@@ -315,6 +392,8 @@ impl Family {
                 list_id,
                 title,
                 place_ids,
+                problem_id,
+                trip,
             } => {
                 if self.tasks.contains_key(&subject) {
                     return;
@@ -338,6 +417,8 @@ impl Family {
                         assigned_by: None,
                         sessions: Vec::new(),
                         done: None,
+                        problem_id: *problem_id,
+                        trip: *trip,
                     },
                 );
             }
@@ -437,6 +518,80 @@ impl Family {
                     task.assignee = None;
                     task.assigned_by = None;
                 }
+            }
+
+            DomainEvent::ProblemCreated { title, icon } => {
+                self.problems.entry(subject).or_insert(Problem {
+                    id: subject,
+                    title: title.clone(),
+                    icon: icon.clone(),
+                    solutions: Vec::new(),
+                    opening: None,
+                    open: false,
+                });
+            }
+            DomainEvent::ProblemRenamed { title } => {
+                if let Some(problem) = self.problems.get_mut(&subject) {
+                    problem.title = title.clone();
+                }
+            }
+            DomainEvent::ProblemSolutionAdded { solution } => {
+                if let Some(problem) = self.problems.get_mut(&subject)
+                    && !problem
+                        .solutions
+                        .iter()
+                        .any(|known| known.id == solution.id)
+                {
+                    problem.solutions.push(solution.clone());
+                }
+            }
+            DomainEvent::ProblemSolutionRemoved { solution_id } => {
+                if let Some(problem) = self.problems.get_mut(&subject) {
+                    problem
+                        .solutions
+                        .retain(|solution| solution.id != *solution_id);
+                }
+            }
+            DomainEvent::ProblemNoticed { member_id } => {
+                if let Some(problem) = self.problems.get_mut(&subject)
+                    && !problem.open
+                {
+                    problem.open = true;
+                    problem.opening = Some(Opening {
+                        member_id: *member_id,
+                        by,
+                        since: at,
+                    });
+                }
+            }
+            DomainEvent::ProblemAssigned { member_id } => {
+                if let Some(opening) = self
+                    .problems
+                    .get_mut(&subject)
+                    .filter(|problem| problem.open)
+                    .and_then(|problem| problem.opening.as_mut())
+                {
+                    opening.member_id = *member_id;
+                }
+            }
+            DomainEvent::ProblemResolved => {
+                if let Some(problem) = self.problems.get_mut(&subject) {
+                    problem.open = false;
+                }
+            }
+            DomainEvent::ProblemReopened => {
+                if let Some(problem) = self.problems.get_mut(&subject)
+                    && problem.opening.is_some()
+                {
+                    problem.open = true;
+                }
+            }
+
+            DomainEvent::DayPlanned { day, task_ids } => {
+                self.plans
+                    .entry(by)
+                    .or_default()
+                    .insert(*day, task_ids.clone());
             }
             DomainEvent::Unknown => {}
         }

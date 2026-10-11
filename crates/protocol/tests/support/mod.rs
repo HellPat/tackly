@@ -6,7 +6,9 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use cqrs_es::test::TestFramework;
-use tackly_protocol::{CommandContext, DomainEvent, Family, FamilyEvent, GeoPoint, PlaceLocation};
+use tackly_protocol::{
+    CommandContext, DomainEvent, Family, FamilyEvent, GeoPoint, PlaceLocation, Solution,
+};
 use uuid::Uuid;
 
 pub const PATRICK: Uuid = Uuid::from_u128(0x1);
@@ -19,6 +21,13 @@ pub const GROCERY_STORE: Uuid = Uuid::from_u128(0x30);
 pub const LIDL: Uuid = Uuid::from_u128(0x40);
 pub const MILK: Uuid = Uuid::from_u128(0x50);
 pub const DISHES: Uuid = Uuid::from_u128(0x51);
+
+pub const OUT_OF_FOOD: Uuid = Uuid::from_u128(0x60);
+pub const GO_SHOPPING: Uuid = Uuid::from_u128(0x61);
+pub const COOK_PASTA: Uuid = Uuid::from_u128(0x62);
+/// The steps made when "Out of food" is noticed.
+pub const SHOPPING_TRIP: Uuid = Uuid::from_u128(0x70);
+pub const PASTA: Uuid = Uuid::from_u128(0x71);
 
 /// Every event in these tests has this ID and happens at 9:00 (plus minutes).
 pub const EVENT: Uuid = Uuid::from_u128(0xE);
@@ -145,8 +154,111 @@ pub fn task(id: Uuid, title: &str) -> FamilyEvent {
             list_id: None,
             title: title.into(),
             place_ids: vec![],
+            problem_id: None,
+            trip: false,
         },
     )
+}
+
+/// "Out of food": go shopping (a trip), cook pasta.
+pub fn out_of_food() -> Vec<FamilyEvent> {
+    vec![
+        by(
+            PATRICK,
+            OUT_OF_FOOD,
+            DomainEvent::ProblemCreated {
+                title: "Out of food".into(),
+                icon: "kitchen".into(),
+            },
+        ),
+        by(
+            PATRICK,
+            OUT_OF_FOOD,
+            DomainEvent::ProblemSolutionAdded {
+                solution: go_shopping(),
+            },
+        ),
+        by(
+            PATRICK,
+            OUT_OF_FOOD,
+            DomainEvent::ProblemSolutionAdded {
+                solution: cook_pasta(),
+            },
+        ),
+    ]
+}
+
+pub fn go_shopping() -> Solution {
+    Solution {
+        id: GO_SHOPPING,
+        title: "Go shopping".into(),
+        trip: true,
+    }
+}
+
+pub fn cook_pasta() -> Solution {
+    Solution {
+        id: COOK_PASTA,
+        title: "Cook pasta".into(),
+        trip: false,
+    }
+}
+
+/// A step of a problem: its task, given to whoever has the problem.
+pub fn step(
+    who: Uuid,
+    problem: Uuid,
+    id: Uuid,
+    title: &str,
+    trip: bool,
+    holder: Uuid,
+) -> [FamilyEvent; 2] {
+    [
+        by(
+            who,
+            id,
+            DomainEvent::TaskCreated {
+                list_id: None,
+                title: title.into(),
+                place_ids: vec![],
+                problem_id: Some(problem),
+                trip,
+            },
+        ),
+        by(
+            who,
+            id,
+            DomainEvent::TaskAssigned {
+                member_id: Some(holder),
+            },
+        ),
+    ]
+}
+
+/// Patrick noticed "Out of food" for `holder`: the problem is open, with its two steps.
+pub fn out_of_food_noticed_for(holder: Uuid) -> Vec<FamilyEvent> {
+    let mut events = vec![by(
+        PATRICK,
+        OUT_OF_FOOD,
+        DomainEvent::ProblemNoticed { member_id: holder },
+    )];
+    events.extend(step(
+        PATRICK,
+        OUT_OF_FOOD,
+        SHOPPING_TRIP,
+        "Go shopping",
+        true,
+        holder,
+    ));
+    events.extend(step(
+        PATRICK,
+        OUT_OF_FOOD,
+        PASTA,
+        "Cook pasta",
+        false,
+        holder,
+    ));
+    events
 }
 
 /// The events, in order.
