@@ -33,7 +33,6 @@ fn a_task_for_a_list_that_is_gone_ends_up_in_other() {
                 title: "Milk".into(),
                 place_ids: vec![],
                 problem_id: None,
-                trip: false,
             },
         )],
     ]));
@@ -183,7 +182,6 @@ fn a_deleted_place_disappears_from_its_tasks() {
                     title: "Milk".into(),
                     place_ids: vec![LIDL],
                     problem_id: None,
-                    trip: false,
                 },
             ),
             by(PATRICK, LIDL, Happened::PlaceDeleted),
@@ -247,11 +245,11 @@ fn an_open_problem_shows_its_steps_and_who_has_it() {
     ]));
     let problem = &family.problems[&OUT_OF_FOOD];
     assert_eq!(problem.holder(), Some(MONA));
-    let steps: Vec<(&str, bool)> = family
+    let steps: Vec<&str> = family
         .steps(OUT_OF_FOOD)
-        .map(|task| (task.title.as_str(), task.trip))
+        .map(|task| task.title.as_str())
         .collect();
-    assert_eq!(steps, vec![("Go shopping", true), ("Cook pasta", false)]);
+    assert_eq!(steps, vec!["Go shopping", "Cook pasta"]);
     assert_eq!(
         family.open_tasks_in(None).count(),
         0,
@@ -294,7 +292,6 @@ fn noticed_again_it_has_only_the_new_steps() {
         OUT_OF_FOOD,
         Uuid::from_u128(0x90),
         "Go shopping",
-        true,
         MONA,
     ) {
         events.push(later(event, 60));

@@ -4,6 +4,14 @@ ADHD optimized task management. Shared family tasks that work offline and sync l
 
 ## What it does
 
+- *Today*: your three priorities, in your order. Drag to reorder. Free slot?
+  *Pick something*. All done: a kitten celebrates. What you did today shows as a win.
+- *Upcoming*: at your planning time (20:00, set in your settings) it opens by
+  itself. Fill three slots from your problems and what is left over: tap ↑ or
+  drag. Swipe right: not this time. *Save plan* or *Plan later*.
+- *Problems*: "Out of food", "Laundry piles up". *Notice* it for you or *Raise*
+  it for someone; its solutions become steps. *Resolve* by hand. Old problems
+  come back as suggestions.
 - Tasks for the whole family. New ones land in *Other*; make lists when you want them.
 - Tick a task off and it is gone. Changed your mind? *Undo*.
 - *Mine*, *Unassigned*, *All*: see only what is yours, or pick something free.
@@ -123,12 +131,15 @@ All run against a real server with a SQLite file.
     every phone shows.
   - `crates/client/tests/e2e.rs`: a real relay and three real phones (live
     sync, server outage, offline start, lists, places, giving tasks away,
-    photos).
+    photos, a raised problem and a day's plan).
 - `just acceptance`: Cucumber scenarios in
   `crates/acceptance/tests/features/`. Three real app windows (Patrick, Mona,
   Mara); typing key by key, clicking, pasting the link, decoding the on-screen
-  QR code. Playwright-style API: strict locators, auto-waiting actions,
-  retrying `expect`. The engine runs inside the page (`tests/support/driver.js`)
+  QR code, dragging by a handle, swiping. Playwright-style API: strict
+  locators, auto-waiting actions, retrying `expect`. Locators are roles and
+  labels people see (`get_by_role`, `get_by_label`), else a `data-testid`
+  (`get_by_test_id`); no CSS. A test build reads `clock-offset-minutes` in the
+  data folder, so "it is 20:00" and "the next morning" can be played. The engine runs inside the page (`tests/support/driver.js`)
   via the `ui-test` bridge, which exists only in test builds. Windows open and
   close alone; let it finish. CI runs it on macOS.
 - `just android-test`: Playwright on an emulator (`android-e2e/suite.mjs`).

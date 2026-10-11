@@ -29,7 +29,7 @@ pub fn Detail(task: Uuid) -> Element {
         .map(|place| place.name.clone())
         .collect();
     rsx! {
-        section { class: "absolute inset-0 z-40 flex flex-col bg-[#fffdfb]", aria_label: "Task",
+        section { class: "absolute inset-0 z-40 flex flex-col bg-[#fffdfb]", aria_label: "Task", "data-testid": "task-focus",
             div { class: "flex items-center px-2 h-16 shrink-0",
                 button {
                     class: "size-12 grid place-items-center rounded-full text-stone-700 hover:bg-stone-100",

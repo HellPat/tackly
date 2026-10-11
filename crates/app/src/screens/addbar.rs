@@ -79,7 +79,7 @@ pub fn AddBar(mode: Mode) -> Element {
     rsx! {
         section { class: "relative z-10 shrink-0 px-3 pb-3 pt-2 flex flex-col gap-2", aria_label: "Adding",
             if !found().is_empty() {
-                ul { class: "{CARD} shadow-md overflow-hidden", aria_label: "Addresses",
+                ul { class: "{CARD} shadow-md overflow-hidden", aria_label: "Addresses", "data-testid": "addresses",
                     for option in found() {
                         li { key: "{option.id}",
                             button {

@@ -83,6 +83,7 @@ fn Settings() -> Element {
         return rsx! {};
     };
     let current = (state.settings)().scheme;
+    let plan_at = (state.settings)().plan_at.unwrap_or_default();
     let mut leaving = use_signal(|| false);
     let mut typed = use_signal(|| myself.name.clone());
     rsx! {
@@ -103,7 +104,7 @@ fn Settings() -> Element {
         Heading { text: "Picture" }
         div { class: "{CARD} p-4 flex flex-col items-center gap-4",
             Avatar { name: myself.name.clone(), picture: myself.picture.clone(), size: Size::Huge }
-            div { class: "grid grid-cols-4 gap-3", role: "radiogroup", aria_label: "Picture",
+            div { class: "grid grid-cols-4 gap-3", role: "radiogroup", aria_label: "Picture", "data-testid": "picture",
                 for (i, icon) in PICTURE_ICONS.iter().enumerate() {
                     // With a photo, no icon is the picture.
                     button {
@@ -120,6 +121,23 @@ fn Settings() -> Element {
             div { class: "flex flex-wrap justify-center gap-2",
                 PhotoButton { id: "photo-camera", label: "Take a photo", icon: "photo_camera", camera: true }
                 PhotoButton { id: "photo-gallery", label: "Choose a photo", icon: "image", camera: false }
+            }
+        }
+        Heading { text: "Planning" }
+        label { class: "{CARD} flex items-center gap-3 px-4 min-h-16",
+            span { class: "flex-1",
+                span { class: "block", "Plan the next day at" }
+                span { class: "block text-sm text-stone-600", "Upcoming opens then. Empty: never." }
+            }
+            input {
+                r#type: "time",
+                class: "h-11 px-3 rounded-md border border-stone-300 bg-[#fffdfb] text-base",
+                aria_label: "Planning time",
+                value: "{plan_at}",
+                onchange: move |event| {
+                    let time = event.value();
+                    state.set_plan_at((!time.is_empty()).then_some(time));
+                },
             }
         }
         Heading { text: "Color scheme" }

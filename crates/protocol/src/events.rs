@@ -81,9 +81,6 @@ pub enum DomainEvent {
         /// A step that fixes this problem (made when the problem was noticed).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         problem_id: Option<Uuid>,
-        /// A shopping trip: done by going to places and getting what is needed there.
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        trip: bool,
     },
     #[serde(rename = "task.deleted")]
     TaskDeleted,
@@ -209,9 +206,6 @@ impl PlaceLocation {
 pub struct Solution {
     pub id: Uuid,
     pub title: String,
-    /// A shopping trip rather than a plain task.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub trip: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -291,7 +285,6 @@ mod tests {
                 title: "Milk".into(),
                 place_ids: vec![],
                 problem_id: None,
-                trip: false,
             },
         };
         let json = serde_json::to_value(&envelope).unwrap();

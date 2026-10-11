@@ -102,8 +102,12 @@ impl Page {
         ))
     }
 
-    pub fn locator(&self, css: &str) -> Locator {
-        Locator::root(self.clone()).locator(css)
+    pub fn get_by_test_id(&self, id: &str) -> Locator {
+        Locator::root(self.clone()).get_by_test_id(id)
+    }
+
+    pub fn get_by_role_checked(&self, role: &str, name: Option<&str>) -> Locator {
+        Locator::root(self.clone()).get_by_role_checked(role, name)
     }
 
     pub fn get_by_role(&self, role: &str, name: &str) -> Locator {
@@ -159,10 +163,20 @@ impl Locator {
         }
     }
 
-    pub fn locator(&self, css: &str) -> Self {
+    /// Like Playwright's `{ name, exact: true, checked: true }`; `None`: any name.
+    pub fn get_by_role_checked(&self, role: &str, name: Option<&str>) -> Self {
         self.then(
-            json!({"k": "css", "v": css}),
-            format!("locator({})", quoted(css)),
+            json!({"k": "role", "role": role, "name": name, "exact": true, "checked": true}),
+            format!("getByRole({}, name={name:?}, exact, checked)", quoted(role)),
+        )
+    }
+
+    /// Like Playwright's `getByTestId`: the element's `data-testid`, for what
+    /// has no role or label to find it by.
+    pub fn get_by_test_id(&self, id: &str) -> Self {
+        self.then(
+            json!({"k": "testid", "v": id}),
+            format!("getByTestId({})", quoted(id)),
         )
     }
 
@@ -263,6 +277,26 @@ impl Locator {
 
     pub async fn check(&self) -> Outcome<()> {
         self.act("check", Value::Null).await.map(drop)
+    }
+
+    /// Drags this (a handle) onto `target`: at its "top", "bottom" or "center".
+    pub async fn drag_to(&self, target: &Locator, at: &str) -> Outcome<()> {
+        self.act(
+            "drag_to",
+            json!({ "chain": Value::Array(target.chain.clone()), "at": at }),
+        )
+        .await
+        .map(drop)
+    }
+
+    /// Swipes across this, to the right.
+    pub async fn swipe_right(&self) -> Outcome<()> {
+        self.act("swipe_right", Value::Null).await.map(drop)
+    }
+
+    /// How many elements match, right now (no waiting).
+    pub async fn count(&self) -> usize {
+        self.query().await["count"].as_u64().unwrap_or(0) as usize
     }
 
     /// Sets the whole value at once, like a paste.
@@ -374,7 +408,9 @@ impl Expect {
         let deadline = Instant::now() + TIMEOUT;
         let received = loop {
             let received = self.locator.query().await;
-            if received["count"].as_u64().unwrap_or(0) > 1 {
+            // Like Playwright: every expectation is strict, except counting.
+            let counting = expectation.starts_with("toHaveCount");
+            if !counting && received["count"].as_u64().unwrap_or(0) > 1 {
                 return Err(self
                     .locator
                     .page
@@ -435,6 +471,14 @@ impl Expect {
     pub async fn to_be_checked(self) -> Outcome<()> {
         self.retry("toBeChecked()".into(), |q| {
             q["count"] == 1 && q["items"][0]["checked"] == true
+        })
+        .await
+    }
+
+    pub async fn to_have_attribute(self, name: &str, value: &str) -> Outcome<()> {
+        let (name, value) = (name.to_owned(), value.to_owned());
+        self.retry(format!("toHaveAttribute({name:?}, {value:?})"), move |q| {
+            q["count"] == 1 && q["items"][0]["attrs"][&name] == value.as_str()
         })
         .await
     }

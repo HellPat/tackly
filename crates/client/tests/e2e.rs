@@ -429,11 +429,7 @@ async fn a_raised_problem_and_a_plan_sync_to_everyone() -> Result<()> {
     let problem = {
         let mut device = patrick.device.lock().await;
         let problem = device
-            .create_problem(
-                "Out of food",
-                "kitchen",
-                &[("Go shopping", true), ("Cook pasta", false)],
-            )
+            .create_problem("Out of food", "kitchen", &["Go shopping", "Cook pasta"])
             .await?;
         device.notice_problem(problem, mona_id).await?;
         problem
@@ -452,10 +448,6 @@ async fn a_raised_problem_and_a_plan_sync_to_everyone() -> Result<()> {
     })
     .await?;
     let shopping = mona.task_id("Go shopping").await?;
-    ensure!(
-        mona.state().await?.tasks[&shopping].trip,
-        "going shopping is a trip"
-    );
 
     // She plans tomorrow with one step and a free task, in her order.
     let free = patrick.add_task("Water the plants").await?;

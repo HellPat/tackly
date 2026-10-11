@@ -77,8 +77,6 @@ pub struct Task {
     pub done: Option<Completion>,
     /// A step of this problem.
     pub problem_id: Option<Uuid>,
-    /// A shopping trip.
-    pub trip: bool,
 }
 
 /// Something that goes wrong at home, again and again, and how to fix it.
@@ -393,7 +391,6 @@ impl Family {
                 title,
                 place_ids,
                 problem_id,
-                trip,
             } => {
                 if self.tasks.contains_key(&subject) {
                     return;
@@ -418,7 +415,6 @@ impl Family {
                         sessions: Vec::new(),
                         done: None,
                         problem_id: *problem_id,
-                        trip: *trip,
                     },
                 );
             }

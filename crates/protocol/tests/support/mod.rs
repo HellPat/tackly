@@ -155,12 +155,11 @@ pub fn task(id: Uuid, title: &str) -> FamilyEvent {
             title: title.into(),
             place_ids: vec![],
             problem_id: None,
-            trip: false,
         },
     )
 }
 
-/// "Out of food": go shopping (a trip), cook pasta.
+/// "Out of food": go shopping, cook pasta.
 pub fn out_of_food() -> Vec<FamilyEvent> {
     vec![
         by(
@@ -192,7 +191,6 @@ pub fn go_shopping() -> Solution {
     Solution {
         id: GO_SHOPPING,
         title: "Go shopping".into(),
-        trip: true,
     }
 }
 
@@ -200,19 +198,11 @@ pub fn cook_pasta() -> Solution {
     Solution {
         id: COOK_PASTA,
         title: "Cook pasta".into(),
-        trip: false,
     }
 }
 
 /// A step of a problem: its task, given to whoever has the problem.
-pub fn step(
-    who: Uuid,
-    problem: Uuid,
-    id: Uuid,
-    title: &str,
-    trip: bool,
-    holder: Uuid,
-) -> [FamilyEvent; 2] {
+pub fn step(who: Uuid, problem: Uuid, id: Uuid, title: &str, holder: Uuid) -> [FamilyEvent; 2] {
     [
         by(
             who,
@@ -222,7 +212,6 @@ pub fn step(
                 title: title.into(),
                 place_ids: vec![],
                 problem_id: Some(problem),
-                trip,
             },
         ),
         by(
@@ -247,17 +236,9 @@ pub fn out_of_food_noticed_for(holder: Uuid) -> Vec<FamilyEvent> {
         OUT_OF_FOOD,
         SHOPPING_TRIP,
         "Go shopping",
-        true,
         holder,
     ));
-    events.extend(step(
-        PATRICK,
-        OUT_OF_FOOD,
-        PASTA,
-        "Cook pasta",
-        false,
-        holder,
-    ));
+    events.extend(step(PATRICK, OUT_OF_FOOD, PASTA, "Cook pasta", holder));
     events
 }
 

@@ -114,7 +114,7 @@ try {
     await tap(page.getByRole("button", { name: "Ask to join", exact: true }));
     const { code } = await ask("approve");
     await expect(page.getByLabel("Confirmation code")).toHaveText(code);
-    await expect(page.locator("nav[aria-label=Main]")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("nav")).toBeVisible({ timeout: 15000 });
   });
 
   await step("allow the location in Android's own dialog", async () => {
@@ -128,11 +128,16 @@ try {
   });
 
   await step("tick a task off: the probe gets where it was done", async () => {
+    // After 20:00 the emulator's clock opens Upcoming (planning the next day): put it off.
+    const later = page.getByRole("button", { name: "Plan later", exact: true });
+    if (await later.isVisible()) await tap(later);
+    // The app opens on Today; tasks are added on Tasks.
+    await tap(page.getByTestId("nav").getByRole("button", { name: "Tasks", exact: true }));
     await page.getByLabel("Add a task").focus();
     await device.input.type("waterplants");
     await device.input.press("Enter");
-    await tap(page.locator("[aria-label=Filter]").getByRole("button", { name: /^All/ }));
-    const card = page.locator("main li").filter({ hasText: "waterplants" });
+    await tap(page.getByTestId("filter").getByRole("button", { name: /^All/ }));
+    const card = page.getByTestId("main").getByTestId("task").filter({ hasText: "waterplants" });
     await expect(card).toBeVisible();
     await tap(card.getByRole("checkbox"));
     await expect(card).toBeHidden();
@@ -145,8 +150,9 @@ try {
   });
 
   await step("choose a photo as my picture: the probe gets it", async () => {
-    await tap(page.locator("nav[aria-label=Main]").getByRole("button", { name: "Family", exact: true }));
-    await tap(page.locator("main").getByRole("button", { name: /mona/i }).first());
+    // The family is behind my picture, top right.
+    await tap(page.getByRole("button", { name: "Family and settings", exact: true }));
+    await tap(page.getByTestId("main").getByRole("button", { name: /mona/i }).first());
     const photo = readFileSync(join(root, "crates/acceptance/tests/fixtures/photo.jpg"));
     await page.getByLabel("Choose a photo").setInputFiles({ name: "photo.jpg", mimeType: "image/jpeg", buffer: photo });
     await probeSees(ask, "Mona's photo", (family) =>

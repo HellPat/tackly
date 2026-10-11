@@ -455,7 +455,6 @@ impl Family {
                         title: not_empty(&title)?,
                         place_ids,
                         problem_id: None,
-                        trip: false,
                     },
                 )
             }
@@ -705,7 +704,6 @@ fn step(
                 title: solution.title.clone(),
                 place_ids: vec![],
                 problem_id: Some(problem_id),
-                trip: solution.trip,
             },
         ),
         (

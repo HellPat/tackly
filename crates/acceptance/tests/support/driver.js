@@ -49,6 +49,7 @@ window.pw = (() => {
     const cs = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && cs.display !== "none";
   };
+  const isChecked = (el) => el.checked === true || el.getAttribute("aria-checked") === "true";
   const enabled = (el) => !el.disabled && el.getAttribute("aria-disabled") !== "true";
   const editable = (el) =>
     ["INPUT", "TEXTAREA"].includes(el.tagName) && !el.readOnly && !el.disabled;
@@ -71,11 +72,17 @@ window.pw = (() => {
   };
   const all = (root) => [...(root.querySelectorAll ? root.querySelectorAll("*") : [])];
   const steps = {
-    css: (roots, s) => within(roots, (r) => [...r.querySelectorAll(s.v)]),
     role: (roots, s) =>
       within(roots, (r) =>
-        all(r).filter((el) => roleOf(el) === s.role && (s.name === undefined || matches(nameOf(el), s.name, s.exact))),
+        all(r).filter(
+          (el) =>
+            roleOf(el) === s.role &&
+            (s.name === undefined || s.name === null || matches(nameOf(el), s.name, s.exact)) &&
+            (s.checked === undefined || s.checked === null || isChecked(el) === s.checked),
+        ),
       ),
+    // Playwright's getByTestId: the `data-testid` attribute.
+    testid: (roots, s) => within(roots, (r) => [...r.querySelectorAll(`[data-testid="${s.v}"]`)]),
     label: (roots, s) =>
       within(roots, (r) =>
         all(r).filter((el) => [...labelTexts(el), norm(el.getAttribute("aria-label"))].some((t) => t && matches(t, s.v, s.exact))),
@@ -225,6 +232,34 @@ window.pw = (() => {
       keyEvent(el, "keyup", name);
       return { done: true };
     },
+    // Like a finger: press the handle, move to the target, let go.
+    drag_to: async (el, arg, key) => {
+      const target = resolve(arg.chain);
+      if (target.length !== 1) return { why: `drag target resolved to ${target.length} elements` };
+      el.scrollIntoView({ block: "center" });
+      const from = el.getBoundingClientRect();
+      const to = target[0].getBoundingClientRect();
+      const x = from.left + from.width / 2;
+      const y0 = from.top + from.height / 2;
+      const y1 = arg.at === "top" ? to.top + 4 : arg.at === "bottom" ? to.bottom - 4 : to.top + to.height / 2;
+      const fire = (node, type, y) =>
+        node.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, button: 0 }));
+      fire(el, "pointerdown", y0);
+      for (let i = 1; i <= 8; i++) fire(document, "pointermove", y0 + ((y1 - y0) * i) / 8);
+      fire(document, "pointerup", y1);
+      return { done: true };
+    },
+    // A swipe to the right across the element.
+    swipe_right: async (el, arg, key) => {
+      const ready = await clickable(el, key);
+      if (ready.why) return ready;
+      const fire = (node, type, x) =>
+        node.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window, clientX: x, clientY: ready.y, button: 0 }));
+      fire(ready.hit, "pointerdown", ready.x);
+      for (let i = 1; i <= 8; i++) fire(document, "pointermove", ready.x + i * 25);
+      fire(document, "pointerup", ready.x + 200);
+      return { done: true };
+    },
     input_value: async (el) => ({ done: true, value: el.value }),
     text_content: async (el) => ({ done: true, value: norm(textOf(el)) }),
     // Reads the QR code the way a camera would: draw the SVG, return grey pixels.
@@ -250,8 +285,8 @@ window.pw = (() => {
     },
   };
   // actions that need the element to be shown and enabled first
-  const needsEnabled = new Set(["click", "check", "fill", "type_key", "press"]);
-  const needsVisible = new Set(["click", "check", "fill", "type_key", "press", "input_value", "text_content"]);
+  const needsEnabled = new Set(["click", "check", "fill", "type_key", "press", "swipe_right"]);
+  const needsVisible = new Set(["click", "check", "fill", "type_key", "press", "input_value", "text_content", "drag_to", "swipe_right"]);
 
   return {
     // One attempt of an action; the caller retries on {status:"retry"}.
@@ -281,7 +316,8 @@ window.pw = (() => {
           enabled: enabled(el),
           text: norm(textOf(el)),
           value: "value" in el ? el.value : null,
-          checked: !!el.checked,
+          checked: isChecked(el),
+          attrs: Object.fromEntries([...el.attributes].map((a) => [a.name, a.value])),
           html: describe(el),
         })),
       };

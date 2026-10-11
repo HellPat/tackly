@@ -47,6 +47,8 @@ impl Member {
                 .env("TACKLY_LOCATION", location)
                 .env("TACKLY_GEOCODER", geocoder_url)
                 .env("TACKLY_UI_TEST_PORT", port.to_string())
+                // Upcoming opens only where a scenario sets a planning time.
+                .env("TACKLY_PLAN_AT", "off")
                 .stdout(Stdio::from(log.try_clone()?))
                 .stderr(Stdio::from(log))
                 .spawn()?,

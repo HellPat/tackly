@@ -8,7 +8,7 @@
 use std::sync::atomic::Ordering;
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, NaiveDate, Utc};
 use dioxus::{core::spawn_forever, prelude::*};
 use tackly_client::{Device, Geocoder, InviteTicket, Membership, SharedDevice, run_live};
 use tackly_protocol::{Family, Picture, PlaceLocation};
@@ -47,6 +47,21 @@ pub enum Undo {
         place: Uuid,
         location: PlaceLocation,
     },
+    ReopenProblem(Uuid),
+    ResolveProblem(Uuid),
+    /// Back into Upcoming's lists (it was swiped away); nothing on the device.
+    Undismiss(String),
+}
+
+/// Upcoming while it is open: the focus being planned (not saved yet), what
+/// was swiped away this round, and the problem stepped into.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Upcoming {
+    pub focus: Vec<Uuid>,
+    pub dismissed: Vec<String>,
+    pub problem: Option<Uuid>,
+    /// The day the draft was started for (it starts from that day's plan).
+    pub day: Option<NaiveDate>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -75,6 +90,11 @@ pub struct AppState {
     pub toasts_fanned: Signal<bool>,
     next_toast: Signal<u64>,
     sync_started: Signal<bool>,
+    pub upcoming: Signal<Upcoming>,
+    /// "Plan later": Upcoming waits until then.
+    pub plan_snoozed_until: Signal<Option<DateTime<Local>>>,
+    /// All of today's priorities are done: which kitten celebrates.
+    pub celebrate: Signal<Option<usize>>,
 }
 
 impl AppState {
@@ -94,6 +114,9 @@ impl AppState {
             toasts_fanned: Signal::new(false),
             next_toast: Signal::new(0),
             sync_started: Signal::new(false),
+            upcoming: Signal::new(Upcoming::default()),
+            plan_snoozed_until: Signal::new(None),
+            celebrate: Signal::new(None),
         })
     }
 
@@ -146,6 +169,14 @@ impl AppState {
     pub fn undo(self, toast_id: u64, undo: Undo) {
         let mut toasts = self.toasts;
         toasts.write().retain(|toast| toast.id != toast_id);
+        if let Undo::Undismiss(reference) = undo {
+            let mut upcoming = self.upcoming;
+            upcoming
+                .write()
+                .dismissed
+                .retain(|known| *known != reference);
+            return;
+        }
         self.act(move |device| async move {
             let mut device = device.lock().await;
             match undo {
@@ -161,6 +192,9 @@ impl AppState {
                 Undo::AddLocation { place, location } => {
                     device.add_place_location(place, location).await
                 }
+                Undo::ReopenProblem(problem) => device.reopen_problem(problem).await,
+                Undo::ResolveProblem(problem) => device.resolve_problem(problem).await,
+                Undo::Undismiss(_) => Ok(()),
             }
         });
     }
@@ -225,11 +259,25 @@ impl AppState {
     }
 
     /// Finishes a task at once; where the phone is follows when the GPS
-    /// knows (a fix takes seconds). Undone by then: nothing to note.
+    /// knows (a fix takes seconds). Undone by then: nothing to note. The last
+    /// of today's priorities: a kitten celebrates.
     pub fn complete_task(self, task: Uuid) {
         let title = self.title_of(task);
+        let (me, today) = (*self.my_id.peek(), platform::today());
+        let mut celebrate = self.celebrate;
         self.act_then(move |device| async move {
-            device.lock().await.complete_task(task, None).await?;
+            let family = {
+                let mut device = device.lock().await;
+                device.complete_task(task, None).await?;
+                device.state()?
+            };
+            let planned = family
+                .plan(me, today)
+                .is_some_and(|plan| plan.contains(&task));
+            if planned && family.focus(me, today).is_empty() {
+                let kitten = platform::local_now().timestamp_subsec_millis() as usize % 4;
+                celebrate.set(Some(kitten));
+            }
             spawn_forever(async move {
                 if let Some(location) = platform::location().await {
                     let _ = device.lock().await.locate_completion(task, location).await;
@@ -259,6 +307,129 @@ impl AppState {
             device.lock().await.assign_task(task, Some(member)).await?;
             Ok((text, Some(Undo::Assign { task, member: None })))
         });
+    }
+
+    // ---- problems ------------------------------------------------------------------------------
+
+    fn problem_title(self, problem: Uuid) -> String {
+        self.family
+            .peek()
+            .problems
+            .get(&problem)
+            .map(|problem| problem.title.clone())
+            .unwrap_or_default()
+    }
+
+    /// Notices a problem for someone (yourself or another member). `known`: a
+    /// problem the family has; otherwise it is made first from `title`, `icon`
+    /// and its solutions.
+    pub fn notice_problem(
+        self,
+        known: Option<Uuid>,
+        title: String,
+        icon: String,
+        solutions: Vec<String>,
+        member: Uuid,
+    ) {
+        let raised = member != *self.my_id.peek();
+        let name = self.name_of(member);
+        self.act_then(move |device| async move {
+            let mut device = device.lock().await;
+            let problem = match known {
+                Some(problem) => problem,
+                None => {
+                    let solutions: Vec<&str> = solutions.iter().map(String::as_str).collect();
+                    device.create_problem(&title, &icon, &solutions).await?
+                }
+            };
+            device.notice_problem(problem, member).await?;
+            let text = if raised {
+                format!("Raised for {name}: {}", title.trim())
+            } else {
+                format!("Noticed: {}", title.trim())
+            };
+            Ok((text, Some(Undo::ResolveProblem(problem))))
+        });
+    }
+
+    /// A new problem, without solutions yet; `then` gets it (to edit it).
+    pub fn create_problem(self, title: String, then: impl FnOnce(Uuid) + 'static) {
+        spawn_forever(async move {
+            let made = self
+                .device()
+                .lock()
+                .await
+                .create_problem(&title, "report", &[])
+                .await;
+            match made {
+                Ok(problem) => {
+                    self.refresh().await;
+                    then(problem);
+                }
+                Err(error) => self.say(format!("{error:#}")),
+            }
+        });
+    }
+
+    pub fn rename_problem(self, problem: Uuid, title: String) {
+        self.act(
+            move |device| async move { device.lock().await.rename_problem(problem, &title).await },
+        );
+    }
+
+    pub fn add_solution(self, problem: Uuid, title: String) {
+        self.act(
+            move |device| async move { device.lock().await.add_solution(problem, &title).await },
+        );
+    }
+
+    pub fn remove_solution(self, problem: Uuid, solution: Uuid) {
+        self.act(move |device| async move {
+            device.lock().await.remove_solution(problem, solution).await
+        });
+    }
+
+    pub fn assign_problem(self, problem: Uuid, member: Uuid) {
+        let (title, name) = (self.problem_title(problem), self.name_of(member));
+        let text = if member == *self.my_id.peek() {
+            format!("{title}: yours now")
+        } else {
+            format!("{title}: {name} has it now")
+        };
+        self.act_then(move |device| async move {
+            device.lock().await.assign_problem(problem, member).await?;
+            Ok((text, None))
+        });
+    }
+
+    pub fn resolve_problem(self, problem: Uuid) {
+        let title = self.problem_title(problem);
+        self.act_then(move |device| async move {
+            device.lock().await.resolve_problem(problem).await?;
+            Ok((
+                format!("Resolved: {title}"),
+                Some(Undo::ReopenProblem(problem)),
+            ))
+        });
+    }
+
+    // ---- plans ---------------------------------------------------------------------------------
+
+    /// My focus for a day, in order (free tasks become mine).
+    pub fn plan_day(self, day: NaiveDate, tasks: Vec<Uuid>, done: Option<String>) {
+        self.act(move |device| async move {
+            device.lock().await.plan_day(day, &tasks).await?;
+            if let Some(text) = done {
+                self.say(text);
+            }
+            Ok(())
+        });
+    }
+
+    pub fn set_plan_at(self, time: Option<String>) {
+        let mut settings = self.settings;
+        settings.write().plan_at = time;
+        settings.peek().save();
     }
 
     // ---- lists ---------------------------------------------------------------------------------

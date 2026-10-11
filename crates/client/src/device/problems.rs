@@ -11,12 +11,12 @@ use super::Device;
 impl Device {
     // ---- problems --------------------------------------------------------------------------
 
-    /// A problem the family knows from now on, with its solutions as (title, is a shopping trip).
+    /// A problem the family knows from now on, with its solutions.
     pub async fn create_problem(
         &mut self,
         title: &str,
         icon: &str,
-        solutions: &[(&str, bool)],
+        solutions: &[&str],
     ) -> Result<Uuid> {
         let problem_id = Uuid::now_v7();
         self.run(FamilyCommand::CreateProblem {
@@ -25,10 +25,9 @@ impl Device {
             icon: icon.to_owned(),
             solutions: solutions
                 .iter()
-                .map(|(title, trip)| Solution {
+                .map(|title| Solution {
                     id: Uuid::now_v7(),
                     title: (*title).to_owned(),
-                    trip: *trip,
                 })
                 .collect(),
         })
@@ -45,13 +44,12 @@ impl Device {
     }
 
     /// While the problem is open, the solution is a step for whoever has it right away.
-    pub async fn add_solution(&mut self, problem_id: Uuid, title: &str, trip: bool) -> Result<()> {
+    pub async fn add_solution(&mut self, problem_id: Uuid, title: &str) -> Result<()> {
         self.run(FamilyCommand::AddSolution {
             problem_id,
             solution: Solution {
                 id: Uuid::now_v7(),
                 title: title.to_owned(),
-                trip,
             },
             task_id: Uuid::now_v7(),
         })

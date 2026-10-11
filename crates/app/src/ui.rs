@@ -89,7 +89,7 @@ pub fn Avatar(name: String, picture: Option<Picture>, size: Size) -> Element {
     rsx! {
         span { class: "shrink-0 rounded-full grid place-items-center overflow-hidden border-white shadow-[0_1px_3px_rgb(41_37_36/.3)] {box_class} {tint}",
             match picture {
-                Some(Picture { photo: Some(photo), .. }) => rsx! { img { class: "size-full object-cover", src: "{photo}", alt: "" } },
+                Some(Picture { photo: Some(photo), .. }) => rsx! { img { class: "size-full object-cover", src: "{photo}", alt: "", "data-testid": "photo" } },
                 Some(picture) => rsx! { Icon { name: picture.icon, class: icon_class } },
                 None => rsx! { span { class: "font-semibold {text_class}", aria_hidden: "true", "{initial}" } },
             }
@@ -106,6 +106,7 @@ pub fn Sheet(close: EventHandler<()>, label: String, children: Element) -> Eleme
                 class: "w-full max-w-[430px] mx-auto rounded-t-[28px] bg-[#fffdfb] px-6 pt-3 pb-8 shadow-2xl",
                 role: "dialog",
                 aria_modal: "true",
+                "data-testid": "sheet",
                 aria_label: "{label}",
                 onclick: move |event| event.stop_propagation(),
                 div { class: "mx-auto mb-5 h-1 w-8 rounded-full bg-stone-300" }
@@ -178,7 +179,7 @@ pub fn FilterBar(counts: [usize; 3]) -> Element {
         (Filter::All, "All"),
     ];
     rsx! {
-        div { class: "flex gap-2 pt-1 pb-3", role: "group", aria_label: "Filter",
+        div { class: "flex gap-2 pt-1 pb-3", role: "group", aria_label: "Filter", "data-testid": "filter",
             for (i, (filter, label)) in chips.into_iter().enumerate() {
                 button {
                     key: "{label}",
@@ -203,7 +204,7 @@ pub fn Toasts() -> Element {
     let mut fanned = state.toasts_fanned;
     rsx! {
         section {
-            class: "absolute inset-x-4 bottom-40 z-40 h-0",
+            class: "absolute inset-x-4 bottom-40 z-50 h-0",
             aria_label: "Notifications",
             aria_live: "polite",
             onmouseenter: move |_| fanned.set(true),
@@ -212,6 +213,7 @@ pub fn Toasts() -> Element {
                 div {
                     key: "{toast.id}",
                     role: "status",
+                    "data-testid": "toast",
                     class: "absolute inset-x-0 bottom-0 mx-auto max-w-[360px] flex items-center gap-3 h-16 pl-4 pr-3 rounded-xl bg-white border border-stone-200 shadow-lg text-sm text-stone-800 origin-bottom transition-all duration-300 ease-out",
                     style: "{toast_position(i, fanned())}",
                     span { class: "flex-1 min-w-0 truncate", "{toast.text}" }
@@ -253,26 +255,35 @@ mod tests {
 
     /// Every icon the app shows. The embedded icon font holds exactly these;
     /// see `fonts/README.md` when adding one.
-    const ICONS: [&str; 33] = [
+    const ICONS: [&str; 47] = [
         "add",
+        "add_task",
         "arrow_back",
+        "arrow_downward",
         "arrow_upward",
         "bolt",
         "category",
         "celebration",
         "check",
+        "check_circle",
         "checklist",
         "chevron_right",
         "close",
         "cloud_off",
         "coffee",
         "content_copy",
+        "delete",
+        "done_all",
+        "drag_indicator",
         "edit",
+        "emoji_events",
         "expand_less",
         "flag",
         "group",
         "image",
+        "kitchen",
         "local_florist",
+        "local_laundry_service",
         "location_on",
         "music_note",
         "pause",
@@ -281,12 +292,17 @@ mod tests {
         "photo_camera",
         "play_arrow",
         "play_circle",
+        "potted_plant",
+        "report",
         "rocket_launch",
         "sailing",
+        "sentiment_satisfied",
+        "shower",
         "sports_soccer",
         "storefront",
         "task_alt",
         "undo",
+        "wb_sunny",
     ];
 
     fn sources(dir: &Path, into: &mut String) {
@@ -304,11 +320,24 @@ mod tests {
     fn every_icon_in_the_code_is_in_the_embedded_font() {
         let mut code = String::new();
         sources(Path::new("src"), &mut code);
-        let used: BTreeSet<&str> = code
-            .split("Icon { name: \"")
-            .skip(1)
-            .filter_map(|rest| rest.split('"').next())
+        // Icons are named in `Icon { name: "…" }`, in `icon: "…"` props, and
+        // and as fixed names below.
+        let named = |marker: &'static str| {
+            code.split(marker)
+                .skip(1)
+                .filter_map(|rest| rest.split('"').next())
+                .collect::<Vec<_>>()
+        };
+        let used: BTreeSet<&str> = named("Icon { name: \"")
+            .into_iter()
+            .chain(named("icon: \""))
+            .chain(["task_alt"])
             .chain(super::PICTURE_ICONS)
+            .chain(crate::screens::COMMON_ICONS)
+            .chain(["report"])
+            .filter(|name| {
+                !name.is_empty() && name.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+            })
             .collect();
         let missing: Vec<_> = used.iter().filter(|name| !ICONS.contains(name)).collect();
         assert!(

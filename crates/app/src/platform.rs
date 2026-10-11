@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use chrono::{DateTime, Local, NaiveDate};
 use tackly_protocol::GeoPoint;
 
 pub fn data_dir() -> PathBuf {
@@ -105,4 +106,28 @@ pub fn launch_link() -> Option<String> {
 #[cfg(target_os = "android")]
 pub fn launch_link() -> Option<String> {
     None
+}
+
+/// The phone's local time. The acceptance tests move it (a test build only):
+/// a file `clock-offset-minutes` in the data folder shifts it, so "it is
+/// 20:00" and "the next morning" can be acted out.
+pub fn local_now() -> DateTime<Local> {
+    local(chrono::Utc::now())
+}
+
+/// A moment on this phone's clock (moved like [`local_now`] in a test build).
+pub fn local(at: DateTime<chrono::Utc>) -> DateTime<Local> {
+    let at = at.with_timezone(&Local);
+    #[cfg(feature = "ui-test")]
+    if let Some(minutes) = std::fs::read_to_string(data_dir().join("clock-offset-minutes"))
+        .ok()
+        .and_then(|text| text.trim().parse::<i64>().ok())
+    {
+        return at + chrono::Duration::minutes(minutes);
+    }
+    at
+}
+
+pub fn today() -> NaiveDate {
+    local_now().date_naive()
 }

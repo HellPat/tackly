@@ -54,7 +54,11 @@ pub fn TasksTab() -> Element {
         return rsx! { TaskList { tasks, empty_line: "Nothing left to do. Enjoy it." } };
     }
 
-    let all: Vec<&Task> = family.open_tasks().collect();
+    // Steps of problems live with their problem, not here.
+    let all: Vec<&Task> = family
+        .open_tasks()
+        .filter(|task| task.problem_id.is_none())
+        .collect();
     let other: Vec<Task> = family
         .open_tasks_in(None)
         .filter(|task| keep(filter, task, me))
@@ -144,9 +148,16 @@ pub fn TaskList(tasks: Vec<Task>, empty_line: String) -> Element {
 }
 
 /// A task. Left: the finish circle, or the state of whoever else has it.
-/// Middle: the title (opens it). Right: who has it, or a placeholder to give it to someone.
+/// Middle: the title (opens it), and a second line when given one. Right: who
+/// has it, or a placeholder to give it to someone; with `handle`, a handle to
+/// drag it into another order instead.
 #[component]
-pub fn TaskCard(task: Task, #[props(default)] flat: bool) -> Element {
+pub fn TaskCard(
+    task: Task,
+    #[props(default)] flat: bool,
+    #[props(default)] handle: bool,
+    #[props(default)] sub: String,
+) -> Element {
     let state = use_context::<AppState>();
     let mut nav = use_context::<Signal<Nav>>();
     let mut sheet = use_context::<Signal<Option<SheetKind>>>();
@@ -198,7 +209,9 @@ pub fn TaskCard(task: Task, #[props(default)] flat: bool) -> Element {
         li {
             class: "overflow-hidden motion-safe:transition-all motion-safe:duration-300 {shell} {edge} {motion}",
             aria_disabled: if taken { "true" } else { "false" },
-            div { class: "flex items-center gap-1 pl-1 pr-3 min-h-16",
+            "data-ref": "t:{id}",
+            "data-testid": "task",
+            div { class: if handle { "flex items-center gap-1 pl-1 pr-1 min-h-16" } else { "flex items-center gap-1 pl-1 pr-3 min-h-16" },
                 if taken {
                     span { class: "size-12 shrink-0 grid place-items-center",
                         match progress {
@@ -235,10 +248,22 @@ pub fn TaskCard(task: Task, #[props(default)] flat: bool) -> Element {
                     disabled: taken,
                     onclick: move |_| nav.write().detail = Some(id),
                     span { class: if taken { "block text-base truncate text-stone-600" } else { "block text-base truncate" }, "{task.title}" }
+                    if !sub.is_empty() {
+                        span { class: "block text-sm text-stone-600 truncate", "{sub}" }
+                    }
                     if let Some(words) = state_words {
                         span { class: "sr-only", "{words}" }
                     }
                 }
+                if handle {
+                    span {
+                        class: "size-11 shrink-0 grid place-items-center text-stone-400 touch-none cursor-grab",
+                        "data-drag": "true",
+                        "data-testid": "drag-handle",
+                        aria_hidden: "true",
+                        Icon { name: "drag_indicator" }
+                    }
+                } else {
                 match holder {
                     Some(who) => rsx! {
                         span { class: if taken { "shrink-0 pl-2 grayscale opacity-60" } else { "shrink-0 pl-2" },
@@ -255,6 +280,7 @@ pub fn TaskCard(task: Task, #[props(default)] flat: bool) -> Element {
                             }
                         }
                     },
+                }
                 }
             }
         }

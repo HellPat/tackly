@@ -1,5 +1,6 @@
-//! This phone's own preferences: which filter the task lists show and the
-//! color scheme. Kept in a small file next to the data; never synced.
+//! This phone's own preferences: which filter the task lists show, the color
+//! scheme, and when to plan the next day. Kept in a small file next to the
+//! data; never synced.
 
 use std::path::PathBuf;
 
@@ -21,13 +22,24 @@ pub enum Filter {
 pub struct Settings {
     pub filter: Filter,
     pub scheme: String,
+    /// When Upcoming opens to plan the next day ("20:00"); `None`: never.
+    pub plan_at: Option<String>,
 }
+
+/// How many priorities a day holds.
+pub const SLOTS: usize = 3;
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             filter: Filter::Mine,
             scheme: "ocean".into(),
+            // `TACKLY_PLAN_AT=off` (the acceptance tests) starts without planning.
+            plan_at: match std::env::var("TACKLY_PLAN_AT").as_deref() {
+                Ok("off") => None,
+                Ok(time) if !time.is_empty() => Some(time.to_owned()),
+                _ => Some("20:00".into()),
+            },
         }
     }
 }
@@ -37,6 +49,13 @@ fn file() -> PathBuf {
 }
 
 impl Settings {
+    /// The planning time, if one is set and it reads as HH:MM.
+    pub fn plan_time(&self) -> Option<chrono::NaiveTime> {
+        self.plan_at
+            .as_deref()
+            .and_then(|time| chrono::NaiveTime::parse_from_str(time, "%H:%M").ok())
+    }
+
     /// The saved settings, or the defaults when there are none (or they can't be read).
     pub fn load() -> Self {
         std::fs::read(file())

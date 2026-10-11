@@ -27,7 +27,6 @@ fn a_new_task_lands_in_other() {
                 title: "Milk".into(),
                 place_ids: vec![],
                 problem_id: None,
-                trip: false,
             },
         )]);
 }
@@ -63,7 +62,6 @@ fn a_task_can_go_into_a_list_that_exists() {
                 title: "Milk".into(),
                 place_ids: vec![],
                 problem_id: None,
-                trip: false,
             },
         )]);
 }
@@ -83,7 +81,6 @@ fn a_list_with_open_tasks_cannot_be_deleted() {
                         title: "Milk".into(),
                         place_ids: vec![],
                         problem_id: None,
-                        trip: false,
                     },
                 ),
             ],
@@ -651,7 +648,6 @@ fn a_new_solution_of_an_open_problem_is_a_step_right_away() {
     let tidy_up = tackly_protocol::Solution {
         id: Uuid::from_u128(0x63),
         title: "Write a shopping list".into(),
-        trip: false,
     };
     let task_id = Uuid::from_u128(0x72);
     let mut expected = vec![by(
@@ -666,7 +662,6 @@ fn a_new_solution_of_an_open_problem_is_a_step_right_away() {
         OUT_OF_FOOD,
         task_id,
         "Write a shopping list",
-        false,
         PATRICK,
     ));
     as_member(MONA)
