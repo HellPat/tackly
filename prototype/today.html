@@ -190,7 +190,7 @@ function priorityCard(t, ctl = '') {
         <input type="checkbox" class="peer sr-only" data-check="${t.id}" aria-label="Done: ${t.title}">
         <span class="size-6 rounded-full border-2 border-stone-400 grid place-items-center hover:border-accent-700 peer-checked:bg-accent-700 peer-checked:border-accent-700 peer-checked:animate-pop">${icon('check', '!text-[16px] text-accent-ink')}</span>
       </label>
-      <span class="flex-1 min-w-0 py-3"><span class="block text-base truncate">${t.title}</span>${trip}</span>
+      <span class="flex-1 min-w-0 py-3"><span class="block text-base truncate">${t.title}</span>${trip || (problemOf(t) ? `<span class="block text-sm text-stone-600 truncate">${problemOf(t).title}</span>` : '')}</span>
       ${t.trip ? `<button class="${PRIMARY} !h-9 !px-3" data-trip="${t.id}">${icon('shopping_cart', '!text-[18px]')}Start</button>` : ''}${ctl}
     </div>
   </li>`;
@@ -333,24 +333,34 @@ function planRow(ref, lead, title, sub, inFocus, full) {
     ${lead}<span class="flex-1 min-w-0"><span class="block truncate">${title}</span>${sub ? `<span class="block text-sm text-stone-600 truncate">${sub}</span>` : ''}</span>${move}</li>`;
 }
 const taskLead = () => `<span class="size-9 shrink-0 rounded-full grid place-items-center bg-stone-100 text-stone-600">${icon('task_alt', '!text-[20px]')}</span>`;
+/* The problem a task is a step of, if any. */
+const problemOf = (t) => problemKinds.find((k) => k.tasks?.includes(t.id));
 function renderTomorrow() {
   const full = freeSlots('tomorrow') === 0;
-  const refs = focusRefs('tomorrow');
-  const inFocus = refs.map((ref) => {
-    const [kind, id] = ref.split(':');
-    if (kind === 't') { const t = find(id); return planRow(ref, taskLead(), t.title, '', true); }
-    const k = kindById(id); return planRow(ref, problemIcon(k), k.title, 'Problem', true);
+  const inFocus = focusRefs('tomorrow').filter((r) => r.startsWith('t:')).map((ref) => {
+    const t = find(ref.slice(2));
+    return planRow(ref, taskLead(), t.title, problemOf(t)?.title ?? '', true);
   });
   const free = Array.from({ length: SLOTS - inFocus.length }, () => `<li class="mb-2 flex items-center gap-3 pl-4 pr-3 min-h-16 rounded-2xl border-2 border-dashed border-stone-400/70 bg-white/40 text-stone-600">
     <span class="size-6 rounded-full border-2 border-dashed border-stone-400"></span><span class="flex-1">Free slot</span></li>`).join('');
-  const problems = myProblems().filter((k) => k.focus !== 'tomorrow' && !state.dismissed.has(`p:${k.id}`));
-  const rest = leftovers().filter((t) => !state.dismissed.has(`t:${t.id}`));
-  const pool = `${problems.length ? `${heading('Problems')}<ul>${problems.map((k) => planRow(`p:${k.id}`, problemIcon(k), k.title, openFor(k), false, full)).join('')}</ul>` : ''}
+  const focus = `${heading(`Focus <span class="font-normal text-stone-500">${inFocus.length}/${SLOTS}</span>`)}
+    <ul id="focusZone" class="rounded-2xl transition-shadow">${inFocus.join('')}${free}</ul>`;
+  // Stepped into a problem: its steps, in no order, each one ready to move up.
+  if (state.planProblem) {
+    const k = kindById(state.planProblem);
+    const steps = k.tasks.map(find).filter((t) => open(t) && t.day !== 'tomorrow' && !state.dismissed.has(`t:${t.id}`));
+    return `${focus}<div id="planPool" class="rounded-2xl transition-shadow">${heading(k.title)}
+      ${steps.length ? `<ul>${steps.map((t) => planRow(`t:${t.id}`, taskLead(), t.title, '', false, full)).join('')}</ul>` : '<p class="py-8 text-center text-stone-600">No steps left here.</p>'}</div>`;
+  }
+  // A problem is a row to step into; it never takes a slot itself.
+  const problems = myProblems().filter((k) => !state.dismissed.has(`p:${k.id}`));
+  const problemRows = problems.map((k) => `<li class="${CARD} mb-2 flex items-center gap-3 pl-3 pr-3 min-h-16 cursor-pointer touch-pan-y" data-ref="p:${k.id}" data-swipe data-plan-problem="${k.id}">
+    ${problemIcon(k)}<span class="flex-1 min-w-0"><span class="block truncate">${k.title}</span><span class="block text-sm text-stone-600">${openFor(k)}</span></span>${icon('chevron_right', 'text-stone-500')}</li>`).join('');
+  const rest = leftovers().filter((t) => !problemOf(t) && !state.dismissed.has(`t:${t.id}`));
+  const pool = `${problems.length ? `${heading('Problems')}<ul>${problemRows}</ul>` : ''}
     ${rest.length ? `${heading('Left over')}<ul>${rest.map((t) => planRow(`t:${t.id}`, taskLead(), t.title, t.day === 'today' ? 'From today' : 'Overdue', false, full)).join('')}</ul>` : ''}
     ${!problems.length && !rest.length ? '<p class="py-8 text-center text-stone-600">Nothing left over. Fresh start tomorrow.</p>' : ''}`;
-  return `${heading(`Focus <span class="font-normal text-stone-500">${inFocus.length}/${SLOTS}</span>`)}
-    <ul id="focusZone" class="rounded-2xl transition-shadow">${inFocus.join('')}${free}</ul>
-    <div id="planPool" class="rounded-2xl transition-shadow">${pool}</div>`;
+  return `${focus}<div id="planPool" class="rounded-2xl transition-shadow">${pool}</div>`;
 }
 function moveIntoFocus(ref) {
   if (!freeSlots('tomorrow')) { toast('The focus is full. Move one back first.'); return false; }
@@ -365,7 +375,7 @@ function moveBack(ref) {
   else kindById(id).focus = null;
 }
 /* Swipe a row below the focus to the right: gone for this Upcoming round (Undo in the toast). */
-let swipe = null;
+let swipe = null, lastSwipe = 0;
 document.addEventListener('pointerdown', (e) => {
   const row = e.target.closest('[data-swipe]');
   if (!row || e.target.closest('[data-drag], button')) return;
@@ -380,6 +390,7 @@ document.addEventListener('pointermove', (e) => {
 document.addEventListener('pointerup', () => {
   if (!swipe) return;
   const { row, dx } = swipe; swipe = null;
+  if (dx > 10) lastSwipe = Date.now();
   Object.assign(row.style, { transition: 'transform .2s, opacity .2s' });
   if (dx < 110) { Object.assign(row.style, { transform: '', opacity: '' }); return; }
   Object.assign(row.style, { transform: 'translateX(110%)', opacity: '0' });
@@ -543,7 +554,7 @@ function render() {
   $('#title').textContent = { today: 'Today', tomorrow: 'Upcoming', pick: 'Pick more', problems: 'Problems', problem: state.problem && kindById(state.problem).title, edit: 'Edit problem', family: 'Family', other: state.tab[0].toUpperCase() + state.tab.slice(1) }[view];
   $('#meBtn').innerHTML = avatar(me, 'size-10');
   $('#subtitle').textContent = view === 'tomorrow' ? dateLabel(1) : '';
-  const back = ['pick', 'family', 'edit', 'problem'].includes(view);
+  const back = ['pick', 'family', 'edit', 'problem'].includes(view) || (view === 'tomorrow' && !!state.planProblem);
   $('#editBtn').classList.toggle('hidden', view !== 'problem');
   $('#editBtn').classList.toggle('grid', view === 'problem');
   $('#meBtn').classList.toggle('hidden', view === 'tomorrow' || view === 'problem' || view === 'edit');
@@ -604,21 +615,24 @@ document.addEventListener('keydown', (e) => {
   render(); $('#newFix').focus();
 });
 document.addEventListener('click', (e) => {
-  const el = e.target.closest('button, input, a'); if (!el) return;
+  if (Date.now() - lastSwipe < 400) return; // the click that ends a swipe
+  const el = e.target.closest('button, input, a, [data-plan-problem]'); if (!el) return;
   const d = el.dataset;
   if (d.tab) { state.tab = d.tab; state.view = 'today'; state.edit = null; state.problem = null; }
+  else if (el.id === 'backBtn' && state.view === 'tomorrow') { state.planProblem = null; }
   else if (el.id === 'backBtn') { if (state.tab === 'family') state.tab = state.prevTab ?? 'today'; else if (state.edit) state.edit = null; else if (state.problem) state.problem = null; else state.view = 'today'; }
   else if (el.id === 'editBtn') { state.edit = state.problem; }
   else if (el.closest('#meBtn')) { if (state.tab !== 'family') state.prevTab = state.tab; state.tab = 'family'; }
   else if (d.check) { const t = find(d.check); if (t.done) { t.done = false; } else { setTimeout(() => { finish(t); render(); }, 250); return; } }
-  else if ('planLater' in d) { state.view = 'today'; toast('I’ll ask again in 30 minutes'); }
+  else if ('planLater' in d) { state.view = 'today'; state.planProblem = null; toast('I’ll ask again in 30 minutes'); }
+  else if (d.planProblem) { state.planProblem = d.planProblem; }
   else if (d.focus) { moveIntoFocus(d.focus); }
   else if (d.unfocus) { moveBack(d.unfocus); }
   else if ('planDone' in d) {
     // Tomorrow becomes today (in the prototype, at once).
     state.tasks.forEach((t) => { if (t.day === 'today' && open(t) && t.on === me.id) t.day = null; if (t.day === 'tomorrow') t.day = 'today'; });
     problemKinds.forEach((k) => { k.focus = k.focus === 'tomorrow' ? 'today' : null; });
-    state.order = { today: state.order.tomorrow, tomorrow: [] }; state.dismissed.clear();
+    state.order = { today: state.order.tomorrow, tomorrow: [] }; state.dismissed.clear(); state.planProblem = null;
     state.view = 'today'; state.tasks.forEach((t) => (t.doneToday = false)); toast('Planned. See you tomorrow.');
   }
   else if (d.pick) { state.celebrate = false; state.view = 'pick'; }
