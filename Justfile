@@ -22,7 +22,7 @@ server:
 
 # Fast tests without windows: unit tests and the device-level end-to-end suite.
 test:
-    {{shell}} cargo test --locked -p tackly-protocol -p tackly-client -p tackly-sync
+    {{shell}} cargo test --locked -p tackly-domain -p tackly-wire -p tackly-phone -p tackly-relay
 
 # Cucumber acceptance tests: three real app windows (Patrick, Mona, Mara) are
 # opened per scenario and clicked through, against a real server. Windows pop
@@ -30,10 +30,10 @@ test:
 acceptance:
     {{shell}} cargo test --locked -p tackly-acceptance --test acceptance
 
-# Compile the app's styles (Tailwind) into crates/app/src/style.css. Run after
+# Compile the app's styles (Tailwind) into apps/app/src/style.css. Run after
 # changing class names; CI checks the result is up to date.
 css:
-    {{shell}} tailwindcss --input crates/app/tailwind.css --output crates/app/src/style.css --minify
+    {{shell}} tailwindcss --input apps/app/tailwind.css --output apps/app/src/style.css --minify
 
 # Clippy on everything. Unwrap and expect are denied (see Cargo.toml).
 lint:

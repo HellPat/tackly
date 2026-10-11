@@ -6926,8 +6926,8 @@ dependencies = [
  "anyhow",
  "clap",
  "serde_json",
- "tackly-client",
- "tackly-protocol",
+ "tackly-domain",
+ "tackly-phone",
  "tokio",
 ]
 
@@ -6942,14 +6942,27 @@ dependencies = [
  "dioxus",
  "serde",
  "serde_json",
- "tackly-client",
- "tackly-protocol",
+ "tackly-domain",
+ "tackly-phone",
  "tokio",
  "uuid",
 ]
 
 [[package]]
-name = "tackly-client"
+name = "tackly-domain"
+version = "0.2.0"
+dependencies = [
+ "chrono",
+ "cqrs-es",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "tackly-phone"
 version = "0.2.0"
 dependencies = [
  "aes-gcm",
@@ -6973,30 +6986,16 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "tackly-protocol",
+ "tackly-domain",
  "tackly-testkit",
+ "tackly-wire",
  "tempfile",
  "tokio",
  "uuid",
 ]
 
 [[package]]
-name = "tackly-protocol"
-version = "0.2.0"
-dependencies = [
- "base64 0.22.1",
- "chrono",
- "cqrs-es",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "tackly-sync"
+name = "tackly-relay"
 version = "0.2.0"
 dependencies = [
  "axum",
@@ -7007,7 +7006,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sqlx",
- "tackly-protocol",
+ "tackly-wire",
  "tokio",
  "uuid",
 ]
@@ -7019,9 +7018,19 @@ dependencies = [
  "anyhow",
  "axum",
  "serde_json",
- "tackly-client",
- "tackly-sync",
+ "tackly-phone",
+ "tackly-relay",
  "tokio",
+]
+
+[[package]]
+name = "tackly-wire"
+version = "0.2.0"
+dependencies = [
+ "base64 0.22.1",
+ "serde",
+ "sha2 0.10.9",
+ "uuid",
 ]
 
 [[package]]

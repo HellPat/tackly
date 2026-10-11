@@ -14,7 +14,7 @@ mkdir -p .dev
 names=(Patrick Mona Mara Dana Eli)
 places=("52.5200,13.4050" "52.5163,13.3777" "52.5075,13.3904" "52.4900,13.3600" "52.5300,13.4200")
 
-cargo build --locked -p tackly-sync -p tackly-app
+cargo build --locked -p tackly-relay -p tackly-app
 
 pids=()
 stop_everything() {
@@ -43,7 +43,7 @@ if relay_is_up "$port"; then
   echo "Using the Tackly server already running on 127.0.0.1:$port."
 else
   DATABASE_URL="sqlite://$root/.dev/relay.db" TACKLY_BIND="127.0.0.1:$port" \
-    target/debug/tackly-sync >.dev/server.log 2>&1 &
+    target/debug/tackly-relay >.dev/server.log 2>&1 &
   pids+=($!)
   for _ in {1..30}; do relay_is_up "$port" && break; sleep 0.5; done
   relay_is_up "$port" || { cat .dev/server.log >&2; echo 'The server did not start.' >&2; exit 1; }

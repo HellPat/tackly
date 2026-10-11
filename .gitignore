@@ -4,4 +4,4 @@
 /.dev/
 node_modules/
 # dx compiles its own copy of the styles when it builds; the app uses src/style.css.
-/crates/app/assets/
+/apps/app/assets/

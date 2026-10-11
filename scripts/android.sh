@@ -13,7 +13,7 @@ activity="$package/dev.dioxus.main.MainActivity"
 apk="$root/target/dx/tackly/debug/android/app/app/build/outputs/apk/debug/app-debug.apk"
 
 build() {
-  (cd "$root/crates/app" && dx build --android --package tackly-app --no-default-features --features mobile)
+  (cd "$root/apps/app" && dx build --android --package tackly-app --no-default-features --features mobile)
 }
 
 device_is_ready() {
@@ -46,9 +46,9 @@ case "${1:-}" in
   test)
     build
     ensure_device
-    cargo build --locked -p tackly-sync -p tackly-testkit --bins
+    cargo build --locked -p tackly-relay -p tackly-testkit --bins
     adb install -r "$apk"
-    cd "$root/android-e2e"
+    cd "$root/tests/android-e2e"
     npm ci --no-audit --no-fund
     npx playwright install android
     node suite.mjs

@@ -5,4 +5,4 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 mkdir -p .dev
-DATABASE_URL="sqlite://$root/.dev/relay.db" exec cargo run --locked -p tackly-sync
+DATABASE_URL="sqlite://$root/.dev/relay.db" exec cargo run --locked -p tackly-relay

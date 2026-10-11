@@ -1,0 +1,24 @@
+[package]
+name = "tackly-relay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "tackly_relay"
+
+[lints]
+workspace = true
+
+[dependencies]
+tackly-wire.workspace = true
+axum = "0.8"
+base64.workspace = true
+futures-util.workspace = true
+openmls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "migrate", "macros"] }
+tokio.workspace = true
+uuid.workspace = true

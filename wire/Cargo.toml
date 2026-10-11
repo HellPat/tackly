@@ -1,0 +1,15 @@
+[package]
+name = "tackly-wire"
+description = "The messages between a Tackly phone and the relay (HTTP and SSE payloads)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+base64.workspace = true
+serde.workspace = true
+sha2.workspace = true
+uuid.workspace = true

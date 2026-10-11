@@ -1,0 +1,20 @@
+[package]
+name = "tackly-domain"
+description = "The family, its rules, events and state: the Tackly domain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+chrono.workspace = true
+cqrs-es = "0.5"
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

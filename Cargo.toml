@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
-members = ["crates/protocol", "crates/client", "server", "crates/app", "crates/acceptance", "crates/testkit", "crates/agent"]
-default-members = ["crates/protocol", "crates/client", "server", "crates/agent"]
+members = ["domain", "wire", "phone", "apps/app", "apps/relay", "apps/agent", "tests/testkit", "tests/acceptance"]
+default-members = ["domain", "wire", "phone", "apps/relay", "apps/agent"]
 
 [workspace.lints.clippy]
 # Errors are handled, not unwrapped. `.cargo/config.toml` runs clippy on every
@@ -15,8 +15,9 @@ edition = "2024"
 license = "MIT"
 
 [workspace.dependencies]
-tackly-protocol = { path = "crates/protocol" }
-tackly-client = { path = "crates/client" }
+tackly-domain = { path = "domain" }
+tackly-wire = { path = "wire" }
+tackly-phone = { path = "phone" }
 aes-gcm = "0.10"
 bip39 = "2"
 hkdf = "0.12"
