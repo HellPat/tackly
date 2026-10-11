@@ -469,8 +469,12 @@ function renderDetail() {
       </div>
     </div>
     <div class="px-6 pb-10 grid grid-cols-2 gap-3">
-      <button class="${on ? SECONDARY : PRIMARY} !h-14 text-base" data-toggle-run="${t.id}">${icon(on ? 'pause' : 'play_arrow')}${on ? 'Pause' : 'Start'}</button>
-      <button class="${on ? PRIMARY : SECONDARY} !h-14 text-base" data-finish-detail="${t.id}">${icon('check')}Finish</button>
+      ${(() => {
+        // Side by side: the main action on the right.
+        const run = `<button class="${on ? SECONDARY : PRIMARY} !h-14 text-base" data-toggle-run="${t.id}">${icon(on ? 'pause' : 'play_arrow')}${on ? 'Pause' : 'Start'}</button>`;
+        const fin = `<button class="${on ? PRIMARY : SECONDARY} !h-14 text-base" data-finish-detail="${t.id}">${icon('check')}Finish</button>`;
+        return on ? run + fin : fin + run;
+      })()}
     </div>`;
 }
 setInterval(() => {

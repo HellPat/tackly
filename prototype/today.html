@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tackly Today</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&display=block" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.3"></script>
+  <!-- Same look as prototype/index.html: font, accent, animations. Plus confetti for the celebration. -->
+  <style type="text/tailwindcss">
+    @theme {
+      --font-sans: Roboto, system-ui, sans-serif;
+      --color-accent-50: #fdf4ff;
+      --color-accent-100: #fae8ff;
+      --color-accent-200: #f5d0fe;
+      --color-accent-700: #a21caf;
+      --color-accent-800: #86198f;
+      --color-accent-900: #701a75;
+      --color-accent-ink: #ffffff;
+      --animate-pop: pop .3s ease-out;
+      --animate-drift-far: drift 40s ease-in-out infinite alternate;
+      --animate-drift-mid: drift 28s ease-in-out infinite alternate;
+      --animate-drift-near: drift 18s ease-in-out infinite alternate;
+      --animate-fall: fall 3.2s ease-in forwards;
+      --animate-hop: hop 1.6s ease-in-out infinite;
+      --animate-rise: rise .45s ease-out;
+      @keyframes drift { from { transform: translateX(-16px); } to { transform: translateX(16px); } }
+      @keyframes pop { 40% { transform: scale(1.3); } }
+      @keyframes fall { from { transform: translateY(-10vh) rotate(0); opacity: 1; } to { transform: translateY(105vh) rotate(540deg); opacity: .9; } }
+      @keyframes hop { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-14px); } 60% { transform: translateY(-14px); } }
+      @keyframes rise { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+    }
+  </style>
+  <!-- Light only, by decision (the app has no dark mode). -->
+  <style>html, body { height: 100%; background: #d6d3d1; color-scheme: light; }</style>
+</head>
+<body class="bg-stone-300 text-stone-800 antialiased">
+  <div id="app" class="fixed inset-0 mx-auto max-w-[430px] flex flex-col overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+    <div id="scene" class="absolute inset-x-0 bottom-20 h-[42%] pointer-events-none" aria-hidden="true"></div>
+
+    <header class="relative z-10 shrink-0 flex items-center gap-1 px-2 h-16">
+      <button id="backBtn" class="hidden size-12 place-items-center rounded-full text-stone-700 hover:bg-stone-200/60" aria-label="Back"><span class="material-symbols-rounded" aria-hidden="true">arrow_back</span></button>
+      <h1 id="title" class="flex-1 px-2 text-2xl font-semibold tracking-tight truncate">Today</h1>
+      <span id="subtitle" class="mr-1 text-sm text-stone-600"></span>
+      <!-- The family lives behind my picture, top right. -->
+      <button id="meBtn" class="size-12 grid place-items-center rounded-full" aria-label="Family and settings"></button>
+    </header>
+
+    <main id="main" class="relative z-10 flex-1 min-h-0 overflow-y-auto px-3 pb-6"></main>
+
+    <!-- Plan mode: the only ways out, at the bottom like every main action. -->
+    <section id="planBar" class="hidden relative z-10 shrink-0 px-3 pb-3 pt-2 flex-col gap-2" aria-label="Plan">
+      <button class="" data-plan-later>Plan later</button>
+      <button class="" data-plan-done>Save plan</button>
+    </section>
+
+    <nav id="dock" class="relative z-10 shrink-0 h-20 grid grid-cols-4 bg-[#fffdfb] shadow-[0_-1px_0_var(--color-stone-200)]" aria-label="Main"></nav>
+
+    <!-- Full screen, no navigation: the shopping trip and the celebration. -->
+    <section id="full" class="hidden absolute inset-0 z-40 flex-col"></section>
+
+    <!-- A bottom sheet; a tap on the dimmed backdrop closes it. -->
+    <dialog id="sheet" class="mx-auto mb-0 mt-auto w-full max-w-[430px] max-h-[85dvh] rounded-t-[28px] bg-[#fffdfb] text-stone-800 px-6 pt-3 pb-[calc(2rem+env(safe-area-inset-bottom))] shadow-2xl backdrop:bg-stone-900/40">
+      <div class="mx-auto mb-5 h-1 w-8 rounded-full bg-stone-300"></div>
+      <div id="sheetBody"></div>
+    </dialog>
+
+    <section id="toasts" class="absolute inset-x-4 bottom-28 z-50 h-0" aria-label="Notifications" aria-live="polite"></section>
+  </div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const icon = (name, cls = '') => `<span class="material-symbols-rounded ${cls}" aria-hidden="true">${name}</span>`;
+const FILL = "[font-variation-settings:'FILL'_1]";
+
+const BTN = 'inline-flex items-center justify-center gap-2 h-10 px-4 rounded-md border font-semibold shadow-sm transition-colors active:shadow-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-700';
+const PRIMARY = `${BTN} border-accent-800 bg-accent-700 text-accent-ink inset-shadow-[0_1px_0_rgb(255_255_255/.18)] hover:bg-accent-800`;
+const SECONDARY = `${BTN} border-stone-300 bg-stone-50 text-stone-800 inset-shadow-[0_1px_0_white] hover:bg-stone-100`;
+const CARD = 'bg-[#fffdfb] rounded-2xl shadow-sm';
+const TINTS = ['bg-sky-100 text-sky-900', 'bg-pink-100 text-pink-900', 'bg-teal-100 text-teal-900', 'bg-amber-100 text-amber-900', 'bg-violet-100 text-violet-900'];
+const SLOTS = 3; // priorities per day; each person can change it, 3 by default
+
+/* ---- Data ------------------------------------------------------------------------------------- */
+const members = [
+  { id: 'p', name: 'Patrick', me: true, avatar: { icon: 'sailing', tint: 0 }, planAt: '20:00' },
+  { id: 'mo', name: 'Mona', avatar: { icon: 'local_florist', tint: 1 }, planAt: '21:00' },
+  { id: 'ma', name: 'Mara', avatar: { icon: 'pets', tint: 2 }, planAt: '19:30' },
+];
+const stores = [
+  { id: 'lidl', name: 'Lidl', where: 'Winnenden' },
+  { id: 'aldi', name: 'Aldi', where: 'Waiblingen' },
+  { id: 'dm', name: 'dm', where: 'Winnenden' },
+];
+/* Common problems, known to the family. Each has its solutions (tasks); a trip shops the lists it names.
+   Open or not: noticed (for me) or raised (for someone), resolved by hand, noticed again any time. */
+const problemKinds = [
+  { id: 'food', title: 'Out of food', icon: 'kitchen', fixes: [{ title: 'Go shopping', trip: ['groceries', 'drugstore'] }] },
+  { id: 'plants', title: 'Plants are dry', icon: 'potted_plant', fixes: [{ title: 'Water the plants' }] },
+  { id: 'laundry', title: 'Laundry piles up', icon: 'local_laundry_service', fixes: [{ title: 'Wash a load' }, { title: 'Hang it up' }, { title: 'Put it away' }] },
+  { id: 'bins', title: 'Bins are full', icon: 'delete', fixes: [{ title: 'Take out the trash' }, { title: 'Take out the paper' }] },
+  { id: 'bathroom', title: 'Bathroom is dirty', icon: 'shower', fixes: [{ title: 'Clean the sink' }, { title: 'Clean the toilet' }] },
+];
+let nextId = 100;
+const state = {
+  tab: 'today',
+  view: 'today', // today | tomorrow (plan mode) | pick (fill free slots)
+  // Tasks. `day`: 'today' / 'tomorrow' makes it a priority of that day for whoever has it.
+  tasks: [
+    { id: 1, title: 'Call the dentist', on: 'p', day: 'today' },
+    { id: 2, title: 'Pay the electricity bill', on: 'p', day: 'today' },
+    { id: 3, title: 'Book the holiday', on: 'p', day: 'today' },
+    { id: 4, title: 'Fix the bike light', on: null },
+    { id: 5, title: 'Sort the photos', on: null },
+    { id: 6, title: 'Clean out the car', on: null },
+    { id: 7, title: 'Return the parcel', on: null, overdue: true },
+    { id: 8, title: 'Answer the school email', on: 'p', overdue: true },
+    { id: 9, title: 'Vacuum the stairs', on: 'mo', day: 'today' },
+  ],
+  // What to get: items on lists, each with the stores that have it. Ticked off in a store, added back when it runs out.
+  items: [
+    { id: 'i1', title: 'Milk', list: 'groceries', at: ['lidl', 'aldi'] },
+    { id: 'i2', title: 'Bread', list: 'groceries', at: ['lidl'] },
+    { id: 'i3', title: 'Bananas', list: 'groceries', at: ['lidl', 'aldi'] },
+    { id: 'i4', title: 'Coffee', list: 'groceries', at: ['aldi'] },
+    { id: 'i5', title: 'Oat flakes', list: 'groceries', at: ['aldi'] },
+    { id: 'i6', title: 'Toothpaste', list: 'drugstore', at: ['dm'] },
+    { id: 'i7', title: 'Shampoo', list: 'drugstore', at: ['dm', 'lidl'] },
+  ],
+  trip: null, // { task, step: 'where' | 'shop', chosen: [store ids] }
+};
+const member = (id) => members.find((m) => m.id === id);
+const me = members[0];
+const find = (id) => state.tasks.find((t) => t.id == id);
+const open = (t) => !t.done;
+const priorities = (day) => state.tasks.filter((t) => open(t) && t.on === me.id && t.day === day);
+const freeSlots = (day) => Math.max(0, SLOTS - priorities(day).length);
+const unassigned = () => state.tasks.filter((t) => open(t) && !t.on && !t.day);
+const itemsAt = (store) => state.items.filter((i) => !i.got && i.at.includes(store));
+const heading = (text, extra = '') => `<h2 class="flex items-center gap-2 px-2 pt-5 pb-2 text-sm font-semibold text-stone-600">${text}${extra}</h2>`;
+const avatar = (m, size = 'size-8') => `<span class="relative ${size} shrink-0 rounded-full grid place-items-center ${TINTS[m.avatar.tint]} ${size === 'size-8' ? 'border-2' : 'border-[3px]'} border-white shadow-[0_1px_3px_rgb(41_37_36/.3)]">${icon(m.avatar.icon, size === 'size-8' ? '!text-[18px]' : size === 'size-6' ? '!text-[14px]' : '')}</span>`;
+const dateLabel = (offset) => { const d = new Date(); d.setDate(d.getDate() + offset); return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }); };
+
+/* ---- Toasts (short version of the main prototype's) --------------------------------------------- */
+function toast(text, action, onAction) {
+  const el = document.createElement('div');
+  el.setAttribute('role', 'status');
+  el.className = 'absolute inset-x-0 bottom-0 mx-auto max-w-[360px] flex items-center gap-3 h-16 pl-4 pr-3 rounded-xl bg-white border border-stone-200 shadow-lg text-sm animate-rise';
+  el.innerHTML = `<span class="flex-1 min-w-0 truncate">${text}</span>${action ? `<button class="${SECONDARY} !h-10 !px-3">${icon('undo', '!text-[20px]')}${action}</button>` : ''}`;
+  el.querySelector('button')?.addEventListener('click', () => { onAction(); el.remove(); });
+  $('#toasts').replaceChildren(el);
+  setTimeout(() => el.remove(), 4000);
+}
+function sheet(html) { $('#sheetBody').innerHTML = html; $('#sheet').showModal(); }
+
+/* ---- Pieces ------------------------------------------------------------------------------------ */
+/* A priority: the circle finishes it, a trip opens the shop flow. */
+function priorityCard(t) {
+  const trip = t.trip ? `<span class="block text-sm text-stone-600">${state.items.filter((i) => !i.got).length} things to get</span>` : '';
+  return `<li class="${CARD} mb-2" data-card="${t.id}">
+    <div class="flex items-center gap-1 pl-1 pr-3 min-h-16">
+      <label class="size-12 shrink-0 grid place-items-center cursor-pointer">
+        <input type="checkbox" class="peer sr-only" data-check="${t.id}" aria-label="Done: ${t.title}">
+        <span class="size-6 rounded-full border-2 border-stone-400 grid place-items-center hover:border-accent-700 peer-checked:bg-accent-700 peer-checked:border-accent-700 peer-checked:animate-pop">${icon('check', '!text-[16px] text-accent-ink')}</span>
+      </label>
+      <span class="flex-1 min-w-0 py-3"><span class="block text-base truncate">${t.title}</span>${trip}</span>
+      ${t.trip ? `<button class="${PRIMARY} !h-9 !px-3" data-trip="${t.id}">${icon('shopping_cart', '!text-[18px]')}Start</button>` : ''}
+    </div>
+  </li>`;
+}
+/* A free slot: dashed, an invitation to pick something. */
+const freeSlot = (day) => `<li class="mb-2"><button class="w-full flex items-center gap-3 pl-4 pr-3 min-h-16 rounded-2xl border-2 border-dashed border-stone-400/70 bg-white/40 text-stone-600 hover:bg-white/70" data-pick="${day}">
+  <span class="size-6 rounded-full border-2 border-dashed border-stone-400"></span><span class="flex-1 text-left">Free slot</span>${day === 'today' ? `<span class="text-sm">Pick something</span>${icon('chevron_right', 'text-stone-500')}` : ''}</button></li>`;
+
+function prioritySection(day) {
+  const list = priorities(day);
+  const slots = Array.from({ length: SLOTS - list.length }, () => freeSlot(day)).join('');
+  return `${heading(`Priorities <span class="font-normal text-stone-500">${list.length}/${SLOTS}</span>`)}<ul>${list.map(priorityCard).join('')}${slots}</ul>`;
+}
+
+const kindById = (id) => problemKinds.find((k) => k.id === id);
+const myProblems = () => problemKinds.filter((k) => k.open && k.for === me.id);
+const problemIcon = (k) => `<span class="size-9 shrink-0 rounded-full grid place-items-center ${k.open ? 'bg-amber-100 text-amber-900' : 'bg-stone-100 text-stone-500'}">${icon(k.icon, '!text-[20px]')}</span>`;
+/* Who has an open problem, as a picture that reassigns it. */
+const problemOwner = (k) => `<button class="shrink-0 size-11 grid place-items-center" data-assign-problem="${k.id}" aria-label="Assign ${k.title}">${avatar(member(k.for))}</button>`;
+const problemLine = (k) => !k.open ? `${k.fixes.length} ${k.fixes.length === 1 ? 'solution' : 'solutions'}`
+  : k.for === me.id ? (k.by === me.id ? 'You noticed it' : `Raised by ${member(k.by).name}`) : `Raised for ${member(k.for).name}`;
+/* Problems: only the open ones, each its own card. Mine first, and the first one is lifted out with its next
+   step, so it feels like one thing to start with, not a pile. Ones others have come last, quieter. */
+const nextFix = (k) => k.tasks.map(find).find(open);
+function problemRow(k, quiet = false) {
+  return `<li class="${CARD} mb-2 flex items-center gap-2 pl-3 pr-2 min-h-16 ${quiet ? '!bg-white/60 !shadow-none' : ''}">
+    <button class="flex-1 min-w-0 flex items-center gap-3 py-2 text-left" data-edit-problem="${k.id}">
+      ${problemIcon(k)}<span class="min-w-0"><span class="block truncate">${k.title}</span><span class="block text-sm text-stone-600 truncate">${problemLine(k)}</span></span>
+    </button>${problemOwner(k)}<button class="${SECONDARY} !h-9 !px-3 text-sm" data-resolve="${k.id}">Resolve</button></li>`;
+}
+function renderProblems() {
+  const mine = myProblems(), others = problemKinds.filter((k) => k.open && k.for !== me.id);
+  const [first, ...rest] = mine;
+  const step = first && nextFix(first);
+  const lead = first ? `<section class="${CARD} shadow-md p-5 mb-2 animate-rise" aria-label="Start here">
+      <span class="text-sm font-semibold text-accent-800">Start with this one</span>
+      <button class="w-full flex items-center gap-3 pt-2 text-left" data-edit-problem="${first.id}">
+        <span class="size-12 shrink-0 rounded-full grid place-items-center bg-amber-100 text-amber-900">${icon(first.icon, '!text-[26px]')}</span>
+        <span class="flex-1 min-w-0"><span class="block text-xl font-semibold truncate">${first.title}</span><span class="block text-sm text-stone-600 truncate">${problemLine(first)}</span></span>
+        ${icon('chevron_right', 'text-stone-500')}
+      </button>
+      ${step ? `<div class="mt-4 flex items-center gap-3 rounded-xl bg-stone-100 pl-4 pr-2 min-h-14">
+        <span class="flex-1 min-w-0"><span class="block text-xs text-stone-600">Next step</span><span class="block truncate">${step.title}</span></span>
+        <button class="${PRIMARY} !h-10 !px-3" data-start-fix="${step.id}">${icon(step.trip ? 'shopping_cart' : 'play_arrow', '!text-[18px]')}Start</button></div>` : ''}
+      <div class="mt-3 flex justify-end"><button class="${SECONDARY} !h-9 !px-3 text-sm" data-resolve="${first.id}">Resolve</button></div>
+    </section>` : '';
+  const more = rest.length ? `${heading(`Later, one at a time <span class="font-normal text-stone-500">${rest.length}</span>`)}<ul>${rest.map((k) => problemRow(k)).join('')}</ul>` : '';
+  const theirs = others.length ? `${heading('Others have')}<ul>${others.map((k) => problemRow(k, true)).join('')}</ul>` : '';
+  const calm = !mine.length ? `<div class="flex flex-col items-center text-center gap-2 py-12 px-8">
+        <span class="size-16 mb-2 rounded-full grid place-items-center bg-accent-100 text-accent-800">${icon('sentiment_satisfied', '!text-[32px]')}</span>
+        <span class="text-lg font-semibold">Nothing for you</span><span class="text-stone-600">All calm at home.</span></div>` : '';
+  return `${lead}${calm}${more}${theirs}<div class="flex justify-center pt-5"><button class="${first ? SECONDARY : PRIMARY}" data-something-wrong>${icon('report', '!text-[18px]')}Something’s wrong</button></div>`;
+}
+/* Something's wrong: type it; problems the family had before are suggested, to bring back with Notice or Raise. */
+function wrongSheet() {
+  sheet(`<h2 class="text-lg font-semibold pb-3">What’s wrong?</h2>
+    <input id="wrongInput" placeholder="e.g. Out of food" autocomplete="off" class="w-full h-12 px-4 rounded-xl bg-white ring-1 ring-stone-300 outline-none focus:ring-2 focus:ring-accent-700">
+    <ul id="wrongList" class="pt-2 max-h-[50dvh] overflow-y-auto"></ul>`);
+  fillWrongList('');
+  $('#wrongInput').focus();
+}
+function fillWrongList(typed) {
+  const q = typed.trim().toLowerCase();
+  const known = problemKinds.filter((k) => !k.open && (!q || k.title.toLowerCase().includes(q)));
+  const exact = problemKinds.some((k) => k.title.toLowerCase() === q);
+  const rows = known.map((k) => `<li class="flex items-center gap-2 min-h-14 border-b border-stone-100">
+      ${problemIcon(k)}<span class="flex-1 min-w-0"><span class="block truncate">${k.title}</span><span class="block text-xs text-stone-600 truncate">${k.fixes.map((f) => f.title).join(' · ') || 'No solutions yet'}</span></span>
+      <button class="${SECONDARY} !h-9 !px-3 text-sm" data-raise="${k.id}">Raise</button><button class="${PRIMARY} !h-9 !px-3 text-sm" data-notice="${k.id}">Notice</button></li>`).join('');
+  const create = q && !exact ? `<li><button class="w-full flex items-center gap-3 min-h-14 text-left" data-create-problem>
+      <span class="size-9 shrink-0 rounded-full grid place-items-center bg-accent-100 text-accent-800">${icon('add', '!text-[20px]')}</span>
+      <span class="flex-1">New problem “${typed.trim()}”</span>${icon('chevron_right', 'text-stone-500')}</button></li>` : '';
+  $('#wrongList').innerHTML = `${known.length ? `<li class="pt-2 pb-1 text-sm font-semibold text-stone-600">${q ? 'Had this before?' : 'Problems you had before'}</li>` : ''}${rows}${create}`;
+}
+/* Editing a problem: its name, who has it, and its solutions. While it is open, each solution is a task to tick. */
+function renderEditProblem() {
+  const k = kindById(state.edit);
+  const status = k.open
+    ? `<div class="${CARD} flex items-center gap-3 pl-4 pr-2 min-h-16"><span class="flex-1"><span class="block font-semibold">Open</span><span class="block text-sm text-stone-600">${problemLine(k)}</span></span>${problemOwner(k)}<button class="${SECONDARY} !h-9 !px-3 text-sm" data-resolve="${k.id}">Resolve</button></div>`
+    : `<div class="${CARD} flex items-center gap-2 pl-4 pr-2 min-h-16"><span class="flex-1 font-semibold">All good</span><button class="${SECONDARY} !h-9 !px-3 text-sm" data-raise="${k.id}">Raise</button><button class="${PRIMARY} !h-9 !px-3 text-sm" data-notice="${k.id}">Notice</button></div>`;
+  const solutions = k.fixes.map((f, i) => {
+    const t = k.open && k.tasks[i] != null ? find(k.tasks[i]) : null;
+    const tick = t ? `<label class="size-11 shrink-0 grid place-items-center cursor-pointer">
+        <input type="checkbox" class="peer sr-only" data-check="${t.id}" ${t.done ? 'checked' : ''} aria-label="Done: ${t.title}">
+        <span class="size-5 rounded-full border-2 border-stone-400 grid place-items-center peer-checked:bg-stone-400 peer-checked:border-stone-400">${icon('check', '!text-[14px] text-white')}</span></label>`
+      : `<span class="size-11 shrink-0 grid place-items-center text-stone-400">${icon(f.trip ? 'shopping_cart' : 'task_alt', '!text-[20px]')}</span>`;
+    return `<li class="flex items-center gap-1 pl-1 pr-2 min-h-14 ${t?.done ? 'text-stone-500 line-through' : ''}">${tick}
+      <span class="flex-1 min-w-0"><span class="block truncate">${f.title}</span>${f.trip ? `<span class="block text-xs text-stone-600 no-underline">Shops: ${f.trip.map((l) => ({ groceries: 'Groceries', drugstore: 'Drugstore' })[l]).join(', ')}</span>` : ''}</span>
+      ${t?.trip && !t.done ? `<button class="${SECONDARY} !h-8 !px-2.5 text-sm" data-trip="${t.id}">${icon('shopping_cart', '!text-[16px]')}Start</button>` : ''}
+      <button class="size-10 grid place-items-center rounded-full text-stone-500 hover:bg-stone-100" data-remove-fix="${i}" aria-label="Remove ${f.title}">${icon('close', '!text-[20px]')}</button></li>`;
+  }).join('');
+  return `${heading('Name')}<input id="problemName" class="w-full h-12 px-4 rounded-xl bg-[#fffdfb] ring-1 ring-stone-300 shadow-sm outline-none focus:ring-2 focus:ring-accent-700" value="${k.title}">
+    ${heading('Status')}${status}
+    ${heading('Solutions')}<ul class="${CARD} overflow-hidden divide-y divide-stone-100">${solutions}
+      <li class="flex items-center gap-1 pl-1 pr-3 min-h-14"><span class="size-11 grid place-items-center text-accent-700">${icon('add', '!text-[20px]')}</span>
+        <input id="newFix" placeholder="Add a solution" class="flex-1 min-w-0 h-12 bg-transparent outline-none placeholder:text-stone-500"></li></ul>
+    <p class="px-2 pt-2 text-sm text-stone-600">When it’s noticed, every solution becomes a task for whoever has the problem.</p>`;
+}
+/* Behind my picture: the family, and my settings. */
+function renderFamily() {
+  const rows = members.map((m) => `<li><button class="w-full flex items-center gap-3 px-4 min-h-16 text-left hover:bg-stone-50">${avatar(m, 'size-10')}<span class="flex-1">${m.me ? `${m.name} <span class="text-stone-600">(you)</span>` : m.name}</span>${icon('chevron_right', 'text-stone-500')}</button></li>`).join('');
+  return `<ul class="${CARD} overflow-hidden">${rows}</ul>
+    <p class="px-2 pt-3 text-sm text-stone-600">Tap yourself for your settings: name, picture, color scheme, when you plan tomorrow, how many priorities a day.</p>
+    <div class="pt-5"><button class="${PRIMARY} w-full !h-12">${icon('person_add', '!text-[20px]')}Invite member</button></div>`;
+}
+
+/* ---- Screens ----------------------------------------------------------------------------------- */
+/* Today: my priorities. Nothing else; problems have their own tab, planning opens by itself in the evening. */
+function renderToday() {
+  return prioritySection('today') + donePanel();
+}
+/* What I got done today, as an accomplishment. Nothing done: no panel, no judgement. */
+const PRAISE = ['That’s real progress.', 'Look at you go.', 'Every one counts.', 'Done is done. Well done.'];
+function donePanel() {
+  const done = state.tasks.filter((t) => t.doneToday);
+  if (!done.length) return '';
+  return `<section class="mt-5 rounded-2xl bg-linear-to-br from-accent-100 to-[#fffdfb] shadow-sm p-5 animate-rise" aria-label="Done today">
+    <div class="flex items-center gap-4">
+      <span class="size-14 shrink-0 rounded-full grid place-items-center bg-accent-700 text-accent-ink shadow-md">${icon('emoji_events', `!text-[30px] ${FILL}`)}</span>
+      <span><span class="block text-2xl font-semibold tracking-tight">${done.length} done today</span><span class="block text-stone-700">${PRAISE[(done.length - 1) % PRAISE.length]}</span></span>
+    </div>
+    <ul class="mt-4 flex flex-col gap-1.5">${done.map((t) => `<li class="flex items-center gap-2 text-stone-700">${icon('check_circle', `!text-[20px] text-accent-700 ${FILL}`)}<span class="truncate">${t.title}</span></li>`).join('')}</ul>
+  </section>`;
+}
+
+/* Tomorrow (plan mode): the same screen, for tomorrow, filled one card at a time. */
+function planDeck() {
+  const seen = state.planSeen;
+  const leftovers = priorities('today').map((t) => ({ t, why: 'Left over from today' }));
+  const overdue = state.tasks.filter((t) => open(t) && t.overdue && !t.day && (t.on === me.id || !t.on)).map((t) => ({ t, why: 'Overdue' }));
+  const fixes = myProblems().flatMap((k) => k.tasks.map(find).filter((t) => open(t) && t.day !== 'tomorrow').map((t) => ({ t, why: `Fixes: ${k.title}` })));
+  const free = unassigned().filter((t) => !t.overdue).map((t) => ({ t, why: 'Nobody has it' }));
+  return [...leftovers, ...overdue, ...fixes, ...free].filter(({ t }) => !seen.has(t.id) && t.day !== 'tomorrow');
+}
+function renderTomorrow() {
+  const deck = planDeck();
+  const full = freeSlots('tomorrow') === 0;
+  let top;
+  if (full || !deck.length) {
+    top = `<div class="${CARD} p-5 flex flex-col items-center text-center gap-2 animate-rise">
+      <span class="size-14 rounded-full grid place-items-center bg-accent-100 text-accent-800">${icon('bedtime', `!text-[28px] ${FILL}`)}</span>
+      <span class="text-lg font-semibold">Tomorrow is planned</span>
+      <span class="text-stone-600">${full ? `${SLOTS} priorities. That’s plenty.` : 'Nothing else to plan.'} Save it and sleep well.</span></div>`;
+  } else {
+    const { t, why } = deck[0];
+    top = `<div class="relative h-44">
+      ${deck[1] ? `<div class="absolute inset-x-3 top-2 h-40 ${CARD} opacity-70 scale-[.97]"></div>` : ''}
+      <div class="absolute inset-0 ${CARD} shadow-md p-5 flex flex-col gap-1 animate-rise" data-deck="${t.id}">
+        <span class="text-sm font-semibold ${why === 'Overdue' ? 'text-rose-700' : 'text-stone-600'}">${why}</span>
+        <span class="text-xl font-semibold leading-snug">${t.title}</span>
+        <div class="mt-auto grid grid-cols-2 gap-2">
+          <button class="${SECONDARY} !h-12" data-later="${t.id}">${icon('schedule', '!text-[20px]')}Later</button>
+          <button class="${PRIMARY} !h-12" data-tomorrow="${t.id}">${icon('wb_twilight', '!text-[20px]')}Tomorrow</button>
+        </div>
+      </div></div>
+      <p class="pt-2 text-center text-sm text-stone-600">${deck.length - 1 ? `${deck.length - 1} more` : 'Last one'}</p>`;
+  }
+  return `${top}${prioritySection('tomorrow')}`;
+}
+
+/* Pick more: unassigned tasks; each pick fills a free slot. Full: straight back to Today. */
+function renderPick() {
+  const free = freeSlots('today');
+  const dots = Array.from({ length: SLOTS }, (_, i) => `<span class="size-3 rounded-full ${i < SLOTS - free ? 'bg-accent-700' : 'border-2 border-stone-400'}"></span>`).join('');
+  const rows = unassigned().map((t) => `<li class="${CARD} mb-2 flex items-center gap-3 pl-4 pr-3 min-h-16">
+    <span class="flex-1 min-w-0 truncate">${t.title}</span>
+    <button class="${SECONDARY} !h-9 !px-3" data-take="${t.id}">${icon('add', '!text-[18px]')}Take</button></li>`).join('');
+  return `<div class="flex items-center justify-center gap-2 py-3" aria-label="${free} free">${dots}</div>
+    <p class="pb-3 text-center text-stone-600">${free === 1 ? 'One free slot' : `${free} free slots`}. Pick what fits.</p>
+    ${rows ? `<ul>${rows}</ul>` : `<p class="py-16 text-center text-stone-600">Nothing unassigned. Rest.</p>`}`;
+}
+
+function renderOther() {
+  return `<div class="flex flex-col items-center text-center gap-3 py-24 px-8 text-stone-600">
+    ${icon('construction', '!text-[32px]')}<span>Not part of this prototype. Lists, places and the family are in the main prototype.</span></div>`;
+}
+
+/* ---- The shopping trip ------------------------------------------------------------------------- */
+/* Step 1: where do I go today? Every store with what is needed there. Pick as many as you can handle. */
+function renderTripWhere() {
+  const rows = stores.map((s) => {
+    const n = itemsAt(s.id).length, on = state.trip.chosen.includes(s.id);
+    return `<li><label class="flex items-center gap-3 px-4 min-h-16 cursor-pointer ${n ? '' : 'opacity-50'}">
+      <input type="checkbox" class="size-5 accent-[var(--color-accent-700)]" data-store="${s.id}" ${on ? 'checked' : ''} ${n ? '' : 'disabled'}>
+      <span class="flex-1"><span class="block text-base">${s.name}</span><span class="block text-sm text-stone-600">${s.where}</span></span>
+      <span class="text-sm ${n ? 'font-semibold text-stone-800' : 'text-stone-500'}">${n ? `${n} to get` : 'nothing'}</span></label></li>`;
+  }).join('<li class="mx-4 border-t border-stone-100"></li>');
+  const n = state.trip.chosen.length;
+  return `${tripHeader('Where to today?')}
+    <div class="flex-1 overflow-y-auto px-3">
+      <p class="px-2 pb-3 text-stone-600">Pick only what you can handle. The rest waits.</p>
+      <ul class="${CARD} overflow-hidden">${rows}</ul>
+    </div>
+    <div class="p-3"><button class="${PRIMARY} w-full !h-12" data-trip-go ${n ? '' : 'disabled'}>${n ? `Go to ${state.trip.chosen.map((id) => stores.find((s) => s.id === id).name).join(', ')}` : 'Pick a store'}</button></div>`;
+}
+/* Step 2: in the store(s). An item shows at the first chosen store that has it. */
+function renderTripShop() {
+  const shown = new Set();
+  const sections = state.trip.chosen.map((id) => {
+    const s = stores.find((x) => x.id === id);
+    const items = state.items.filter((i) => i.at.includes(id) && !shown.has(i.id) && (!i.got || i.gotAt === id));
+    items.forEach((i) => shown.add(i.id));
+    const left = items.filter((i) => !i.got).length;
+    return `${heading(s.name, `<span class="ml-auto font-normal">${left ? `${left} left` : `${icon('check', '!text-[16px] align-[-3px]')} all in the basket`}</span>`)}
+      <ul class="${CARD} overflow-hidden">${items.map((i) => `<li><label class="flex items-center gap-3 px-4 min-h-14 cursor-pointer ${i.got ? 'text-stone-500 line-through' : ''}">
+        <input type="checkbox" class="size-5 accent-[var(--color-accent-700)]" data-got="${i.id}" data-at="${id}" ${i.got ? 'checked' : ''}>
+        <span class="flex-1">${i.title}</span><span class="text-xs text-stone-500">${i.list === 'drugstore' ? 'Drugstore' : 'Groceries'}</span></label></li>`).join('')}</ul>`;
+  }).join('');
+  return `${tripHeader('Shopping')}
+    <div class="flex-1 overflow-y-auto px-3 pb-3">${sections}</div>
+    <div class="p-3"><button class="${PRIMARY} w-full !h-12" data-trip-end>${icon('check', '!text-[20px]')}Done shopping</button></div>`;
+}
+const tripHeader = (title) => `<header class="shrink-0 flex items-center gap-1 px-2 h-16">
+  <button class="size-12 grid place-items-center rounded-full text-stone-700 hover:bg-stone-200/60" data-trip-close aria-label="Close">${icon('close')}</button>
+  <h1 class="flex-1 px-2 text-2xl font-semibold tracking-tight">${title}</h1></header>`;
+
+/* ---- Celebration ------------------------------------------------------------------------------- */
+/* Little drawn kittens: bundled, offline, no photos. */
+function kitty(v) {
+  const c = [
+    { fur: '#fdba74', dark: '#f97316', inner: '#fecdd3', name: 'Pumpkin' },
+    { fur: '#d6d3d1', dark: '#a8a29e', inner: '#fbcfe8', name: 'Pebble' },
+    { fur: '#44403c', dark: '#292524', inner: '#f9a8d4', name: 'Shadow', light: true },
+    { fur: '#fef3c7', dark: '#fbbf24', inner: '#fecdd3', name: 'Honey' },
+  ][v];
+  const eye = c.light ? '#fef08a' : '#292524';
+  const stripes = v === 0 || v === 3 ? `<path d="M100 52 v14 M86 56 l3 11 M114 56 l-3 11" stroke="${c.dark}" stroke-width="4" stroke-linecap="round"/>` : '';
+  const svg = `<svg viewBox="0 0 200 200" class="size-full" role="img" aria-label="${c.name}, a happy kitten">
+    <path d="M150 160 C185 150 190 110 168 100" fill="none" stroke="${c.fur}" stroke-width="14" stroke-linecap="round"/>
+    <ellipse cx="100" cy="150" rx="52" ry="38" fill="${c.fur}"/>
+    <ellipse cx="100" cy="160" rx="28" ry="20" fill="#ffffff" opacity=".55"/>
+    <path d="M50 70 L58 18 L88 48 Z" fill="${c.fur}"/><path d="M150 70 L142 18 L112 48 Z" fill="${c.fur}"/>
+    <path d="M58 60 L62 32 L80 50 Z" fill="${c.inner}"/><path d="M142 60 L138 32 L120 50 Z" fill="${c.inner}"/>
+    <circle cx="100" cy="88" r="52" fill="${c.fur}"/>
+    ${stripes}
+    <path d="M70 86 q10 -12 20 0" fill="none" stroke="${eye}" stroke-width="5" stroke-linecap="round"/>
+    <path d="M110 86 q10 -12 20 0" fill="none" stroke="${eye}" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="68" cy="104" r="9" fill="#fb7185" opacity=".45"/><circle cx="132" cy="104" r="9" fill="#fb7185" opacity=".45"/>
+    <path d="M95 98 h10 l-5 6 Z" fill="#f472b6"/>
+    <path d="M100 104 q-6 8 -12 3 M100 104 q6 8 12 3" fill="none" stroke="${c.light ? '#e7e5e4' : '#57534e'}" stroke-width="2.5" stroke-linecap="round"/>
+    <g stroke="${c.light ? '#e7e5e4' : '#78716c'}" stroke-width="2" stroke-linecap="round" opacity=".8"><path d="M60 100 h-24 M62 108 l-22 6 M140 100 h24 M138 108 l22 6"/></g>
+    <ellipse cx="78" cy="178" rx="14" ry="9" fill="${c.fur}"/><ellipse cx="122" cy="178" rx="14" ry="9" fill="${c.fur}"/>
+    <path d="M150 34 l4 -9 l4 9 l9 4 l-9 4 l-4 9 l-4 -9 l-9 -4 Z" fill="#facc15"/>
+    <path d="M36 128 c-6 -8 4 -14 8 -6 c4 -8 14 -2 8 6 l-8 8 Z" fill="#f472b6"/>
+  </svg>`;
+  return { svg, name: c.name };
+}
+function renderCelebration() {
+  const k = kitty(state.kitty);
+  const colors = ['#f472b6', '#facc15', '#38bdf8', '#4ade80', '#a78bfa', '#fb923c'];
+  const confetti = Array.from({ length: 36 }, (_, i) => `<span class="absolute top-0 w-2 h-3 rounded-sm motion-safe:animate-fall" style="left:${(i * 37) % 100}%;background:${colors[i % 6]};animation-delay:${(i % 9) * 0.18}s"></span>`).join('');
+  return `<div class="absolute inset-0 overflow-hidden pointer-events-none motion-reduce:hidden" aria-hidden="true">${confetti}</div>
+    <div class="relative flex-1 flex flex-col items-center justify-center gap-3 px-8 text-center">
+      <div class="size-56 motion-safe:animate-hop">${k.svg}</div>
+      <h1 class="text-3xl font-semibold tracking-tight">All ${SLOTS} done!</h1>
+      <p class="text-lg text-stone-700">${k.name} is very proud of you.</p>
+    </div>
+    <div class="relative p-4 flex flex-col gap-2">
+      <button class="${SECONDARY} w-full !h-12" data-rest>Enjoy the rest of the day</button>
+      <button class="${PRIMARY} w-full !h-12" data-pick="today">${icon('add_task', '!text-[20px]')}Pick more</button>
+    </div>`;
+}
+
+/* ---- Render ------------------------------------------------------------------------------------ */
+function renderDock() {
+  const items = [['today', 'wb_sunny', 'Today'], ['problems', 'report', 'Problems'], ['tasks', 'task_alt', 'Tasks'], ['places', 'storefront', 'Places']];
+  const count = myProblems().length;
+  $('#dock').innerHTML = items.map(([id, ic, label]) => {
+    const on = state.tab === id;
+    const badge = id === 'problems' && count ? `<span class="absolute -top-1 right-2.5 min-w-5 h-5 px-1.5 rounded-full bg-accent-700 text-accent-ink text-xs font-semibold grid place-items-center border-2 border-[#fffdfb]" aria-label="${count} open">${count}</span>` : '';
+    return `<button data-tab="${id}" class="flex flex-col items-center justify-center gap-1" ${on ? 'aria-current="page"' : ''}>
+      <span class="relative w-16 h-8 rounded-full grid place-items-center transition-colors ${on ? 'bg-accent-100 text-accent-900' : 'text-stone-600'}">${icon(ic, on ? FILL : '')}${badge}</span>
+      <span class="text-xs ${on ? 'font-semibold text-stone-900' : 'text-stone-600'}">${label}</span></button>`;
+  }).join('');
+}
+function render() {
+  const view = state.view === 'tomorrow' ? 'tomorrow' : state.tab === 'today' ? state.view : state.tab === 'problems' && state.edit ? 'edit' : ['problems', 'family'].includes(state.tab) ? state.tab : 'other';
+  $('#title').textContent = { today: 'Today', tomorrow: 'Tomorrow', pick: 'Pick more', problems: 'Problems', edit: 'Edit problem', family: 'Family', other: state.tab[0].toUpperCase() + state.tab.slice(1) }[view];
+  $('#meBtn').innerHTML = avatar(me, 'size-10');
+  $('#meBtn').classList.toggle('hidden', view === 'tomorrow');
+  $('#subtitle').textContent = view === 'tomorrow' ? dateLabel(1) : '';
+  const back = ['pick', 'family', 'edit'].includes(view);
+  $('#planBar').classList.toggle('hidden', view !== 'tomorrow');
+  $('#planBar').classList.toggle('flex', view === 'tomorrow');
+  $('#backBtn').classList.toggle('hidden', !back);
+  $('#backBtn').classList.toggle('grid', back);
+  $('#main').innerHTML = { today: renderToday, tomorrow: renderTomorrow, pick: renderPick, problems: renderProblems, edit: renderEditProblem, family: renderFamily, other: renderOther }[view]();
+  $('#dock').classList.toggle('hidden', view === 'tomorrow');
+  $('#scene').classList.toggle('bottom-20', view !== 'tomorrow');
+  $('#scene').classList.toggle('bottom-0', view === 'tomorrow');
+  renderDock();
+  const [later, save] = $('#planBar').querySelectorAll('button');
+  save.className = `${PRIMARY} w-full !h-12`; later.className = `${SECONDARY} w-full !h-12`;
+  const full = $('#full');
+  const content = state.celebrate ? renderCelebration() : state.trip ? (state.trip.step === 'where' ? renderTripWhere() : renderTripShop()) : '';
+  full.innerHTML = content;
+  full.className = `${content ? 'flex' : 'hidden'} absolute inset-0 z-40 flex-col ${state.celebrate ? 'bg-accent-50' : 'bg-stone-100'}`;
+}
+
+/* ---- Actions ----------------------------------------------------------------------------------- */
+function finish(t) {
+  t.done = true;
+  const wasPriority = t.day === 'today' && t.on === me.id;
+  t.doneToday = true;
+  toast(`${t.title} done`, 'Undo', () => { t.done = false; t.doneToday = false; render(); });
+  // The last open priority of the day: celebrate.
+  if (wasPriority && priorities('today').length === 0) {
+    state.kitty = Math.floor(Math.random() * 4);
+    setTimeout(() => { state.celebrate = true; render(); }, 450);
+  }
+}
+/* Noticing or raising opens the problem: each solution becomes a task for whoever has it. */
+function notice(kind, forWhom, by = me.id) {
+  const k = kindById(kind);
+  k.tasks = k.fixes.map((f) => { const t = { id: nextId++, title: f.title, on: forWhom, trip: f.trip }; state.tasks.push(t); return t.id; });
+  Object.assign(k, { open: true, for: forWhom, by });
+}
+function assignProblem(k, to) {
+  k.for = to;
+  k.tasks.map(find).filter(open).forEach((t) => { t.on = to; t.day = null; });
+}
+
+$('#sheet').addEventListener('click', (e) => { if (e.target === $('#sheet')) $('#sheet').close(); });
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'problemName') kindById(state.edit).title = e.target.value;
+  if (e.target.id === 'wrongInput') fillWrongList(e.target.value);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.target.id !== 'newFix' || e.key !== 'Enter' || !e.target.value.trim()) return;
+  const k = kindById(state.edit), title = e.target.value.trim();
+  k.fixes.push({ title });
+  if (k.open) { const t = { id: nextId++, title, on: k.for }; state.tasks.push(t); k.tasks.push(t.id); }
+  render(); $('#newFix').focus();
+});
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('button, input, a'); if (!el) return;
+  const d = el.dataset;
+  if (d.tab) { state.tab = d.tab; state.view = 'today'; state.edit = null; }
+  else if (el.id === 'backBtn') { if (state.tab === 'family') state.tab = state.prevTab ?? 'today'; else if (state.edit) state.edit = null; else state.view = 'today'; }
+  else if (el.closest('#meBtn')) { if (state.tab !== 'family') state.prevTab = state.tab; state.tab = 'family'; }
+  else if (d.check) { const t = find(d.check); if (t.done) { t.done = false; } else { setTimeout(() => { finish(t); render(); }, 250); return; } }
+  else if ('planLater' in d) { state.view = 'today'; toast('I’ll ask again in 30 minutes'); }
+  else if (d.tomorrow) { const t = find(d.tomorrow); t.prevDay = t.day; t.day = 'tomorrow'; t.on = me.id; }
+  else if (d.later) { state.planSeen.add(+d.later); }
+  else if ('planDone' in d) {
+    // Tomorrow becomes today (in the prototype, at once).
+    state.tasks.forEach((t) => { if (t.day === 'today' && open(t) && t.on === me.id) t.day = null; if (t.day === 'tomorrow') t.day = 'today'; });
+    state.view = 'today'; state.tasks.forEach((t) => (t.doneToday = false)); toast('Planned. See you tomorrow.');
+  }
+  else if (d.pick) { state.celebrate = false; state.view = 'pick'; }
+  else if (d.take) {
+    const t = find(d.take); t.on = me.id; t.day = 'today';
+    if (freeSlots('today') === 0) { state.view = 'today'; toast('Today is full again'); }
+  }
+  else if ('rest' in d) { state.celebrate = false; }
+  else if (d.editProblem) { state.edit = d.editProblem; }
+  else if ('somethingWrong' in d) { wrongSheet(); return; }
+  else if (d.startFix) {
+    const t = find(d.startFix);
+    if (t.trip) state.trip = { task: t.id, step: 'where', chosen: [] };
+    else if (freeSlots('today')) { t.on = me.id; t.day = 'today'; state.tab = 'today'; toast(`${t.title}: on your Today`); }
+    else toast('Today is full. It’s waiting for tomorrow’s plan.');
+  }
+  else if ('createProblem' in d) {
+    // A new problem: name it, add its solutions, then Notice or Raise it.
+    const k = { id: `k${nextId++}`, title: $('#wrongInput').value.trim(), icon: 'report', fixes: [] };
+    problemKinds.push(k); state.tab = 'problems'; state.edit = k.id; $('#sheet').close();
+    render(); $('#newFix').focus(); return;
+  }
+  else if (d.removeFix) {
+    const k = kindById(state.edit), i = +d.removeFix;
+    k.fixes.splice(i, 1); if (k.open) k.tasks.splice(i, 1);
+  }
+  else if (d.notice) { notice(d.notice, me.id); $('#sheet').close(); toast(`Noticed: ${kindById(d.notice).title}`); }
+  else if (d.raise || d.assignProblem) {
+    const k = kindById(d.raise ?? d.assignProblem), raising = !!d.raise;
+    sheet(`<h2 class="text-lg font-semibold pb-3">${raising ? 'Raise' : 'Assign'} “${k.title}” for</h2>
+      <ul>${members.filter((m) => raising ? !m.me : true).map((m) => `<li><button class="w-full flex items-center gap-3 min-h-14 text-left" data-for="${m.id}" data-kind="${k.id}" data-mode="${raising ? 'raise' : 'assign'}">${avatar(m, 'size-10')}<span class="flex-1">${m.me ? 'Me' : m.name}</span>${k.open && k.for === m.id ? icon('check', 'text-accent-700') : icon('chevron_right', 'text-stone-500')}</button></li>`).join('')}</ul>`);
+    return;
+  }
+  else if (d.for) {
+    const k = kindById(d.kind);
+    if (d.mode === 'raise') { notice(k.id, d.for); toast(`Raised for ${member(d.for).name}`); }
+    else { assignProblem(k, d.for); toast(d.for === me.id ? `${k.title}: yours now` : `${k.title}: ${member(d.for).name} has it now`); }
+    $('#sheet').close();
+  }
+  else if (d.resolve) { const k = kindById(d.resolve); k.open = false; toast(`Resolved: ${k.title}`, 'Undo', () => { k.open = true; render(); }); }
+  else if (d.trip) { state.trip = { task: +d.trip, step: 'where', chosen: [] }; }
+  else if (d.store) { const c = state.trip.chosen; el.checked ? c.push(d.store) : c.splice(c.indexOf(d.store), 1); }
+  else if ('tripGo' in d) { state.trip.step = 'shop'; }
+  else if (d.got) { const i = state.items.find((x) => x.id === d.got); i.got = el.checked; i.gotAt = el.checked ? d.at : null; }
+  else if ('tripEnd' in d) {
+    const left = state.items.filter((i) => !i.got).length;
+    state.items = state.items.filter((i) => !i.got);
+    const t = find(state.trip.task); state.trip = null;
+    finish(t);
+    if (left) setTimeout(() => toast(`${left} things wait for the next trip`), 1200);
+  }
+  else if ('tripClose' in d) { state.trip = null; }
+  else return;
+  render();
+});
+
+/* ---- Background (Ocean, from the main prototype) ----------------------------------------------- */
+const W = (dd, fill, op = 1) => `<path d="${dd}" fill="${fill}" opacity="${op}"/>`;
+const drift = (speed, body) => `<g class="motion-safe:animate-drift-${speed}">${body}</g>`;
+$('#scene').innerHTML = `<svg viewBox="0 0 430 320" preserveAspectRatio="xMidYMax slice" class="size-full">${
+    drift('far', W('M-40 190 C30 178 110 200 180 190 S320 178 470 192 V320 H-40Z', '#7dd3fc'))
+  + drift('mid', W('M-40 230 C40 213 140 240 210 228 S360 213 470 232 V320 H-40Z', '#38bdf8', .8))
+  + drift('near', W('M-40 275 C60 258 160 285 240 272 S380 260 470 278 V320 H-40Z', '#0ea5e9', .6))}</svg>`;
+$('#app').className += ' bg-linear-to-b from-sky-200 to-cyan-100 [--color-accent-50:#fff1f2] [--color-accent-100:#ffe4e6] [--color-accent-200:#fecdd3] [--color-accent-700:#be123c] [--color-accent-800:#9f1239] [--color-accent-900:#881337]';
+
+// ?tab=problems|family, ?today=1 (no planning), ?done=2 (two done today), ?plan=1, ?celebrate=0..3, ?pick=1, ?problem=1 (one noticed, one raised by Mona), ?trip=1, ?trip=shop
+const q = new URLSearchParams(location.search);
+// With no options (e.g. opened on a phone): it is 20:00, so planning has opened by itself; three problems are open.
+const demo = ![...q.keys()].filter((k) => k !== 'tab').length;
+if (q.get('tab')) state.tab = q.get('tab');
+if (demo || q.has('problem') || q.has('trip')) {
+  notice('food', me.id);
+  notice('laundry', me.id, 'mo');
+  notice('bins', 'ma');
+}
+state.planSeen = new Set();
+if ((demo && !q.get('tab')) || q.has('plan')) state.view = 'tomorrow';
+if (q.has('celebrate')) { state.tasks.filter((t) => t.day === 'today' && t.on === me.id).forEach((t) => (t.done = t.doneToday = true)); state.celebrate = true; state.kitty = +q.get('celebrate') || 0; }
+if (q.has('done')) state.tasks.filter((t) => t.day === 'today' && t.on === me.id).slice(0, +q.get('done') || 1).forEach((t) => (t.done = t.doneToday = true));
+if (q.has('pick')) { state.tasks.filter((t) => t.day === 'today' && t.on === me.id).slice(0, 2).forEach((t) => (t.done = t.doneToday = true)); state.view = 'pick'; }
+if (q.has('trip')) { const t = state.tasks.find((x) => x.trip); state.trip = { task: t.id, step: q.get('trip') === 'shop' ? 'shop' : 'where', chosen: q.get('trip') === 'shop' ? ['lidl', 'dm'] : [] }; if (q.get('trip') === 'shop') state.items[0].got = true, state.items[0].gotAt = 'lidl'; }
+render();
+</script>
+</body>
+</html>

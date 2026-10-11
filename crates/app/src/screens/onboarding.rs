@@ -50,8 +50,9 @@ pub fn Onboarding() -> Element {
                     match mode() {
                         Mode::Choose => rsx! {
                             p { class: "text-center text-stone-700", "ADHD optimized task management. Shared with your family, works offline." }
-                            button { class: "{PRIMARY} !h-12", onclick: move |_| mode.set(Mode::Create), "Create a family" }
+                            // Stacked buttons: the main action at the bottom, under the thumb.
                             button { class: "{SECONDARY} !h-12", onclick: move |_| mode.set(Mode::Join), "Join with an invitation" }
+                            button { class: "{PRIMARY} !h-12", onclick: move |_| mode.set(Mode::Create), "Create a family" }
                         },
                         Mode::Create => rsx! {
                             TextField { label: "Your name", value: my_name }

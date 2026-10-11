@@ -68,13 +68,14 @@ pub fn Detail(task: Uuid) -> Element {
                         "Finish"
                     }
                 } else {
-                    button { class: "{PRIMARY} !h-14 text-base", onclick: move |_| state.start_task(id),
-                        Icon { name: "play_arrow" }
-                        "Start"
-                    }
+                    // Side by side: the main action on the right.
                     button { class: "{SECONDARY} !h-14 text-base", onclick: move |_| finish(state, nav, id),
                         Icon { name: "check" }
                         "Finish"
+                    }
+                    button { class: "{PRIMARY} !h-14 text-base", onclick: move |_| state.start_task(id),
+                        Icon { name: "play_arrow" }
+                        "Start"
                     }
                 }
             }
