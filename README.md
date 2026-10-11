@@ -43,6 +43,10 @@ Install [Nix](https://nixos.org/download) (flakes enabled), then:
 just start
 ```
 
+With [direnv](https://direnv.net), `direnv allow` once: the dev shell then
+loads on entering the folder, cached by nix-direnv (the first time takes a
+minute or two; after that, under a second).
+
 This builds everything, starts the relay and opens **three app windows**
 (Patrick, Mona, Mara; Patrick is the head of the family), each with its own database under `.dev/`.
 
@@ -73,7 +77,7 @@ This builds everything, starts the relay and opens **three app windows**
 
 Without Nix, install Rust (with the clippy component), and for Android the SDK,
 NDK, JDK 21 and `dioxus-cli`, then run the scripts in `scripts/` or
-`cargo run -p tackly-sync` and `cargo run -p tackly-app` yourself.
+`cargo run -p tackly-sync` and `cargo run -p tackly-app` (binary `tackly`) yourself.
 
 **No unwrap.** Errors are handled, not unwrapped: `unwrap` and `expect` are
 denied by clippy (tests may use them). `.cargo/config.toml` runs clippy on every
