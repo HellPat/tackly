@@ -8,7 +8,7 @@ pub mod projection;
 pub mod wire;
 
 pub use aggregate::{CommandContext, FamilyCommand, FamilyError};
-pub use events::{DomainEvent, FamilyEvent, GeoPoint, Picture, PlaceLocation};
+pub use events::{DomainEvent, FamilyEvent, GeoPoint, MAX_PHOTO_BYTES, Picture, PlaceLocation};
 pub use projection::{
     Completion, Family, Member, Place, PlaceGroup, Progress, Session, Task, TaskList,
 };

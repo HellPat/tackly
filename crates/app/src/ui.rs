@@ -89,6 +89,7 @@ pub fn Avatar(name: String, picture: Option<Picture>, size: Size) -> Element {
     rsx! {
         span { class: "shrink-0 rounded-full grid place-items-center overflow-hidden border-white shadow-[0_1px_3px_rgb(41_37_36/.3)] {box_class} {tint}",
             match picture {
+                Some(Picture { photo: Some(photo), .. }) => rsx! { img { class: "size-full object-cover", src: "{photo}", alt: "" } },
                 Some(picture) => rsx! { Icon { name: picture.icon, class: icon_class } },
                 None => rsx! { span { class: "font-semibold {text_class}", aria_hidden: "true", "{initial}" } },
             }
@@ -252,7 +253,7 @@ mod tests {
 
     /// Every icon the app shows. The embedded icon font holds exactly these;
     /// see `fonts/README.md` when adding one.
-    const ICONS: [&str; 32] = [
+    const ICONS: [&str; 33] = [
         "add",
         "arrow_back",
         "arrow_upward",
@@ -270,6 +271,7 @@ mod tests {
         "expand_less",
         "flag",
         "group",
+        "image",
         "local_florist",
         "location_on",
         "music_note",

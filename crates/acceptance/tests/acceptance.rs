@@ -499,6 +499,17 @@ async fn picks_picture(world: &mut Tackly, name: String, picture: String) {
     );
 }
 
+#[when(regex = r#"^(\w+) chooses a photo as (?:her|his|their) picture$"#)]
+async fn chooses_photo(world: &mut Tackly, name: String) {
+    let photo = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/photo.jpg");
+    let page = check(world.page(&name));
+    check(
+        page.get_by_label("Choose a photo")
+            .set_input_files(&photo, "image/jpeg")
+            .await,
+    );
+}
+
 #[when(regex = r#"^(\w+) picks the color scheme "([^"]+)"$"#)]
 async fn picks_scheme(world: &mut Tackly, name: String, scheme: String) {
     check(
@@ -666,6 +677,36 @@ async fn sees_members(world: &mut Tackly, who: String, members: String) {
                     .await,
             );
         }
+    }
+}
+
+#[then(regex = r#"^(\w+)'s settings show the photo, with no icon picked$"#)]
+async fn settings_show_photo(world: &mut Tackly, name: String) {
+    let page = check(world.page(&name));
+    check(
+        expect(&page.locator("main img[src^='data:image/jpeg']"))
+            .to_be_visible()
+            .await,
+    );
+    check(
+        expect(&page.locator("[aria-label=Picture] [aria-checked=true]"))
+            .to_have_count(0)
+            .await,
+    );
+}
+
+#[then(regex = r#"^(\w+(?:, \w+)*(?: and \w+)?) sees? (\w+)'s photo$"#)]
+async fn sees_photo(world: &mut Tackly, who: String, member: String) {
+    for name in names(&who) {
+        check(world.go(&name, "Family").await);
+        let row = check(world.page(&name))
+            .locator("main")
+            .get_by_role("button", &member);
+        check(
+            expect(&row.locator("img[src^='data:image/jpeg']"))
+                .to_be_visible()
+                .await,
+        );
     }
 }
 

@@ -111,11 +111,36 @@ pub enum DomainEvent {
     Unknown,
 }
 
-/// A person's picture: an icon (a Material Symbols name) on one of a few tints.
+/// A person's picture: an icon (a Material Symbols name) on one of a few
+/// tints, or a photo. The photo wins when there is one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Picture {
     pub icon: String,
     pub tint: u8,
+    /// A small square JPEG as a data URL (`data:image/jpeg;base64,…`),
+    /// made on the phone from the camera or the gallery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub photo: Option<String>,
+}
+
+/// The largest photo a picture may carry, in bytes of its data URL. A 256 px
+/// square JPEG is far smaller; this keeps a family's history small.
+pub const MAX_PHOTO_BYTES: usize = 150_000;
+const PHOTO_PREFIX: &str = "data:image/jpeg;base64,";
+
+impl Picture {
+    /// The photo is a JPEG data URL of a sensible size (or there is none).
+    pub fn photo_is_valid(&self) -> bool {
+        self.photo.as_ref().is_none_or(|photo| {
+            photo.len() <= MAX_PHOTO_BYTES
+                && photo.strip_prefix(PHOTO_PREFIX).is_some_and(|data| {
+                    !data.is_empty()
+                        && data
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b"+/=".contains(&b))
+                })
+        })
+    }
 }
 
 /// One physical spot of a place, such as the LIDL in Winnenden. Looked up by

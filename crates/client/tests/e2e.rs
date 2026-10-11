@@ -342,6 +342,7 @@ async fn lists_and_names_sync_to_everyone() -> Result<()> {
             .set_picture(Picture {
                 icon: "pets".into(),
                 tint: 2,
+                photo: None,
             })
             .await?;
     }
@@ -373,6 +374,37 @@ async fn lists_and_names_sync_to_everyone() -> Result<()> {
         Ok(!mona.state().await?.lists.contains_key(&garden))
     })
     .await
+}
+
+#[tokio::test]
+async fn a_photo_as_picture_syncs_and_a_bad_one_is_refused() -> Result<()> {
+    let dir = scratch_dir("photo")?;
+    let mut relay = Relay::reserve(&dir)?;
+    relay.start().await?;
+    let (patrick, mona, _mara) = family_of_three(&dir, &relay).await?;
+    let mona_id = mona.id().await;
+    // A real (tiny) JPEG, as the phone makes it from the camera.
+    let jpeg = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
+    let picture = Picture {
+        icon: "pets".into(),
+        tint: 2,
+        photo: Some(jpeg.into()),
+    };
+    mona.device
+        .lock()
+        .await
+        .set_picture(picture.clone())
+        .await?;
+    eventually("Patrick sees Mona's photo", || async {
+        Ok(patrick.state().await?.members[&mona_id].picture.as_ref() == Some(&picture))
+    })
+    .await?;
+    let huge = Picture {
+        photo: Some(format!("data:image/jpeg;base64,{}", "A".repeat(200_000))),
+        ..picture
+    };
+    assert!(mona.device.lock().await.set_picture(huge).await.is_err());
+    Ok(())
 }
 
 #[tokio::test]

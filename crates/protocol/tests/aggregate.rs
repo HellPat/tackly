@@ -423,3 +423,51 @@ fn finishing_records_where_it_happened() {
             },
         )]);
 }
+
+// ---- pictures --------------------------------------------------------------------------------
+
+fn photo(data: &str) -> tackly_protocol::Picture {
+    tackly_protocol::Picture {
+        icon: "pets".into(),
+        tint: 1,
+        photo: Some(format!("data:image/jpeg;base64,{data}")),
+    }
+}
+
+#[test]
+fn a_member_sets_a_photo_as_their_picture() {
+    as_member(MONA)
+        .given(the_smiths())
+        .when(Do::SetPicture {
+            picture: photo("/9j/4AAQSkZJRg=="),
+        })
+        .then_expect_events(vec![by(
+            MONA,
+            SMITHS,
+            Happened::MemberPictureChanged {
+                picture: photo("/9j/4AAQSkZJRg=="),
+            },
+        )]);
+}
+
+#[test]
+fn a_photo_that_is_too_big_is_refused() {
+    as_member(MONA)
+        .given(the_smiths())
+        .when(Do::SetPicture {
+            picture: photo(&"A".repeat(tackly_protocol::MAX_PHOTO_BYTES)),
+        })
+        .then_expect_error(FamilyError::BadPhoto);
+}
+
+#[test]
+fn only_a_jpeg_is_a_photo() {
+    let mut not_a_jpeg = photo("PHN2Zz4=");
+    not_a_jpeg.photo = Some("data:image/svg+xml;base64,PHN2Zz4=".into());
+    as_member(MONA)
+        .given(the_smiths())
+        .when(Do::SetPicture {
+            picture: not_a_jpeg,
+        })
+        .then_expect_error(FamilyError::BadPhoto);
+}

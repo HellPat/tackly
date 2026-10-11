@@ -13,7 +13,8 @@ ADHD optimized task management. Shared family tasks that work offline and sync l
   locations, and how much there is to get at each one.
 - Others see changes live. Works offline; syncs when back online.
 - Join with a QR code or a link. Both phones show six digits; the head confirms.
-- Your name, your picture, your color scheme.
+- Your name, your picture (an icon or a photo), your color scheme.
+- Notes where a task was finished (never shown; Android asks once).
 - Encrypted on the phone. The server cannot read your tasks.
 
 Android first, iOS maybe later. No restore: lost phone means join again.
@@ -30,7 +31,7 @@ crates/app         the Dioxus app (desktop windows and Android), styled with Tai
 server             the relay: stores encrypted events, pushes them over SSE
 crates/testkit     a stoppable real relay, shared by the test suites
 crates/acceptance  Cucumber scenarios clicked through real app windows
-android-e2e        Playwright on an Android emulator (a spike, see below)
+android-e2e        Playwright on an Android emulator (see below)
 scripts            what the just recipes run
 ```
 
@@ -117,7 +118,8 @@ All run against a real server with a SQLite file.
   - `crates/protocol/tests/projection.rs`: given these events, then the family
     every phone shows.
   - `crates/client/tests/e2e.rs`: a real relay and three real phones (live
-    sync, server outage, offline start, lists, places, giving tasks away).
+    sync, server outage, offline start, lists, places, giving tasks away,
+    photos).
 - `just acceptance`: Cucumber scenarios in
   `crates/acceptance/tests/features/`. Three real app windows (Patrick, Mona,
   Mara); typing key by key, clicking, pasting the link, decoding the on-screen
@@ -125,10 +127,14 @@ All run against a real server with a SQLite file.
   retrying `expect`. The engine runs inside the page (`tests/support/driver.js`)
   via the `ui-test` bridge, which exists only in test builds. Windows open and
   close alone; let it finish. CI runs it on macOS.
-- `just android-test`: Playwright on an emulator (`android-e2e/spike.mjs`), one
-  scenario. Runs next to the desktop suite, not in CI. Limits:
-  `AndroidInput.type` drops capitals; attach only after the app has started;
-  needs Playwright's driver APK (the recipe installs it).
+- `just android-test`: Playwright on an emulator (`android-e2e/suite.mjs`).
+  The other phone is `tackly-probe` (in `crates/testkit`), a family head
+  without a screen: it invites the emulator, lets it in and reports what
+  synced. The test joins, taps Android's own location dialog, sets the
+  emulator's GPS, ticks a task off (the probe gets where), and picks a photo
+  (the probe gets it). Not in CI. Limits: `AndroidInput.type` drops capitals;
+  `uiautomator dump` fails while Playwright's driver runs, use its device
+  selectors.
 
 Server details are in [server/README.md](server/README.md).
 
@@ -146,7 +152,8 @@ something happened.
 
 Not done, by decision: there is no restore process. A lost phone means
 leaving and rejoining with a new invitation. Also missing: device revocation,
-key rotation, real GPS on Android (finishes record no location there yet), uploading a photo as your picture, scanning the QR code with the camera, and
-keeping secrets in the Android Keystore (they sit in the app-private storage
-for now). The Android app builds and runs in the emulator, and its Playwright
-spike passes.
+key rotation, scanning the QR code with the camera, opening invitation links
+on Android, and keeping secrets in the Android Keystore (they sit in the
+app-private storage for now). The location permission is declared in
+`crates/app/Dioxus.toml`, so the store listing shows it; Android still asks
+once, after creating or joining a family.

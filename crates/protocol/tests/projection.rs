@@ -182,6 +182,7 @@ fn members_names_and_pictures_follow_their_changes() {
                     picture: tackly_protocol::Picture {
                         icon: "pets".into(),
                         tint: 2,
+                        photo: None,
                     },
                 },
             ),

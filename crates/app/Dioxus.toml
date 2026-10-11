@@ -6,3 +6,8 @@ default_platform = "android"
 identifier = "dev.tackly.tackly"
 publisher = "Tackly"
 short_description = "ADHD optimized task management."
+
+# Shown in the store listing and asked once on the phone (Android can't grant it
+# by itself). Tackly records where a task was finished; it never shows it.
+[permissions]
+location = { precision = "fine", description = "Tackly notes where a task was finished." }

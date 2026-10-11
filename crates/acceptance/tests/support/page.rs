@@ -266,6 +266,21 @@ impl Locator {
     }
 
     /// Sets the whole value at once, like a paste.
+    /// Puts a file from disk into a file field, like Playwright's `setInputFiles`.
+    pub async fn set_input_files(&self, path: &std::path::Path, mime: &str) -> Outcome<()> {
+        let bytes = std::fs::read(path)?;
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        self.act(
+            "set_input_files",
+            json!({ "name": name, "mime": mime, "base64": STANDARD.encode(bytes) }),
+        )
+        .await
+        .map(drop)
+    }
+
     pub async fn fill(&self, text: &str) -> Outcome<()> {
         self.act("fill", json!(text)).await.map(drop)
     }

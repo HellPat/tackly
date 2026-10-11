@@ -140,6 +140,8 @@ pub enum FamilyError {
     UnknownPlace,
     #[error("a place keeps at least one location")]
     LastLocation,
+    #[error("a photo must be a small JPEG")]
+    BadPhoto,
     #[error("unknown task")]
     UnknownTask,
     #[error("the task is already done")]
@@ -262,7 +264,12 @@ impl Family {
                     name: not_empty(&name)?,
                 },
             ),
-            C::SetPicture { picture } => one(family()?, E::MemberPictureChanged { picture }),
+            C::SetPicture { picture } => {
+                if !picture.photo_is_valid() {
+                    return Err(FamilyError::BadPhoto);
+                }
+                one(family()?, E::MemberPictureChanged { picture })
+            }
 
             C::CreateList { list_id, name } => one(
                 list_id,

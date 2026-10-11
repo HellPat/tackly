@@ -172,6 +172,18 @@ window.pw = (() => {
       el.dispatchEvent(new Event("change", { bubbles: true }));
       return { done: true };
     },
+    // Like Playwright's setInputFiles: put a file into a file field (no system
+    // dialog), then tell the page it changed. Works on hidden fields, too.
+    set_input_files: async (el, file) => {
+      if (el.tagName !== "INPUT" || el.type !== "file") return { why: "element is not a file field" };
+      const bytes = Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0));
+      const list = new DataTransfer();
+      list.items.add(new File([bytes], file.name, { type: file.mime }));
+      el.files = list.files;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      return { done: true };
+    },
     // One key: keydown, keypress, beforeinput, insert at the caret, input, keyup.
     // The Rust side sends them one call at a time, with the delay in between.
     type_key: async (el, ch) => {

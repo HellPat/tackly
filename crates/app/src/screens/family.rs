@@ -105,16 +105,21 @@ fn Settings() -> Element {
             Avatar { name: myself.name.clone(), picture: myself.picture.clone(), size: Size::Huge }
             div { class: "grid grid-cols-4 gap-3", role: "radiogroup", aria_label: "Picture",
                 for (i, icon) in PICTURE_ICONS.iter().enumerate() {
+                    // With a photo, no icon is the picture.
                     button {
                         key: "{icon}",
                         role: "radio",
-                        aria_checked: "{myself.picture.as_ref().is_some_and(|picture| picture.icon == *icon)}",
+                        aria_checked: "{myself.picture.as_ref().is_some_and(|picture| picture.photo.is_none() && picture.icon == *icon)}",
                         aria_label: "{icon.replace('_', \" \")}",
-                        class: if myself.picture.as_ref().is_some_and(|picture| picture.icon == *icon) { "size-14 rounded-full grid place-items-center ring-2 ring-accent-700 ring-offset-2 ring-offset-[#fffdfb] {TINTS[i % TINTS.len()]}" } else { "size-14 rounded-full grid place-items-center {TINTS[i % TINTS.len()]}" },
-                        onclick: move |_| state.set_picture(Picture { icon: (*icon).to_owned(), tint: (i % TINTS.len()) as u8 }),
+                        class: if myself.picture.as_ref().is_some_and(|picture| picture.photo.is_none() && picture.icon == *icon) { "size-14 rounded-full grid place-items-center ring-2 ring-accent-700 ring-offset-2 ring-offset-[#fffdfb] {TINTS[i % TINTS.len()]}" } else { "size-14 rounded-full grid place-items-center {TINTS[i % TINTS.len()]}" },
+                        onclick: move |_| state.set_picture(Picture { icon: (*icon).to_owned(), tint: (i % TINTS.len()) as u8, photo: None }),
                         Icon { name: *icon }
                     }
                 }
+            }
+            div { class: "flex flex-wrap justify-center gap-2",
+                PhotoButton { id: "photo-camera", label: "Take a photo", icon: "photo_camera", camera: true }
+                PhotoButton { id: "photo-gallery", label: "Choose a photo", icon: "image", camera: false }
             }
         }
         Heading { text: "Color scheme" }
@@ -160,4 +165,58 @@ fn save_name(state: AppState, name: String) {
     if !name.trim().is_empty() && name.trim() != current {
         state.rename_me(name);
     }
+}
+
+/// A photo as your picture, from the camera or the gallery. The web view crops
+/// it square and makes a small JPEG (256 px), which syncs to the family.
+#[component]
+fn PhotoButton(id: String, label: String, icon: String, camera: bool) -> Element {
+    let state = use_context::<AppState>();
+    let input_id = id.clone();
+    rsx! {
+        label { class: "{crate::ui::SECONDARY} cursor-pointer",
+            Icon { name: icon, class: "!text-[18px]" }
+            "{label}"
+            input {
+                id: "{id}",
+                r#type: "file",
+                accept: "image/*",
+                class: "sr-only",
+                aria_label: "{label}",
+                "capture": if camera { "user" } else { "" },
+                onchange: move |_| {
+                    let input_id = input_id.clone();
+                    spawn(async move {
+                        let photo: Option<String> = document::eval(&shrink_photo_script(&input_id)).recv().await.ok().flatten();
+                        let Some(photo) = photo else { return };
+                        let me = *state.my_id.peek();
+                        let current = state.family.peek().members.get(&me).and_then(|member| member.picture.clone());
+                        let (icon, tint) = current.map_or(("sailing".to_owned(), 0), |picture| (picture.icon, picture.tint));
+                        state.set_picture(Picture { icon, tint, photo: Some(photo) });
+                    });
+                },
+            }
+        }
+    }
+}
+
+/// Reads the chosen image, crops the middle square, and sends back a 256 px JPEG data URL.
+fn shrink_photo_script(input_id: &str) -> String {
+    format!(
+        "const input = document.getElementById('{input_id}');
+         const file = input && input.files[0];
+         if (!file) {{ dioxus.send(null); }} else {{
+           const url = URL.createObjectURL(file);
+           const img = new Image();
+           img.src = url;
+           await img.decode();
+           const side = Math.min(img.naturalWidth, img.naturalHeight);
+           const canvas = document.createElement('canvas');
+           canvas.width = canvas.height = 256;
+           canvas.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 256, 256);
+           URL.revokeObjectURL(url);
+           input.value = '';
+           dioxus.send(canvas.toDataURL('image/jpeg', 0.85));
+         }}"
+    )
 }

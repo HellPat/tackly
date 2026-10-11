@@ -5921,6 +5921,7 @@ dependencies = [
  "anyhow",
  "axum",
  "serde_json",
+ "tackly-client",
  "tackly-sync",
  "tokio",
 ]

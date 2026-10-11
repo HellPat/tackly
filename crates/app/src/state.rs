@@ -228,11 +228,8 @@ impl AppState {
     pub fn complete_task(self, task: Uuid) {
         let title = self.title_of(task);
         self.act_then(move |device| async move {
-            device
-                .lock()
-                .await
-                .complete_task(task, platform::location())
-                .await?;
+            let location = platform::location().await;
+            device.lock().await.complete_task(task, location).await?;
             Ok((format!("{title} done"), Some(Undo::CancelCompletion(task))))
         });
     }

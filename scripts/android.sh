@@ -46,12 +46,12 @@ case "${1:-}" in
   test)
     build
     ensure_device
-    cargo build --locked -p tackly-sync
+    cargo build --locked -p tackly-sync -p tackly-testkit --bins
     adb install -r "$apk"
     cd "$root/android-e2e"
     npm ci --no-audit --no-fund
     npx playwright install android
-    node spike.mjs
+    node suite.mjs
     ;;
   *) echo "usage: $0 build|run|test" >&2; exit 2 ;;
 esac
