@@ -39,7 +39,7 @@ jobs:
           name: tackly-macos
           path: |
             target/release/tackly-sync
-            target/release/tackly-app
+            target/release/tackly
 
   acceptance-macos:
     # Real app windows: the macOS runner has a desktop session.

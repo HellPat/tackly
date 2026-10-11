@@ -99,6 +99,10 @@ pub enum DomainEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         location: Option<GeoPoint>,
     },
+    /// Where the phone was when it was finished, once it knew: a GPS fix
+    /// takes seconds, and finishing never waits for it.
+    #[serde(rename = "task.completion_located")]
+    TaskCompletionLocated { location: GeoPoint },
     /// Undo right after finishing: everything as it was, time included.
     #[serde(rename = "task.completion_undone")]
     TaskCompletionUndone,
@@ -211,6 +215,7 @@ impl DomainEvent {
             Self::TaskStarted => "task.started",
             Self::TaskPaused => "task.paused",
             Self::TaskCompleted { .. } => "task.completed",
+            Self::TaskCompletionLocated { .. } => "task.completion_located",
             Self::TaskCompletionUndone => "task.completion_undone",
             Self::TaskReopened => "task.reopened",
             Self::Unknown => "unknown",

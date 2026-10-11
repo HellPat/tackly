@@ -41,25 +41,21 @@ pub fn default_server() -> String {
     std::env::var("TACKLY_SERVER_URL").unwrap_or_else(|_| fallback.into())
 }
 
-/// Starts following the phone's position while the app is open, so a fix is
-/// at hand the moment a task is finished (a cold GPS fix takes seconds).
-/// The first call asks Android for the permission.
-pub fn follow_location() {
+/// Asks Android for the location permission, once, right after creating or
+/// joining a family, so the dialog never comes up while ticking a task off.
+pub fn ask_for_location() {
     if cfg!(target_os = "android") && fixed_location().is_none() {
-        const SCRIPT: &str = "if (window.tacklyWatch === undefined) {\
-            window.tacklyWatch = navigator.geolocation.watchPosition(\
-              (p) => { window.tacklyFix = [p.coords.latitude, p.coords.longitude, p.coords.accuracy, Date.now()]; },\
-              () => {},\
-              { enableHighAccuracy: true, maximumAge: 60000 });\
-          }";
-        let _ = dioxus::document::eval(SCRIPT);
+        dioxus::prelude::spawn(async {
+            let _ = web_location().await;
+        });
     }
 }
 
-/// Where the phone is, if it can tell, for noting where a task was finished.
-/// `TACKLY_LOCATION="lat,lon"` stands in for a GPS (the desktop has none, and
-/// tests fix it). On a phone it is the web view's geolocation: the fix that
-/// [`follow_location`] keeps, if it is at most two minutes old.
+/// Where the phone is now, for noting where a task was finished. Asked once
+/// per tick, nothing in between. `TACKLY_LOCATION="lat,lon"` stands in for a
+/// GPS (the desktop has none, and tests fix it). On a phone it is the web
+/// view's geolocation: a fix up to a minute old is reused, otherwise it waits
+/// up to half a minute for one (a cold GPS takes seconds).
 pub async fn location() -> Option<GeoPoint> {
     if let Some(fixed) = fixed_location() {
         return Some(fixed);
@@ -71,15 +67,12 @@ pub async fn location() -> Option<GeoPoint> {
     }
 }
 
-/// The last fix from the web view, or else a quick cached one from Android.
-/// No permission or no recent fix: `None`, after at most a second.
+/// No permission or no fix: `None`.
 async fn web_location() -> Option<GeoPoint> {
-    const SCRIPT: &str = "const fix = window.tacklyFix;\
-        if (fix && Date.now() - fix[3] < 120000) { dioxus.send(fix.slice(0, 3)); }\
-        else { navigator.geolocation.getCurrentPosition(\
-          (p) => dioxus.send([p.coords.latitude, p.coords.longitude, p.coords.accuracy]),\
-          () => dioxus.send(null),\
-          { maximumAge: 120000, timeout: 1000 }); }";
+    const SCRIPT: &str = "navigator.geolocation.getCurrentPosition(\
+        (p) => dioxus.send([p.coords.latitude, p.coords.longitude, p.coords.accuracy]),\
+        () => dioxus.send(null),\
+        { enableHighAccuracy: true, maximumAge: 60000, timeout: 30000 });";
     let fix: Option<[f64; 3]> = dioxus::document::eval(SCRIPT).recv().await.ok()?;
     fix.map(|[latitude, longitude, accuracy]| GeoPoint {
         latitude,

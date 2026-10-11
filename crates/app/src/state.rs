@@ -224,12 +224,17 @@ impl AppState {
         });
     }
 
-    /// Finishes a task, noting where the phone is.
+    /// Finishes a task at once; where the phone is follows when the GPS
+    /// knows (a fix takes seconds). Undone by then: nothing to note.
     pub fn complete_task(self, task: Uuid) {
         let title = self.title_of(task);
         self.act_then(move |device| async move {
-            let location = platform::location().await;
-            device.lock().await.complete_task(task, location).await?;
+            device.lock().await.complete_task(task, None).await?;
+            spawn_forever(async move {
+                if let Some(location) = platform::location().await {
+                    let _ = device.lock().await.locate_completion(task, location).await;
+                }
+            });
             Ok((format!("{title} done"), Some(Undo::CancelCompletion(task))))
         });
     }

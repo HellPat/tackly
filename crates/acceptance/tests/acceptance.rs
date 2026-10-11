@@ -767,7 +767,7 @@ fn build_app() -> Outcome<PathBuf> {
     if !status.success() {
         return Err("could not build the app".into());
     }
-    Ok(target.join("debug/tackly-app"))
+    Ok(target.join("debug/tackly"))
 }
 
 #[tokio::main]

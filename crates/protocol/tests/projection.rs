@@ -112,6 +112,31 @@ fn finished_twice_is_just_finished_by_the_first() {
 }
 
 #[test]
+fn where_it_was_finished_arrives_after_the_tick() {
+    let family = replay(&given(vec![
+        the_smiths(),
+        vec![
+            task(MILK, "Milk"),
+            by_at(MARA, MILK, 1, Happened::TaskCompleted { location: None }),
+            by_at(
+                MARA,
+                MILK,
+                1,
+                Happened::TaskCompletionLocated { location: HERE },
+            ),
+        ],
+    ]));
+
+    assert_eq!(
+        family.tasks[&MILK]
+            .done
+            .as_ref()
+            .and_then(|done| done.location),
+        Some(HERE)
+    );
+}
+
+#[test]
 fn given_away_shows_who_gave_it() {
     let family = replay(&given(vec![
         the_smiths(),

@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+# The binary is "tackly": the Dioxus CLI names the Android app after it.
+[[bin]]
+name = "tackly"
+path = "src/main.rs"
+
 [features]
 default = ["desktop"]
 desktop = ["dioxus/desktop"]

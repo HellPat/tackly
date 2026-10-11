@@ -10,7 +10,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 package="dev.tackly.tackly"
 activity="$package/dev.dioxus.main.MainActivity"
-apk="$root/target/dx/tackly-app/debug/android/app/app/build/outputs/apk/debug/app-debug.apk"
+apk="$root/target/dx/tackly/debug/android/app/app/build/outputs/apk/debug/app-debug.apk"
 
 build() {
   (cd "$root/crates/app" && dx build --android --package tackly-app --no-default-features --features mobile)

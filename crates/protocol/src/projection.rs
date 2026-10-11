@@ -409,6 +409,20 @@ impl Family {
                     }
                 }
             }
+            DomainEvent::TaskCompletionLocated { location } => {
+                if let Some(Completion {
+                    by: finisher,
+                    location: where_done @ None,
+                    ..
+                }) = self
+                    .tasks
+                    .get_mut(&subject)
+                    .and_then(|task| task.done.as_mut())
+                    && *finisher == by
+                {
+                    *where_done = Some(*location);
+                }
+            }
             DomainEvent::TaskCompletionUndone => {
                 if let Some(task) = self.tasks.get_mut(&subject) {
                     task.done = None;

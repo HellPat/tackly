@@ -53,7 +53,7 @@ This builds everything, starts the relay and opens **three app windows**
 3. Mona: *Join with an invitation*, paste the link, *Ask to join*. Both phones
    show the same six digits; Patrick confirms. Repeat for Mara. (A phone scans
    the QR code with its camera; the desktop windows have no scanner, so paste
-   the link there. `tackly-app 'tackly://join?c=…'` opens straight on the form.)
+   the link there. `target/debug/tackly 'tackly://join?c=…'` opens straight on the form.)
 4. Add tasks, open one and tap *Start*, tick them off, and watch the other
    windows update live.
 

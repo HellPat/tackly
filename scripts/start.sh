@@ -55,7 +55,7 @@ for ((i = 0; i < members && i < ${#names[@]}; i++)); do
   name="${names[$i]}"
   TACKLY_PROFILE="$name" TACKLY_DATA_DIR="$root/.dev/$name" \
     TACKLY_SERVER_URL="http://127.0.0.1:$port" TACKLY_LOCATION="${places[$i]}" \
-    target/debug/tackly-app >".dev/$name.log" 2>&1 &
+    target/debug/tackly >".dev/$name.log" 2>&1 &
   pids+=($!)
   app_pids+=($!)
 done

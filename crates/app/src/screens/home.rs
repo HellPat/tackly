@@ -88,9 +88,9 @@ pub fn Home() -> Element {
     let family = (state.family)();
     let here = nav();
     let scheme = theme::scheme(&(state.settings)().scheme);
-    // Follow the position from the start (right after creating or joining a
-    // family), so finishing a task never waits for a permission dialog or a fix.
-    use_hook(crate::platform::follow_location);
+    // Right after creating or joining a family, so finishing a task never
+    // stops for a permission dialog.
+    use_hook(crate::platform::ask_for_location);
 
     let title = match here.tab {
         Tab::Tasks => here

@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use cqrs_es::test::TestFramework;
-use tackly_protocol::{CommandContext, DomainEvent, Family, FamilyEvent, PlaceLocation};
+use tackly_protocol::{CommandContext, DomainEvent, Family, FamilyEvent, GeoPoint, PlaceLocation};
 use uuid::Uuid;
 
 pub const PATRICK: Uuid = Uuid::from_u128(0x1);
@@ -130,6 +130,13 @@ pub fn backnang() -> PlaceLocation {
 }
 
 /// A task created by Patrick, in "Other".
+/// Where the GPS says the phone is: in Winnenden.
+pub const HERE: GeoPoint = GeoPoint {
+    latitude: 48.8752,
+    longitude: 9.3775,
+    accuracy_meters: Some(12.0),
+};
+
 pub fn task(id: Uuid, title: &str) -> FamilyEvent {
     by(
         PATRICK,

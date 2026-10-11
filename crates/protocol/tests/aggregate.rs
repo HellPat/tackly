@@ -404,24 +404,91 @@ fn members_rename_themselves() {
 
 #[test]
 fn finishing_records_where_it_happened() {
-    let here = tackly_protocol::GeoPoint {
-        latitude: 48.8752,
-        longitude: 9.3775,
-        accuracy_meters: Some(12.0),
-    };
     as_member(MARA)
         .given(given(vec![the_smiths(), vec![task(MILK, "Milk")]]))
         .when(Do::CompleteTask {
             task_id: MILK,
-            location: Some(here),
+            location: Some(HERE),
         })
         .then_expect_events(vec![by(
             MARA,
             MILK,
             Happened::TaskCompleted {
-                location: Some(here),
+                location: Some(HERE),
             },
         )]);
+}
+
+#[test]
+fn where_it_was_finished_can_follow_once_the_gps_knows() {
+    as_member(MARA)
+        .given(given(vec![
+            the_smiths(),
+            vec![
+                task(MILK, "Milk"),
+                by(MARA, MILK, Happened::TaskCompleted { location: None }),
+            ],
+        ]))
+        .when(Do::LocateCompletion {
+            task_id: MILK,
+            location: HERE,
+        })
+        .then_expect_events(vec![by(
+            MARA,
+            MILK,
+            Happened::TaskCompletionLocated { location: HERE },
+        )]);
+}
+
+#[test]
+fn only_who_finished_it_says_where() {
+    as_member(MONA)
+        .given(given(vec![
+            the_smiths(),
+            vec![
+                task(MILK, "Milk"),
+                by(MARA, MILK, Happened::TaskCompleted { location: None }),
+            ],
+        ]))
+        .when(Do::LocateCompletion {
+            task_id: MILK,
+            location: HERE,
+        })
+        .then_expect_error(FamilyError::NotYours);
+}
+
+#[test]
+fn an_open_task_has_no_place_it_was_finished() {
+    as_member(MARA)
+        .given(given(vec![the_smiths(), vec![task(MILK, "Milk")]]))
+        .when(Do::LocateCompletion {
+            task_id: MILK,
+            location: HERE,
+        })
+        .then_expect_error(FamilyError::NotDone);
+}
+
+#[test]
+fn where_it_was_finished_is_said_once() {
+    as_member(MARA)
+        .given(given(vec![
+            the_smiths(),
+            vec![
+                task(MILK, "Milk"),
+                by(
+                    MARA,
+                    MILK,
+                    Happened::TaskCompleted {
+                        location: Some(HERE),
+                    },
+                ),
+            ],
+        ]))
+        .when(Do::LocateCompletion {
+            task_id: MILK,
+            location: HERE,
+        })
+        .then_expect_error(FamilyError::AlreadyLocated);
 }
 
 // ---- pictures --------------------------------------------------------------------------------

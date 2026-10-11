@@ -110,6 +110,11 @@ pub enum FamilyCommand {
         /// Where the phone is, if it can tell.
         location: Option<GeoPoint>,
     },
+    /// Where the phone was when it finished the task, found out afterwards.
+    LocateCompletion {
+        task_id: Uuid,
+        location: GeoPoint,
+    },
     UndoCompletion {
         task_id: Uuid,
     },
@@ -148,6 +153,8 @@ pub enum FamilyError {
     AlreadyDone,
     #[error("the task is not done")]
     NotDone,
+    #[error("where the task was finished is already known")]
+    AlreadyLocated,
     #[error("someone else has this task")]
     Taken,
     #[error("you are not working on it")]
@@ -444,6 +451,15 @@ impl Family {
             C::CompleteTask { task_id, location } => {
                 self.my_open_task(task_id, me)?;
                 one(task_id, E::TaskCompleted { location })
+            }
+            C::LocateCompletion { task_id, location } => {
+                let task = self.tasks.get(&task_id).ok_or(FamilyError::UnknownTask)?;
+                match &task.done {
+                    None => Err(FamilyError::NotDone),
+                    Some(done) if done.by != me => Err(FamilyError::NotYours),
+                    Some(done) if done.location.is_some() => Err(FamilyError::AlreadyLocated),
+                    Some(_) => one(task_id, E::TaskCompletionLocated { location }),
+                }
             }
             C::UndoCompletion { task_id } => {
                 let task = self.tasks.get(&task_id).ok_or(FamilyError::UnknownTask)?;

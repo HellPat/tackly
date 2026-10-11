@@ -23,7 +23,7 @@ const JOIN_POLL: std::time::Duration = std::time::Duration::from_secs(1);
 #[component]
 pub fn Onboarding() -> Element {
     let state = use_context::<AppState>();
-    // `tackly-app tackly://join?c=...` opens straight on the join form.
+    // `tackly tackly://join?c=...` opens straight on the join form.
     let launch_link = platform::launch_link();
     let mut mode = use_signal(|| {
         if launch_link.is_some() {

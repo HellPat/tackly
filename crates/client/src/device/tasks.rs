@@ -53,6 +53,12 @@ impl Device {
             .await
     }
 
+    /// Notes where the phone was when it finished the task (found out after).
+    pub async fn locate_completion(&mut self, task_id: Uuid, location: GeoPoint) -> Result<()> {
+        self.run(FamilyCommand::LocateCompletion { task_id, location })
+            .await
+    }
+
     /// Undo right after finishing: as it was, time included.
     pub async fn undo_completion(&mut self, task_id: Uuid) -> Result<()> {
         self.run(FamilyCommand::UndoCompletion { task_id }).await

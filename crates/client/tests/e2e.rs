@@ -212,11 +212,21 @@ async fn three_members_share_tasks_and_see_each_other_live() -> Result<()> {
         .await?;
     }
 
-    // Mona finishes; everyone sees it done, with where it happened.
-    mona.complete(dishes, Some(WINNENDEN)).await?;
+    // Mona finishes; everyone sees it done. Where it happened follows once
+    // her GPS knows, as on a real phone.
+    mona.complete(dishes, None).await?;
+    mona.device
+        .lock()
+        .await
+        .locate_completion(dishes, WINNENDEN)
+        .await?;
     for phone in [&patrick, &mara] {
-        eventually("dishes done", || async {
-            phone.sees("Do the dishes", is_done).await
+        eventually("dishes done, and where", || async {
+            let state = phone.state().await?;
+            Ok(state.tasks[&dishes]
+                .done
+                .as_ref()
+                .is_some_and(|done| done.location.is_some()))
         })
         .await?;
         let state = phone.state().await?;
