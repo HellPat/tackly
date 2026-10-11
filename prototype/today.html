@@ -350,7 +350,9 @@ function renderTomorrow() {
     const k = kindById(state.planProblem);
     const steps = k.tasks.map(find).filter((t) => open(t) && t.day !== 'tomorrow' && !state.dismissed.has(`t:${t.id}`));
     // A way back right where the steps are: the header's arrow may be scrolled away.
-    const crumb = `<button class="mt-4 mb-1 flex items-center gap-1 h-11 pl-1 pr-3 rounded-full text-stone-700 hover:bg-white/60" data-plan-back>${icon('arrow_back', '!text-[20px]')}<span class="text-sm font-semibold">Problems</span><span class="text-sm text-stone-500">/ ${k.title}</span></button>`;
+    const crumb = `<div class="pt-5 pb-2 flex items-center gap-3">
+      <button class="${SECONDARY} !h-11 !pl-3" data-plan-back>${icon('arrow_back', '!text-[20px]')}All problems</button>
+      <h2 class="flex-1 min-w-0 truncate text-base font-semibold">${k.title}</h2></div>`;
     return `${focus}<div id="planPool" class="rounded-2xl transition-shadow">${crumb}
       ${steps.length ? `<ul>${steps.map((t) => planRow(`t:${t.id}`, taskLead(), t.title, '', false, full)).join('')}</ul>` : '<p class="py-8 text-center text-stone-600">No steps left here.</p>'}</div>`;
   }
