@@ -17,11 +17,11 @@ migrations/      the schema; applied when the server starts
 ## Run
 
 ```sh
-DATABASE_URL=sqlite:///var/lib/tackly/tackly-sync.db cargo run --release -p tackly-sync
+DATABASE_URL=sqlite:///var/lib/tackly/tackly-relay.db cargo run --release -p tackly-relay
 ```
 
 The database file is created if needed. Migrations are embedded and applied on
-start; `tackly-sync migrate` applies them and exits. The server binds to
+start; `tackly-relay migrate` applies them and exits. The server binds to
 `127.0.0.1:3000` (`TACKLY_BIND` changes it). `/health` answers 204 and exposes
 nothing.
 
@@ -48,7 +48,7 @@ database; the file and its write-ahead log both need backing up.
 | `PUT`/`DELETE /v1/families/{id}/recovery/{rid}` | the head leaves its sealed recovery backup; removes it |
 | `GET /v1/recovery/{rid}` | the backup, for whoever knows the recovery code (and so the ID) |
 
-The request and response types live in `crates/protocol/src/wire.rs`, shared
+The request and response types live in `wire/src/lib.rs`, shared
 with the app.
 
 **Live stream.** `GET /v1/families/{id}/stream?after=<sequence>` replays the
@@ -110,6 +110,6 @@ production service until those exist.
 
 ## Tests
 
-`just test` runs the end-to-end suite in `crates/client/tests/e2e.rs`, which
+`just test` runs the end-to-end suite in `phone/tests/e2e.rs`, which
 starts this server in-process on a real SQLite file and drives real devices
 against it, including the registration retry and server outages.

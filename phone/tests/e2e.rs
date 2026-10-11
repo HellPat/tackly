@@ -12,7 +12,9 @@ use std::{
 
 use anyhow::{Context, Result, bail, ensure};
 use tackly_domain::{Family, GeoPoint, Picture, PlaceLocation, Progress, Task};
-use tackly_phone::{Device, InviteProgress, SharedDevice, api::Api, run_live};
+use tackly_phone::{
+    Device, InviteProgress, SharedDevice, infrastructure::relay_client::Api, run_live,
+};
 use tackly_testkit::Relay;
 use tokio::{sync::Mutex, task::JoinHandle};
 use uuid::Uuid;

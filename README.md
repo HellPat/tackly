@@ -33,16 +33,24 @@ Android first, iOS maybe later. No restore: lost phone means join again.
 # Development
 
 ```
-crates/protocol    shared by app and server: the Family aggregate, its commands
-                   and events (cqrs-es), and the HTTP/SSE wire types
-crates/client      the device core: encrypted SQLite event log, pairing, sync
-crates/app         the Dioxus app (desktop windows and Android), styled with Tailwind
-server             the relay: stores encrypted events, pushes them over SSE
-crates/testkit     a stoppable real relay, shared by the test suites
-crates/acceptance  Cucumber scenarios clicked through real app windows
-android-e2e        Playwright on an Android emulator (see below)
+apps/app           the Dioxus app (desktop windows and Android), styled with Tailwind;
+                   one screens folder per area (today, problems, tasks, places, family)
+apps/relay         the server: stores encrypted messages, pushes them over SSE
+apps/agent         tackly-agent, the command line tool an AI agent reads along with
+domain/            the rules, no network or disk: the Family aggregate (cqrs-es), split
+                   into members, tasks, places and problems
+phone/             what a phone does without a screen: use cases (device), keeping in
+                   sync (live), and infrastructure (SQLite log, MLS group, relay client,
+                   key files, address search)
+wire/              the messages between phone and relay (HTTP and SSE payloads)
+tests/testkit      a stoppable real relay, shared by the test suites
+tests/acceptance   Cucumber scenarios clicked through real app windows
+tests/android-e2e  Playwright on an Android emulator (see below)
 scripts            what the just recipes run
 ```
+
+The arrows point one way: `apps/app` and `apps/agent` use `phone`; `phone` uses
+`domain` and `wire`; `apps/relay` uses only `wire`; `domain` uses nothing.
 
 ### Try it
 
@@ -86,25 +94,25 @@ This builds everything, starts the relay and opens **three app windows**
 
 Without Nix, install Rust (with the clippy component), and for Android the SDK,
 NDK, JDK 21 and `dioxus-cli`, then run the scripts in `scripts/` or
-`cargo run -p tackly-sync` and `cargo run -p tackly-app` (binary `tackly`) yourself.
+`cargo run -p tackly-relay` and `cargo run -p tackly-app` (binary `tackly`) yourself.
 
 **No unwrap.** Errors are handled, not unwrapped: `unwrap` and `expect` are
 denied by clippy (tests may use them). `.cargo/config.toml` runs clippy on every
 workspace build, so a stray `unwrap()` fails plain `cargo build`, not only
 `cargo clippy`.
 
-**Styles.** The screens use Tailwind classes only (`crates/app/src`), plus
-`crates/app/tailwind.css` for the few things Tailwind can't say (the accent color,
+**Styles.** The screens use Tailwind classes only (`apps/app/src`), plus
+`apps/app/tailwind.css` for the few things Tailwind can't say (the accent color,
 three animations, the icon font class). `just css` compiles both into
-`crates/app/src/style.css`, which is committed, so a plain `cargo build` and
+`apps/app/src/style.css`, which is committed, so a plain `cargo build` and
 Android need no Tailwind. Roboto and the Material Symbols icons the app uses are
-in `crates/app/fonts/` and compiled into the app: nothing is loaded from the
+in `apps/app/fonts/` and compiled into the app: nothing is loaded from the
 network. The prototype the screens were built from is `prototype/index.html`.
 
 ### How it works
 
 - **CQRS / event sourcing** with [`cqrs-es`](https://doc.rust-cqrs.org). The
-  family is one aggregate (`crates/protocol/src/aggregate.rs`): commands such as
+  family is one aggregate (`domain/src/family`): commands such as
   `AssignTask`, `StartTask` or `CompleteTask` are checked against the replayed
   state and produce `FamilyEvent`s. Time worked is the sum of start/pause
   sessions since the task was (re)opened. A finish records where the phone was
@@ -124,7 +132,7 @@ network. The prototype the screens were built from is `prototype/index.html`.
   whole history as a snapshot from the head. The server stores messages and
   routing IDs, and reads only each message's epoch and kind. Both phones
   derive the six join digits from the invitation secret and the joiner's MLS
-  key package, so a server that swaps the key is caught (`crates/client/tests/e2e.rs`).
+  key package, so a server that swaps the key is caught (`phone/tests/e2e.rs`).
 - **The head decides who is in.** Only the head's phone may commit (the
   server checks its token; every phone checks the commit's sender, so a
   stolen member phone cannot throw anyone out). Removing someone is a commit
@@ -153,15 +161,15 @@ network. The prototype the screens were built from is `prototype/index.html`.
 All run against a real server with a SQLite file.
 
 - `just test`: no windows. CI runs it on Linux.
-  - `crates/protocol/tests/aggregate.rs`: given these events, when someone does
+  - `domain/tests/aggregate.rs`: given these events, when someone does
     this, then these events (or this error), with cqrs-es's test framework.
-  - `crates/protocol/tests/projection.rs`: given these events, then the family
+  - `domain/tests/projection.rs`: given these events, then the family
     every phone shows.
-  - `crates/client/tests/e2e.rs`: a real relay and three real phones (live
+  - `phone/tests/e2e.rs`: a real relay and three real phones (live
     sync, server outage, offline start, lists, places, giving tasks away,
     photos, a raised problem and a day's plan).
 - `just acceptance`: Cucumber scenarios in
-  `crates/acceptance/tests/features/`. Three real app windows (Patrick, Mona,
+  `tests/acceptance/tests/features/`. Three real app windows (Patrick, Mona,
   Mara); typing key by key, clicking, pasting the link, decoding the on-screen
   QR code, dragging by a handle, swiping. Playwright-style API: strict
   locators, auto-waiting actions, retrying `expect`. Locators are roles and
@@ -170,8 +178,8 @@ All run against a real server with a SQLite file.
   data folder, so "it is 20:00" and "the next morning" can be played. The engine runs inside the page (`tests/support/driver.js`)
   via the `ui-test` bridge, which exists only in test builds. Windows open and
   close alone; let it finish. CI runs it on macOS.
-- `just android-test`: Playwright on an emulator (`android-e2e/suite.mjs`).
-  The other phone is `tackly-probe` (in `crates/testkit`), a family head
+- `just android-test`: Playwright on an emulator (`tests/android-e2e/suite.mjs`).
+  The other phone is `tackly-probe` (in `tests/testkit`), a family head
   without a screen: it invites the emulator, lets it in and reports what
   synced. The test joins, taps Android's own location dialog, sets the
   emulator's GPS, ticks a task off (the probe gets where), and picks a photo
@@ -179,7 +187,7 @@ All run against a real server with a SQLite file.
   `uiautomator dump` fails while Playwright's driver runs, use its device
   selectors.
 
-Server details are in [server/README.md](server/README.md).
+Server details are in [apps/relay/README.md](apps/relay/README.md).
 
 ### Places and address search
 
@@ -200,5 +208,5 @@ code is the way back). The recovery backup is uploaded whole after every
 change, which is fine for a family's history but not tuned. A member whose
 phone is lost simply rejoins with a new invitation; only the head has a
 recovery code. The location permission is declared in
-`crates/app/Dioxus.toml`, so the store listing shows it; Android still asks
+`apps/app/Dioxus.toml`, so the store listing shows it; Android still asks
 once, after creating or joining a family.

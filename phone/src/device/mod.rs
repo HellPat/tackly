@@ -9,7 +9,7 @@
 //! - [`recovery`]: the head's recovery code and the way back after a lost phone
 //! - [`sync`]: uploading local events and downloading the others'
 //!
-//! The family is an MLS group ([`crate::mls`]): every event goes to the relay
+//! The family is an MLS group ([`crate::infrastructure::group_crypto`]): every event goes to the relay
 //! as a message only the group's members can read.
 
 mod membership;
@@ -37,12 +37,12 @@ pub use recovery::RecoveryKey;
 pub use sync::LiveTarget;
 
 use crate::{
-    api::{Api, HttpError},
-    cqrs_store::{DeviceStore, UploadTrigger},
-    crypto::{self, random_bytes},
-    mls::Mls,
-    secrets::Secrets,
-    store::{EventStore, SharedStore},
+    infrastructure::cqrs_store::{DeviceStore, UploadTrigger},
+    infrastructure::crypto::{self, random_bytes},
+    infrastructure::group_crypto::Mls,
+    infrastructure::local_store::{EventStore, SharedStore},
+    infrastructure::relay_client::{Api, HttpError},
+    infrastructure::secrets::Secrets,
 };
 
 type Cqrs = CqrsFramework<Family, DeviceStore>;

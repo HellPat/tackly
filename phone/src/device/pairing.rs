@@ -18,9 +18,9 @@ use uuid::Uuid;
 
 use super::{Device, Membership};
 use crate::{
-    api::{Api, HttpError},
-    crypto::{self, derive, random_bytes},
-    mls::confirmation_code,
+    infrastructure::crypto::{self, derive, random_bytes},
+    infrastructure::group_crypto::confirmation_code,
+    infrastructure::relay_client::{Api, HttpError},
 };
 
 /// How long a new member waits for the head's history snapshot.

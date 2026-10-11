@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::secrets::Secrets;
+use crate::infrastructure::secrets::Secrets;
 
 const SECRET_NAME: &str = "membership";
 

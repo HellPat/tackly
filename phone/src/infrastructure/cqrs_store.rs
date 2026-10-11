@@ -9,7 +9,7 @@ use cqrs_es::{Aggregate, AggregateError, EventEnvelope, EventStore as CqrsEventS
 use tackly_domain::{Family, FamilyEvent};
 use tokio::sync::Notify;
 
-use crate::store::SharedStore;
+use crate::infrastructure::local_store::SharedStore;
 
 type StoreResult<T> = Result<T, AggregateError<<Family as Aggregate>::Error>>;
 

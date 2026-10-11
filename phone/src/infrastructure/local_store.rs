@@ -12,8 +12,8 @@ use tackly_domain::FamilyEvent;
 use uuid::Uuid;
 
 use crate::{
-    crypto::{SealedData, open, random_bytes, seal},
-    secrets::Secrets,
+    infrastructure::crypto::{SealedData, open, random_bytes, seal},
+    infrastructure::secrets::Secrets,
 };
 
 /// The event log shared between the device and its `cqrs-es` store.

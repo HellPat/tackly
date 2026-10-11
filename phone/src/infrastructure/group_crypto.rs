@@ -15,7 +15,7 @@ use openmls_rust_crypto::{MemoryStorage, RustCrypto};
 use openmls_traits::OpenMlsProvider;
 use uuid::Uuid;
 
-use crate::secrets::Secrets;
+use crate::infrastructure::secrets::Secrets;
 
 const CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 const STORAGE: &str = "mls-storage";
@@ -92,7 +92,10 @@ impl Mls {
                 .write()
                 .map_err(|_| anyhow!("MLS storage lock"))?;
             for (key, value) in map {
-                values.insert(crate::crypto::decode(&key)?, crate::crypto::decode(&value)?);
+                values.insert(
+                    crate::infrastructure::crypto::decode(&key)?,
+                    crate::infrastructure::crypto::decode(&value)?,
+                );
             }
         }
         // The key pair itself lives in the (persisted) storage; the secrets
@@ -137,7 +140,12 @@ impl Mls {
             .map_err(|_| anyhow!("MLS storage lock"))?;
         let map: std::collections::HashMap<String, String> = values
             .iter()
-            .map(|(key, value)| (crate::crypto::encode(key), crate::crypto::encode(value)))
+            .map(|(key, value)| {
+                (
+                    crate::infrastructure::crypto::encode(key),
+                    crate::infrastructure::crypto::encode(value),
+                )
+            })
             .collect();
         self.secrets.write(STORAGE, &serde_json::to_vec(&map)?)
     }
@@ -544,7 +552,7 @@ fn device_of(credential: &Credential) -> Option<Uuid> {
 /// phone's key package. The relay knows neither the secret nor how to make
 /// a key package that gives the same digits.
 pub fn confirmation_code(secret: &[u8], key_package: &[u8]) -> String {
-    let hash = crate::crypto::derive("confirmation", &[secret, key_package]);
+    let hash = crate::infrastructure::crypto::derive("confirmation", &[secret, key_package]);
     let number = u32::from_be_bytes([hash[0], hash[1], hash[2], hash[3]]) % 1_000_000;
     format!("{number:06}")
 }

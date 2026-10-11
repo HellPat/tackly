@@ -13,9 +13,9 @@ use uuid::Uuid;
 
 use super::{Device, Membership};
 use crate::{
-    api::{Api, HttpError},
-    crypto,
-    mls::Incoming,
+    infrastructure::crypto,
+    infrastructure::group_crypto::Incoming,
+    infrastructure::relay_client::{Api, HttpError},
 };
 
 /// What an application message to the group carries.

@@ -16,7 +16,7 @@ use tackly_wire::EncryptedEvent;
 use uuid::Uuid;
 
 use super::{Device, Membership};
-use crate::crypto::{self, random_bytes};
+use crate::infrastructure::crypto::{self, random_bytes};
 
 const WORDS: &str = "recovery-words";
 const BACKUP_VERSION: u32 = 1;
@@ -190,7 +190,7 @@ impl Device {
             self.events.lock().is_empty()?,
             "this phone already has a history"
         );
-        let api = crate::api::Api::new(server_url)?;
+        let api = crate::infrastructure::relay_client::Api::new(server_url)?;
         let key = RecoveryKey::from_words(words)?;
         let blob = api
             .get_recovery(&key.id())
@@ -213,7 +213,11 @@ impl Device {
         Ok(())
     }
 
-    async fn take_over(&mut self, api: &crate::api::Api, backup: Backup) -> Result<()> {
+    async fn take_over(
+        &mut self,
+        api: &crate::infrastructure::relay_client::Api,
+        backup: Backup,
+    ) -> Result<()> {
         let family_id = backup.family_id;
         {
             let mut store = self.events.lock();

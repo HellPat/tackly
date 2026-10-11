@@ -198,7 +198,7 @@ pub fn InviteSheet() -> Element {
                     },
                     (Some(shown), _) => rsx! {
                         div { class: "bg-white p-3 rounded-2xl [&_svg]:size-56", role: "img", aria_label: "Invitation QR code",
-                            dangerous_inner_html: tackly_phone::qr::qr_svg(&shown.link),
+                            dangerous_inner_html: tackly_phone::infrastructure::qr::qr_svg(&shown.link),
                         }
                         p { class: "text-sm text-stone-600", "Scan with the other phone, or send the link. Works once, for 5 minutes." }
                         button { class: PRIMARY, onclick: move |_| copy_link(state, &shown.link),
@@ -259,7 +259,7 @@ pub fn AgentSheet() -> Element {
                         },
                         (Some(shown), _) => rsx! {
                             div { class: "bg-white p-3 rounded-2xl [&_svg]:size-56", role: "img", aria_label: "Invitation QR code",
-                                dangerous_inner_html: tackly_phone::qr::qr_svg(&shown.link),
+                                dangerous_inner_html: tackly_phone::infrastructure::qr::qr_svg(&shown.link),
                             }
                             p { class: "text-sm text-stone-600", "Give the link to the agent: tackly-agent join <link>. Works once, for 5 minutes." }
                             button { class: PRIMARY, onclick: move |_| copy_link(state, &shown.link),
