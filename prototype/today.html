@@ -46,10 +46,16 @@
       <h1 id="title" class="flex-1 px-2 text-2xl font-semibold tracking-tight truncate">Today</h1>
       <span id="subtitle" class="mr-1 text-sm text-stone-600"></span>
       <!-- The family lives behind my picture, top right. -->
+      <button id="editBtn" class="hidden size-12 place-items-center rounded-full text-stone-700 hover:bg-stone-200/60" aria-label="Edit problem"><span class="material-symbols-rounded" aria-hidden="true">edit</span></button>
       <button id="meBtn" class="size-12 grid place-items-center rounded-full" aria-label="Family and settings"></button>
     </header>
 
     <main id="main" class="relative z-10 flex-1 min-h-0 overflow-y-auto px-3 pb-6"></main>
+
+    <!-- Problems: the one main action, right above the navigation. -->
+    <section id="problemBar" class="hidden relative z-10 shrink-0 px-3 pb-3 pt-2" aria-label="Report a problem">
+      <button class="" data-something-wrong>Something’s wrong</button>
+    </section>
 
     <!-- Plan mode: the only ways out, at the bottom like every main action. -->
     <section id="planBar" class="hidden relative z-10 shrink-0 px-3 pb-3 pt-2 flex-col gap-2" aria-label="Plan">
@@ -136,7 +142,10 @@ const me = members[0];
 const find = (id) => state.tasks.find((t) => t.id == id);
 const open = (t) => !t.done;
 const priorities = (day) => state.tasks.filter((t) => open(t) && t.on === me.id && t.day === day);
-const freeSlots = (day) => Math.max(0, SLOTS - priorities(day).length);
+// A slot holds a task or a whole problem (`focus` on the problem).
+const focusProblems = (day) => problemKinds.filter((k) => k.open && k.for === me.id && k.focus === day);
+const used = (day) => priorities(day).length + focusProblems(day).length;
+const freeSlots = (day) => Math.max(0, SLOTS - used(day));
 const unassigned = () => state.tasks.filter((t) => open(t) && !t.on && !t.day);
 const itemsAt = (store) => state.items.filter((i) => !i.got && i.at.includes(store));
 const heading = (text, extra = '') => `<h2 class="flex items-center gap-2 px-2 pt-5 pb-2 text-sm font-semibold text-stone-600">${text}${extra}</h2>`;
@@ -174,10 +183,13 @@ function priorityCard(t) {
 const freeSlot = (day) => `<li class="mb-2"><button class="w-full flex items-center gap-3 pl-4 pr-3 min-h-16 rounded-2xl border-2 border-dashed border-stone-400/70 bg-white/40 text-stone-600 hover:bg-white/70" data-pick="${day}">
   <span class="size-6 rounded-full border-2 border-dashed border-stone-400"></span><span class="flex-1 text-left">Free slot</span>${day === 'today' ? `<span class="text-sm">Pick something</span>${icon('chevron_right', 'text-stone-500')}` : ''}</button></li>`;
 
+/* A problem in focus: one card that opens it, to work on its steps. */
+const focusProblemCard = (k) => `<li class="${CARD} mb-2"><button class="w-full flex items-center gap-3 pl-3 pr-3 min-h-16 text-left" data-open-problem="${k.id}">
+  ${problemIcon(k)}<span class="flex-1 min-w-0"><span class="block truncate">${k.title}</span><span class="block text-sm text-stone-600">Problem · ${openFor(k).replace('Open', 'open')}</span></span>${icon('chevron_right', 'text-stone-500')}</button></li>`;
 function prioritySection(day) {
-  const list = priorities(day);
-  const slots = Array.from({ length: SLOTS - list.length }, () => freeSlot(day)).join('');
-  return `${heading(`Priorities <span class="font-normal text-stone-500">${list.length}/${SLOTS}</span>`)}<ul>${list.map(priorityCard).join('')}${slots}</ul>`;
+  const n = used(day);
+  const slots = Array.from({ length: SLOTS - n }, () => freeSlot(day)).join('');
+  return `${heading(`Priorities <span class="font-normal text-stone-500">${n}/${SLOTS}</span>`)}<ul>${priorities(day).map(priorityCard).join('')}${focusProblems(day).map(focusProblemCard).join('')}${slots}</ul>`;
 }
 
 const kindById = (id) => problemKinds.find((k) => k.id === id);
@@ -187,37 +199,39 @@ const problemIcon = (k) => `<span class="size-9 shrink-0 rounded-full grid place
 const problemOwner = (k) => `<button class="shrink-0 size-11 grid place-items-center" data-assign-problem="${k.id}" aria-label="Assign ${k.title}">${avatar(member(k.for))}</button>`;
 const problemLine = (k) => !k.open ? `${k.fixes.length} ${k.fixes.length === 1 ? 'solution' : 'solutions'}`
   : k.for === me.id ? (k.by === me.id ? 'You noticed it' : `Raised by ${member(k.by).name}`) : `Raised for ${member(k.for).name}`;
-/* Problems: only the open ones, each its own card. Mine first, and the first one is lifted out with its next
-   step, so it feels like one thing to start with, not a pile. Ones others have come last, quieter. */
-const nextFix = (k) => k.tasks.map(find).find(open);
-function problemRow(k, quiet = false) {
-  return `<li class="${CARD} mb-2 flex items-center gap-2 pl-3 pr-2 min-h-16 ${quiet ? '!bg-white/60 !shadow-none' : ''}">
-    <button class="flex-1 min-w-0 flex items-center gap-3 py-2 text-left" data-edit-problem="${k.id}">
-      ${problemIcon(k)}<span class="min-w-0"><span class="block truncate">${k.title}</span><span class="block text-sm text-stone-600 truncate">${problemLine(k)}</span></span>
-    </button>${problemOwner(k)}<button class="${SECONDARY} !h-9 !px-3 text-sm" data-resolve="${k.id}">Resolve</button></li>`;
+/* Problems: a plain list of the open ones, like tasks. Step into one to work on its tasks. */
+/* How long it has been open, said plainly. */
+function openFor(k) {
+  const h = Math.floor((Date.now() - k.since) / 3_600_000);
+  if (h < 1) return 'Open since just now';
+  if (h < 24) return `Open for ${h} h`;
+  const days = Math.floor(h / 24);
+  return days === 1 ? 'Open since yesterday' : `Open for ${days} days`;
 }
 function renderProblems() {
-  const mine = myProblems(), others = problemKinds.filter((k) => k.open && k.for !== me.id);
-  const [first, ...rest] = mine;
-  const step = first && nextFix(first);
-  const lead = first ? `<section class="${CARD} shadow-md p-5 mb-2 animate-rise" aria-label="Start here">
-      <span class="text-sm font-semibold text-accent-800">Start with this one</span>
-      <button class="w-full flex items-center gap-3 pt-2 text-left" data-edit-problem="${first.id}">
-        <span class="size-12 shrink-0 rounded-full grid place-items-center bg-amber-100 text-amber-900">${icon(first.icon, '!text-[26px]')}</span>
-        <span class="flex-1 min-w-0"><span class="block text-xl font-semibold truncate">${first.title}</span><span class="block text-sm text-stone-600 truncate">${problemLine(first)}</span></span>
-        ${icon('chevron_right', 'text-stone-500')}
-      </button>
-      ${step ? `<div class="mt-4 flex items-center gap-3 rounded-xl bg-stone-100 pl-4 pr-2 min-h-14">
-        <span class="flex-1 min-w-0"><span class="block text-xs text-stone-600">Next step</span><span class="block truncate">${step.title}</span></span>
-        <button class="${PRIMARY} !h-10 !px-3" data-start-fix="${step.id}">${icon(step.trip ? 'shopping_cart' : 'play_arrow', '!text-[18px]')}Start</button></div>` : ''}
-      <div class="mt-3 flex justify-end"><button class="${SECONDARY} !h-9 !px-3 text-sm" data-resolve="${first.id}">Resolve</button></div>
-    </section>` : '';
-  const more = rest.length ? `${heading(`Later, one at a time <span class="font-normal text-stone-500">${rest.length}</span>`)}<ul>${rest.map((k) => problemRow(k)).join('')}</ul>` : '';
-  const theirs = others.length ? `${heading('Others have')}<ul>${others.map((k) => problemRow(k, true)).join('')}</ul>` : '';
-  const calm = !mine.length ? `<div class="flex flex-col items-center text-center gap-2 py-12 px-8">
+  const opened = problemKinds.filter((k) => k.open);
+  const rows = opened.map((k) => {
+    return `<li class="${CARD} mb-2"><button class="w-full flex items-center gap-3 pl-3 pr-3 min-h-16 text-left" data-open-problem="${k.id}">
+      ${problemIcon(k)}<span class="flex-1 min-w-0"><span class="block truncate">${k.title}</span><span class="block text-sm text-stone-600">${openFor(k)}</span></span>
+      ${avatar(member(k.for))}${icon('chevron_right', 'text-stone-500')}</button></li>`;
+  }).join('');
+  const list = opened.length ? `<ul>${rows}</ul>`
+    : `<div class="flex flex-col items-center text-center gap-2 py-16 px-8">
         <span class="size-16 mb-2 rounded-full grid place-items-center bg-accent-100 text-accent-800">${icon('sentiment_satisfied', '!text-[32px]')}</span>
-        <span class="text-lg font-semibold">Nothing for you</span><span class="text-stone-600">All calm at home.</span></div>` : '';
-  return `${lead}${calm}${more}${theirs}<div class="flex justify-center pt-5"><button class="${first ? SECONDARY : PRIMARY}" data-something-wrong>${icon('report', '!text-[18px]')}Something’s wrong</button></div>`;
+        <span class="text-lg font-semibold">No problems</span><span class="text-stone-600">All calm at home.</span></div>`;
+  return list;
+}
+/* One problem: its tasks, to work on right here. The pencil in the top bar edits it; Resolve closes it. */
+function renderProblem() {
+  const k = kindById(state.problem);
+  const tasks = k.tasks.map(find).filter(open);
+  const list = tasks.length ? `<ul>${tasks.map(priorityCard).join('')}</ul>`
+    : `<div class="flex flex-col items-center text-center gap-2 py-12 px-8">
+        <span class="size-16 mb-2 rounded-full grid place-items-center bg-accent-100 text-accent-800">${icon('task_alt', '!text-[32px]')}</span>
+        <span class="text-lg font-semibold">All steps done</span><span class="text-stone-600">Fixed? Then resolve it.</span></div>`;
+  const resolve = k.open ? `<div class="pt-4"><button class="${tasks.length ? SECONDARY : PRIMARY} w-full !h-12" data-resolve="${k.id}">${icon('done_all', '!text-[20px]')}Resolve</button></div>`
+    : `<div class="pt-4 grid grid-cols-2 gap-2"><button class="${SECONDARY} !h-12" data-raise="${k.id}">Raise</button><button class="${PRIMARY} !h-12" data-notice="${k.id}">Notice</button></div>`;
+  return `${k.open ? `<p class="px-2 pb-3 text-sm text-stone-600">${openFor(k)}</p>${list}` : '<p class="py-12 text-center text-stone-600">Resolved. Notice it again if it’s back.</p>'}${resolve}`;
 }
 /* Something's wrong: type it; problems the family had before are suggested, to bring back with Notice or Raise. */
 function wrongSheet() {
@@ -243,21 +257,15 @@ function fillWrongList(typed) {
 function renderEditProblem() {
   const k = kindById(state.edit);
   const status = k.open
-    ? `<div class="${CARD} flex items-center gap-3 pl-4 pr-2 min-h-16"><span class="flex-1"><span class="block font-semibold">Open</span><span class="block text-sm text-stone-600">${problemLine(k)}</span></span>${problemOwner(k)}<button class="${SECONDARY} !h-9 !px-3 text-sm" data-resolve="${k.id}">Resolve</button></div>`
-    : `<div class="${CARD} flex items-center gap-2 pl-4 pr-2 min-h-16"><span class="flex-1 font-semibold">All good</span><button class="${SECONDARY} !h-9 !px-3 text-sm" data-raise="${k.id}">Raise</button><button class="${PRIMARY} !h-9 !px-3 text-sm" data-notice="${k.id}">Notice</button></div>`;
+    ? `${heading('Who has it')}<div class="${CARD} flex items-center gap-3 pl-4 pr-2 min-h-16"><span class="flex-1">${member(k.for).me ? 'Me' : member(k.for).name}</span>${problemOwner(k)}</div>` : '';
   const solutions = k.fixes.map((f, i) => {
-    const t = k.open && k.tasks[i] != null ? find(k.tasks[i]) : null;
-    const tick = t ? `<label class="size-11 shrink-0 grid place-items-center cursor-pointer">
-        <input type="checkbox" class="peer sr-only" data-check="${t.id}" ${t.done ? 'checked' : ''} aria-label="Done: ${t.title}">
-        <span class="size-5 rounded-full border-2 border-stone-400 grid place-items-center peer-checked:bg-stone-400 peer-checked:border-stone-400">${icon('check', '!text-[14px] text-white')}</span></label>`
-      : `<span class="size-11 shrink-0 grid place-items-center text-stone-400">${icon(f.trip ? 'shopping_cart' : 'task_alt', '!text-[20px]')}</span>`;
-    return `<li class="flex items-center gap-1 pl-1 pr-2 min-h-14 ${t?.done ? 'text-stone-500 line-through' : ''}">${tick}
+    const tick = `<span class="size-11 shrink-0 grid place-items-center text-stone-400">${icon(f.trip ? 'shopping_cart' : 'task_alt', '!text-[20px]')}</span>`;
+    return `<li class="flex items-center gap-1 pl-1 pr-2 min-h-14">${tick}
       <span class="flex-1 min-w-0"><span class="block truncate">${f.title}</span>${f.trip ? `<span class="block text-xs text-stone-600 no-underline">Shops: ${f.trip.map((l) => ({ groceries: 'Groceries', drugstore: 'Drugstore' })[l]).join(', ')}</span>` : ''}</span>
-      ${t?.trip && !t.done ? `<button class="${SECONDARY} !h-8 !px-2.5 text-sm" data-trip="${t.id}">${icon('shopping_cart', '!text-[16px]')}Start</button>` : ''}
       <button class="size-10 grid place-items-center rounded-full text-stone-500 hover:bg-stone-100" data-remove-fix="${i}" aria-label="Remove ${f.title}">${icon('close', '!text-[20px]')}</button></li>`;
   }).join('');
   return `${heading('Name')}<input id="problemName" class="w-full h-12 px-4 rounded-xl bg-[#fffdfb] ring-1 ring-stone-300 shadow-sm outline-none focus:ring-2 focus:ring-accent-700" value="${k.title}">
-    ${heading('Status')}${status}
+    ${status}
     ${heading('Solutions')}<ul class="${CARD} overflow-hidden divide-y divide-stone-100">${solutions}
       <li class="flex items-center gap-1 pl-1 pr-3 min-h-14"><span class="size-11 grid place-items-center text-accent-700">${icon('add', '!text-[20px]')}</span>
         <input id="newFix" placeholder="Add a solution" class="flex-1 min-w-0 h-12 bg-transparent outline-none placeholder:text-stone-500"></li></ul>
@@ -290,40 +298,74 @@ function donePanel() {
   </section>`;
 }
 
-/* Tomorrow (plan mode): the same screen, for tomorrow, filled one card at a time. */
-function planDeck() {
-  const seen = state.planSeen;
-  const leftovers = priorities('today').map((t) => ({ t, why: 'Left over from today' }));
-  const overdue = state.tasks.filter((t) => open(t) && t.overdue && !t.day && (t.on === me.id || !t.on)).map((t) => ({ t, why: 'Overdue' }));
-  const fixes = myProblems().flatMap((k) => k.tasks.map(find).filter((t) => open(t) && t.day !== 'tomorrow').map((t) => ({ t, why: `Fixes: ${k.title}` })));
-  const free = unassigned().filter((t) => !t.overdue).map((t) => ({ t, why: 'Nobody has it' }));
-  return [...leftovers, ...overdue, ...fixes, ...free].filter(({ t }) => !seen.has(t.id) && t.day !== 'tomorrow');
+/* Tomorrow (plan mode): tomorrow's focus on top (the free slots), then my open problems, then what is left over.
+   Anything below moves up into a free slot: tap its arrow, or drag it by the handle. Up there, it moves back the same way. */
+const leftovers = () => state.tasks.filter((t) => open(t) && t.day !== 'tomorrow'
+  && ((t.day === 'today' && t.on === me.id) || (t.overdue && !t.day && (t.on === me.id || !t.on))));
+function planRow(ref, lead, title, sub, inFocus, full) {
+  const move = inFocus
+    ? `<button class="size-11 shrink-0 grid place-items-center rounded-full text-stone-600 hover:bg-stone-100" data-unfocus="${ref}" aria-label="Move ${title} back">${icon('arrow_downward')}</button>`
+    : `<button class="size-11 shrink-0 grid place-items-center rounded-full ${full ? 'text-stone-300' : 'text-accent-700 hover:bg-accent-50'}" data-focus="${ref}" aria-label="Move ${title} into focus" ${full ? 'aria-disabled="true"' : ''}>${icon('arrow_upward')}</button>`;
+  return `<li class="${CARD} mb-2 flex items-center gap-2 pl-1 pr-1 min-h-16" data-ref="${ref}">
+    <span class="size-11 shrink-0 grid place-items-center text-stone-400 touch-none cursor-grab active:cursor-grabbing" data-drag aria-hidden="true">${icon('drag_indicator')}</span>
+    ${lead}<span class="flex-1 min-w-0"><span class="block truncate">${title}</span>${sub ? `<span class="block text-sm text-stone-600 truncate">${sub}</span>` : ''}</span>${move}</li>`;
 }
+const taskLead = () => `<span class="size-9 shrink-0 rounded-full grid place-items-center bg-stone-100 text-stone-600">${icon('task_alt', '!text-[20px]')}</span>`;
 function renderTomorrow() {
-  const deck = planDeck();
   const full = freeSlots('tomorrow') === 0;
-  let top;
-  if (full || !deck.length) {
-    top = `<div class="${CARD} p-5 flex flex-col items-center text-center gap-2 animate-rise">
-      <span class="size-14 rounded-full grid place-items-center bg-accent-100 text-accent-800">${icon('bedtime', `!text-[28px] ${FILL}`)}</span>
-      <span class="text-lg font-semibold">Tomorrow is planned</span>
-      <span class="text-stone-600">${full ? `${SLOTS} priorities. That’s plenty.` : 'Nothing else to plan.'} Save it and sleep well.</span></div>`;
-  } else {
-    const { t, why } = deck[0];
-    top = `<div class="relative h-44">
-      ${deck[1] ? `<div class="absolute inset-x-3 top-2 h-40 ${CARD} opacity-70 scale-[.97]"></div>` : ''}
-      <div class="absolute inset-0 ${CARD} shadow-md p-5 flex flex-col gap-1 animate-rise" data-deck="${t.id}">
-        <span class="text-sm font-semibold ${why === 'Overdue' ? 'text-rose-700' : 'text-stone-600'}">${why}</span>
-        <span class="text-xl font-semibold leading-snug">${t.title}</span>
-        <div class="mt-auto grid grid-cols-2 gap-2">
-          <button class="${SECONDARY} !h-12" data-later="${t.id}">${icon('schedule', '!text-[20px]')}Later</button>
-          <button class="${PRIMARY} !h-12" data-tomorrow="${t.id}">${icon('wb_twilight', '!text-[20px]')}Tomorrow</button>
-        </div>
-      </div></div>
-      <p class="pt-2 text-center text-sm text-stone-600">${deck.length - 1 ? `${deck.length - 1} more` : 'Last one'}</p>`;
-  }
-  return `${top}${prioritySection('tomorrow')}`;
+  const inFocus = [
+    ...priorities('tomorrow').map((t) => planRow(`t:${t.id}`, taskLead(), t.title, '', true)),
+    ...focusProblems('tomorrow').map((k) => planRow(`p:${k.id}`, problemIcon(k), k.title, 'Problem', true)),
+  ];
+  const free = Array.from({ length: SLOTS - inFocus.length }, () => `<li class="mb-2 flex items-center gap-3 pl-4 pr-3 min-h-16 rounded-2xl border-2 border-dashed border-stone-400/70 bg-white/40 text-stone-600">
+    <span class="size-6 rounded-full border-2 border-dashed border-stone-400"></span><span class="flex-1">Free slot</span><span class="text-sm">Tap ${icon('arrow_upward', '!text-[16px] align-[-3px]')} or drag here</span></li>`).join('');
+  const problems = myProblems().filter((k) => k.focus !== 'tomorrow');
+  const rest = leftovers();
+  const pool = `${problems.length ? `${heading('Problems')}<ul>${problems.map((k) => planRow(`p:${k.id}`, problemIcon(k), k.title, openFor(k), false, full)).join('')}</ul>` : ''}
+    ${rest.length ? `${heading('Left over')}<ul>${rest.map((t) => planRow(`t:${t.id}`, taskLead(), t.title, t.day === 'today' ? 'From today' : 'Overdue', false, full)).join('')}</ul>` : ''}
+    ${!problems.length && !rest.length ? '<p class="py-8 text-center text-stone-600">Nothing left over. Fresh start tomorrow.</p>' : ''}`;
+  return `${heading(`Tomorrow’s focus <span class="font-normal text-stone-500">${inFocus.length}/${SLOTS}</span>`)}
+    <ul id="focusZone" class="rounded-2xl transition-shadow">${inFocus.join('')}${free}</ul>
+    <div id="planPool" class="rounded-2xl transition-shadow">${pool}</div>`;
 }
+function moveIntoFocus(ref) {
+  if (!freeSlots('tomorrow')) { toast('Tomorrow’s focus is full. Move one back first.'); return; }
+  const [kind, id] = ref.split(':');
+  if (kind === 't') { const t = find(id); t.prevDay = t.day; t.day = 'tomorrow'; t.on = me.id; }
+  else kindById(id).focus = 'tomorrow';
+}
+function moveBack(ref) {
+  const [kind, id] = ref.split(':');
+  if (kind === 't') { const t = find(id); t.day = t.prevDay ?? null; }
+  else kindById(id).focus = null;
+}
+/* Drag by the handle (mouse, pen or finger): drop on the focus to move it up, below it to move it back. */
+let drag = null;
+document.addEventListener('pointerdown', (e) => {
+  const handle = e.target.closest('[data-drag]'); if (!handle) return;
+  const row = handle.closest('[data-ref]'), box = row.getBoundingClientRect();
+  e.preventDefault();
+  const ghost = row.cloneNode(true);
+  ghost.className += ' fixed z-50 pointer-events-none shadow-xl rotate-1 opacity-95';
+  Object.assign(ghost.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, margin: 0 });
+  document.body.append(ghost);
+  row.classList.add('opacity-30');
+  drag = { ref: row.dataset.ref, row, ghost, dy: e.clientY - box.top, fromFocus: !!row.closest('#focusZone') };
+});
+const over = (el, e) => { const r = el?.getBoundingClientRect(); return r && e.clientY >= r.top && e.clientY <= r.bottom; };
+document.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  drag.ghost.style.top = `${e.clientY - drag.dy}px`;
+  const target = drag.fromFocus ? $('#planPool') : $('#focusZone');
+  target?.classList.toggle('ring-2', over(target, e)); target?.classList.toggle('ring-accent-700', over(target, e));
+});
+document.addEventListener('pointerup', (e) => {
+  if (!drag) return;
+  const { ref, ghost, fromFocus } = drag; drag = null; ghost.remove();
+  if (!fromFocus && over($('#focusZone'), e)) moveIntoFocus(ref);
+  else if (fromFocus && over($('#planPool'), e)) moveBack(ref);
+  render();
+});
 
 /* Pick more: unassigned tasks; each pick fills a free slot. Full: straight back to Today. */
 function renderPick() {
@@ -441,21 +483,25 @@ function renderDock() {
   }).join('');
 }
 function render() {
-  const view = state.view === 'tomorrow' ? 'tomorrow' : state.tab === 'today' ? state.view : state.tab === 'problems' && state.edit ? 'edit' : ['problems', 'family'].includes(state.tab) ? state.tab : 'other';
-  $('#title').textContent = { today: 'Today', tomorrow: 'Tomorrow', pick: 'Pick more', problems: 'Problems', edit: 'Edit problem', family: 'Family', other: state.tab[0].toUpperCase() + state.tab.slice(1) }[view];
+  const view = state.view === 'tomorrow' ? 'tomorrow' : state.tab === 'today' ? state.view : state.tab === 'problems' && state.edit ? 'edit' : state.tab === 'problems' && state.problem ? 'problem' : ['problems', 'family'].includes(state.tab) ? state.tab : 'other';
+  $('#title').textContent = { today: 'Today', tomorrow: 'Tomorrow', pick: 'Pick more', problems: 'Problems', problem: state.problem && kindById(state.problem).title, edit: 'Edit problem', family: 'Family', other: state.tab[0].toUpperCase() + state.tab.slice(1) }[view];
   $('#meBtn').innerHTML = avatar(me, 'size-10');
-  $('#meBtn').classList.toggle('hidden', view === 'tomorrow');
   $('#subtitle').textContent = view === 'tomorrow' ? dateLabel(1) : '';
-  const back = ['pick', 'family', 'edit'].includes(view);
+  const back = ['pick', 'family', 'edit', 'problem'].includes(view);
+  $('#editBtn').classList.toggle('hidden', view !== 'problem');
+  $('#editBtn').classList.toggle('grid', view === 'problem');
+  $('#meBtn').classList.toggle('hidden', view === 'tomorrow' || view === 'problem' || view === 'edit');
   $('#planBar').classList.toggle('hidden', view !== 'tomorrow');
   $('#planBar').classList.toggle('flex', view === 'tomorrow');
   $('#backBtn').classList.toggle('hidden', !back);
   $('#backBtn').classList.toggle('grid', back);
-  $('#main').innerHTML = { today: renderToday, tomorrow: renderTomorrow, pick: renderPick, problems: renderProblems, edit: renderEditProblem, family: renderFamily, other: renderOther }[view]();
+  $('#main').innerHTML = { today: renderToday, tomorrow: renderTomorrow, pick: renderPick, problems: renderProblems, problem: renderProblem, edit: renderEditProblem, family: renderFamily, other: renderOther }[view]();
   $('#dock').classList.toggle('hidden', view === 'tomorrow');
   $('#scene').classList.toggle('bottom-20', view !== 'tomorrow');
   $('#scene').classList.toggle('bottom-0', view === 'tomorrow');
   renderDock();
+  $('#problemBar').classList.toggle('hidden', view !== 'problems');
+  $('#problemBar').querySelector('button').className = `${PRIMARY} w-full !h-12 text-base`;
   const [later, save] = $('#planBar').querySelectorAll('button');
   save.className = `${PRIMARY} w-full !h-12`; later.className = `${SECONDARY} w-full !h-12`;
   const full = $('#full');
@@ -470,17 +516,19 @@ function finish(t) {
   const wasPriority = t.day === 'today' && t.on === me.id;
   t.doneToday = true;
   toast(`${t.title} done`, 'Undo', () => { t.done = false; t.doneToday = false; render(); });
-  // The last open priority of the day: celebrate.
-  if (wasPriority && priorities('today').length === 0) {
-    state.kitty = Math.floor(Math.random() * 4);
-    setTimeout(() => { state.celebrate = true; render(); }, 450);
-  }
+  if (wasPriority) celebrateIfAllDone();
+}
+/* The last open priority of the day (a task or a problem in focus): celebrate. */
+function celebrateIfAllDone() {
+  if (used('today') > 0) return;
+  state.kitty = Math.floor(Math.random() * 4);
+  setTimeout(() => { state.celebrate = true; render(); }, 450);
 }
 /* Noticing or raising opens the problem: each solution becomes a task for whoever has it. */
 function notice(kind, forWhom, by = me.id) {
   const k = kindById(kind);
   k.tasks = k.fixes.map((f) => { const t = { id: nextId++, title: f.title, on: forWhom, trip: f.trip }; state.tasks.push(t); return t.id; });
-  Object.assign(k, { open: true, for: forWhom, by });
+  Object.assign(k, { open: true, for: forWhom, by, since: Date.now() });
 }
 function assignProblem(k, to) {
   k.for = to;
@@ -502,16 +550,18 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('click', (e) => {
   const el = e.target.closest('button, input, a'); if (!el) return;
   const d = el.dataset;
-  if (d.tab) { state.tab = d.tab; state.view = 'today'; state.edit = null; }
-  else if (el.id === 'backBtn') { if (state.tab === 'family') state.tab = state.prevTab ?? 'today'; else if (state.edit) state.edit = null; else state.view = 'today'; }
+  if (d.tab) { state.tab = d.tab; state.view = 'today'; state.edit = null; state.problem = null; }
+  else if (el.id === 'backBtn') { if (state.tab === 'family') state.tab = state.prevTab ?? 'today'; else if (state.edit) state.edit = null; else if (state.problem) state.problem = null; else state.view = 'today'; }
+  else if (el.id === 'editBtn') { state.edit = state.problem; }
   else if (el.closest('#meBtn')) { if (state.tab !== 'family') state.prevTab = state.tab; state.tab = 'family'; }
   else if (d.check) { const t = find(d.check); if (t.done) { t.done = false; } else { setTimeout(() => { finish(t); render(); }, 250); return; } }
   else if ('planLater' in d) { state.view = 'today'; toast('I’ll ask again in 30 minutes'); }
-  else if (d.tomorrow) { const t = find(d.tomorrow); t.prevDay = t.day; t.day = 'tomorrow'; t.on = me.id; }
-  else if (d.later) { state.planSeen.add(+d.later); }
+  else if (d.focus) { moveIntoFocus(d.focus); }
+  else if (d.unfocus) { moveBack(d.unfocus); }
   else if ('planDone' in d) {
     // Tomorrow becomes today (in the prototype, at once).
     state.tasks.forEach((t) => { if (t.day === 'today' && open(t) && t.on === me.id) t.day = null; if (t.day === 'tomorrow') t.day = 'today'; });
+    problemKinds.forEach((k) => { k.focus = k.focus === 'tomorrow' ? 'today' : null; });
     state.view = 'today'; state.tasks.forEach((t) => (t.doneToday = false)); toast('Planned. See you tomorrow.');
   }
   else if (d.pick) { state.celebrate = false; state.view = 'pick'; }
@@ -520,18 +570,12 @@ document.addEventListener('click', (e) => {
     if (freeSlots('today') === 0) { state.view = 'today'; toast('Today is full again'); }
   }
   else if ('rest' in d) { state.celebrate = false; }
-  else if (d.editProblem) { state.edit = d.editProblem; }
+  else if (d.openProblem) { state.tab = 'problems'; state.problem = d.openProblem; state.edit = null; }
   else if ('somethingWrong' in d) { wrongSheet(); return; }
-  else if (d.startFix) {
-    const t = find(d.startFix);
-    if (t.trip) state.trip = { task: t.id, step: 'where', chosen: [] };
-    else if (freeSlots('today')) { t.on = me.id; t.day = 'today'; state.tab = 'today'; toast(`${t.title}: on your Today`); }
-    else toast('Today is full. It’s waiting for tomorrow’s plan.');
-  }
   else if ('createProblem' in d) {
     // A new problem: name it, add its solutions, then Notice or Raise it.
     const k = { id: `k${nextId++}`, title: $('#wrongInput').value.trim(), icon: 'report', fixes: [] };
-    problemKinds.push(k); state.tab = 'problems'; state.edit = k.id; $('#sheet').close();
+    problemKinds.push(k); state.tab = 'problems'; state.problem = k.id; state.edit = k.id; $('#sheet').close();
     render(); $('#newFix').focus(); return;
   }
   else if (d.removeFix) {
@@ -551,7 +595,7 @@ document.addEventListener('click', (e) => {
     else { assignProblem(k, d.for); toast(d.for === me.id ? `${k.title}: yours now` : `${k.title}: ${member(d.for).name} has it now`); }
     $('#sheet').close();
   }
-  else if (d.resolve) { const k = kindById(d.resolve); k.open = false; toast(`Resolved: ${k.title}`, 'Undo', () => { k.open = true; render(); }); }
+  else if (d.resolve) { const k = kindById(d.resolve); const wasFocus = k.focus === 'today'; k.open = false; if (wasFocus) celebrateIfAllDone(); toast(`Resolved: ${k.title}`, 'Undo', () => { k.open = true; render(); }); }
   else if (d.trip) { state.trip = { task: +d.trip, step: 'where', chosen: [] }; }
   else if (d.store) { const c = state.trip.chosen; el.checked ? c.push(d.store) : c.splice(c.indexOf(d.store), 1); }
   else if ('tripGo' in d) { state.trip.step = 'shop'; }
@@ -577,18 +621,19 @@ $('#scene').innerHTML = `<svg viewBox="0 0 430 320" preserveAspectRatio="xMidYMa
   + drift('near', W('M-40 275 C60 258 160 285 240 272 S380 260 470 278 V320 H-40Z', '#0ea5e9', .6))}</svg>`;
 $('#app').className += ' bg-linear-to-b from-sky-200 to-cyan-100 [--color-accent-50:#fff1f2] [--color-accent-100:#ffe4e6] [--color-accent-200:#fecdd3] [--color-accent-700:#be123c] [--color-accent-800:#9f1239] [--color-accent-900:#881337]';
 
-// ?tab=problems|family, ?today=1 (no planning), ?done=2 (two done today), ?plan=1, ?celebrate=0..3, ?pick=1, ?problem=1 (one noticed, one raised by Mona), ?trip=1, ?trip=shop
+// ?tab=problems|family, ?open=laundry (one problem), ?today=1 (no planning), ?done=2 (two done today), ?plan=1, ?celebrate=0..3, ?pick=1, ?problem=1 (one noticed, one raised by Mona), ?trip=1, ?trip=shop
 const q = new URLSearchParams(location.search);
 // With no options (e.g. opened on a phone): it is 20:00, so planning has opened by itself; three problems are open.
-const demo = ![...q.keys()].filter((k) => k !== 'tab').length;
+const demo = ![...q.keys()].filter((k) => k !== 'tab' && k !== 'open').length;
 if (q.get('tab')) state.tab = q.get('tab');
+if (q.get('open')) { state.tab = 'problems'; state.problem = q.get('open'); }
 if (demo || q.has('problem') || q.has('trip')) {
-  notice('food', me.id);
-  notice('laundry', me.id, 'mo');
-  notice('bins', 'ma');
+  const hoursAgo = (h) => Date.now() - h * 3_600_000;
+  notice('food', me.id); kindById('food').since = hoursAgo(50);
+  notice('laundry', me.id, 'mo'); kindById('laundry').since = hoursAgo(5);
+  notice('bins', 'ma'); kindById('bins').since = hoursAgo(26);
 }
-state.planSeen = new Set();
-if ((demo && !q.get('tab')) || q.has('plan')) state.view = 'tomorrow';
+if ((demo && !q.get('tab') && !q.get('open')) || q.has('plan')) state.view = 'tomorrow';
 if (q.has('celebrate')) { state.tasks.filter((t) => t.day === 'today' && t.on === me.id).forEach((t) => (t.done = t.doneToday = true)); state.celebrate = true; state.kitty = +q.get('celebrate') || 0; }
 if (q.has('done')) state.tasks.filter((t) => t.day === 'today' && t.on === me.id).slice(0, +q.get('done') || 1).forEach((t) => (t.done = t.doneToday = true));
 if (q.has('pick')) { state.tasks.filter((t) => t.day === 'today' && t.on === me.id).slice(0, 2).forEach((t) => (t.done = t.doneToday = true)); state.view = 'pick'; }
