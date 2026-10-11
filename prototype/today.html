@@ -349,7 +349,9 @@ function renderTomorrow() {
   if (state.planProblem) {
     const k = kindById(state.planProblem);
     const steps = k.tasks.map(find).filter((t) => open(t) && t.day !== 'tomorrow' && !state.dismissed.has(`t:${t.id}`));
-    return `${focus}<div id="planPool" class="rounded-2xl transition-shadow">${heading(k.title)}
+    // A way back right where the steps are: the header's arrow may be scrolled away.
+    const crumb = `<button class="mt-4 mb-1 flex items-center gap-1 h-11 pl-1 pr-3 rounded-full text-stone-700 hover:bg-white/60" data-plan-back>${icon('arrow_back', '!text-[20px]')}<span class="text-sm font-semibold">Problems</span><span class="text-sm text-stone-500">/ ${k.title}</span></button>`;
+    return `${focus}<div id="planPool" class="rounded-2xl transition-shadow">${crumb}
       ${steps.length ? `<ul>${steps.map((t) => planRow(`t:${t.id}`, taskLead(), t.title, '', false, full)).join('')}</ul>` : '<p class="py-8 text-center text-stone-600">No steps left here.</p>'}</div>`;
   }
   // A problem is a row to step into; it never takes a slot itself.
@@ -625,7 +627,8 @@ document.addEventListener('click', (e) => {
   else if (el.closest('#meBtn')) { if (state.tab !== 'family') state.prevTab = state.tab; state.tab = 'family'; }
   else if (d.check) { const t = find(d.check); if (t.done) { t.done = false; } else { setTimeout(() => { finish(t); render(); }, 250); return; } }
   else if ('planLater' in d) { state.view = 'today'; state.planProblem = null; toast('I’ll ask again in 30 minutes'); }
-  else if (d.planProblem) { state.planProblem = d.planProblem; }
+  else if (d.planProblem) { state.planProblem = d.planProblem; render(); $('#main').scrollTo({ top: 0 }); return; }
+  else if ('planBack' in d) { state.planProblem = null; }
   else if (d.focus) { moveIntoFocus(d.focus); }
   else if (d.unfocus) { moveBack(d.unfocus); }
   else if ('planDone' in d) {
