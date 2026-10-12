@@ -1,28 +1,30 @@
 //! The recovery code: what the head keeps safe (in a password manager, say) to
-//! bring the family back on a new phone. 160 random bits written as 32
-//! characters, and three more that catch a typo, in seven groups of five:
-//! `K7QMT-4ZP9X-WDHC2-RJ8V5-BN3GA-6EYFS-T4K2M`. The characters are Crockford's
-//! base32 (no I, L, O or U), so a read-aloud or hand-copied code survives
-//! confusions, case and dashes. Anyone who has the code can open the family's
-//! backup, so it never shows up in logs (`Debug` hides it).
+//! bring the family back on a new phone. It is an age identity (the `age` file
+//! encryption format, by the `age` crate): a 256-bit X25519 key from the
+//! system's secure random generator, written in Bech32 with a checksum that
+//! catches typos. The phone seals its backup to the code's public key; only the
+//! code opens it. A backup is a standard age file, so any age tool opens it with
+//! the code written in full (`AGE-SECRET-KEY-1…`). Nothing here is homemade
+//! cryptography: generating, writing, reading, sealing and opening are all the
+//! `age` crate's.
+//!
+//! The code is shown without the constant `AGE-SECRET-KEY-1` in front, in
+//! groups of six, like `QQGZ4J-7XH4NC-…`. It never shows up in logs (`Debug`
+//! hides it).
 
-use std::{fmt, str::FromStr};
+use std::{fmt, str::FromStr, sync::Arc};
 
-use sha2::{Digest, Sha256};
+use age::{secrecy::ExposeSecret, x25519};
+use tackly_wire::Digest;
 
-use crate::infrastructure::crypto::random_bytes;
+/// What age writes in front of every secret key.
+const PREFIX: &str = "AGE-SECRET-KEY-1";
+/// Characters after it: 52 for the 256-bit key, 6 for the checksum.
+const BODY: usize = 58;
+const GROUP: usize = 6;
 
-/// 160 bits: more than anyone can try.
-const SECRET_BYTES: usize = 20;
-/// 32 characters carry the secret.
-const SECRET_CHARS: usize = 32;
-/// Three more are a checksum: 15 bits, so a typo is caught 32,767 times in 32,768.
-const CHECK_CHARS: usize = 3;
-const GROUP: usize = 5;
-const ALPHABET: base32::Alphabet = base32::Alphabet::Crockford;
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct RecoveryCode([u8; SECRET_BYTES]);
+#[derive(Clone)]
+pub struct RecoveryCode(Arc<x25519::Identity>);
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum RecoveryCodeError {
@@ -34,23 +36,52 @@ pub enum RecoveryCodeError {
 
 impl RecoveryCode {
     pub fn generate() -> Self {
-        Self(random_bytes::<SECRET_BYTES>())
+        Self(Arc::new(x25519::Identity::generate()))
     }
 
-    /// What the key and the backup's ID are made from.
-    pub(super) fn secret(&self) -> &[u8; SECRET_BYTES] {
-        &self.0
+    /// The public half: what a backup is sealed to. The phone keeps it after
+    /// it forgot the code itself.
+    pub fn recipient(&self) -> x25519::Recipient {
+        self.0.to_public()
     }
 
-    /// The characters that catch a typo, from the secret itself.
-    fn check(secret: &[u8]) -> String {
-        let hash = Sha256::digest([b"tackly-recovery-check".as_slice(), secret].concat());
-        // Two bytes make four characters; the first three are the first 15 bits.
-        base32::encode(ALPHABET, &hash[..2])[..CHECK_CHARS].to_owned()
+    /// Opens a backup sealed to this code's recipient.
+    pub fn open(&self, backup: &[u8]) -> Result<Vec<u8>, age::DecryptError> {
+        age::decrypt(&*self.0, backup)
+    }
+
+    /// Where the relay keeps this code's backup.
+    pub fn backup_id(&self) -> Digest {
+        backup_id(&self.recipient())
+    }
+
+    /// The code as age writes it, with its prefix.
+    fn written(&self) -> String {
+        self.0.to_string().expose_secret().to_owned()
     }
 }
 
-/// Typed, pasted or read aloud: any case, with or without dashes and spaces.
+/// Seals a backup so that only the code that goes with `recipient` opens it.
+pub fn seal(recipient: &x25519::Recipient, plaintext: &[u8]) -> Result<Vec<u8>, age::EncryptError> {
+    age::encrypt(recipient, plaintext)
+}
+
+/// Where the relay keeps the backup sealed to `recipient`: a hash of the
+/// public key, which tells the relay nothing it can use.
+pub fn backup_id(recipient: &x25519::Recipient) -> Digest {
+    Digest::sha256(format!("tackly-recovery-backup\0{recipient}").as_bytes())
+}
+
+impl PartialEq for RecoveryCode {
+    fn eq(&self, other: &Self) -> bool {
+        self.recipient() == other.recipient()
+    }
+}
+
+impl Eq for RecoveryCode {}
+
+/// Typed, pasted or read aloud: any case, with or without dashes and spaces,
+/// with or without the `AGE-SECRET-KEY-1` in front.
 impl FromStr for RecoveryCode {
     type Err = RecoveryCodeError;
 
@@ -60,34 +91,23 @@ impl FromStr for RecoveryCode {
             .filter(|c| !c.is_whitespace() && *c != '-')
             .flat_map(char::to_uppercase)
             .collect();
-        if characters.len() != SECRET_CHARS + CHECK_CHARS || !characters.is_ascii() {
+        let prefix: String = PREFIX.chars().filter(|c| *c != '-').collect();
+        let body = characters.strip_prefix(&prefix).unwrap_or(&characters);
+        if body.len() != BODY || !body.is_ascii() {
             return Err(RecoveryCodeError::NotACode);
         }
-        let (data, check) = characters.split_at(SECRET_CHARS);
-        let secret: [u8; SECRET_BYTES] = base32::decode(ALPHABET, data)
-            .and_then(|bytes| bytes.try_into().ok())
-            .ok_or(RecoveryCodeError::NotACode)?;
-        // The checksum is compared as the characters it is written in, with
-        // the same confusions allowed as in the rest.
-        let expected = Self::check(&secret);
-        let written = base32::decode(ALPHABET, &format!("{check}0"))
-            .map(|bytes| base32::encode(ALPHABET, &bytes)[..CHECK_CHARS].to_owned());
-        if written.as_deref() == Some(expected.as_str()) {
-            Ok(Self(secret))
-        } else {
-            Err(RecoveryCodeError::Typo)
-        }
+        format!("{PREFIX}{body}")
+            .parse::<x25519::Identity>()
+            .map(|identity| Self(Arc::new(identity)))
+            .map_err(|_| RecoveryCodeError::Typo)
     }
 }
 
 impl fmt::Display for RecoveryCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let characters = format!(
-            "{}{}",
-            base32::encode(ALPHABET, &self.0),
-            Self::check(&self.0)
-        );
-        for (i, character) in characters.chars().enumerate() {
+        let written = self.written();
+        let body = written.strip_prefix(PREFIX).unwrap_or(&written);
+        for (i, character) in body.chars().enumerate() {
             if i > 0 && i % GROUP == 0 {
                 f.write_str("-")?;
             }
@@ -108,10 +128,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_code_is_seven_groups_of_five() {
+    fn a_code_is_written_in_groups_of_six() {
         let shown = RecoveryCode::generate().to_string();
-        assert_eq!(shown.len(), 7 * GROUP + 6);
-        assert!(shown.split('-').all(|group| group.len() == GROUP));
+        let groups: Vec<&str> = shown.split('-').collect();
+        assert_eq!(groups.iter().map(|g| g.len()).sum::<usize>(), BODY);
+        assert!(groups.iter().all(|group| group.len() <= GROUP));
         assert!(
             shown
                 .chars()
@@ -130,17 +151,11 @@ mod tests {
             shown.replace('-', ""),
             shown.replace('-', " "),
             format!("  {shown}\n"),
+            format!("{PREFIX}{}", shown.replace('-', "")),
+            code.written(),
         ] {
             assert_eq!(typed.parse::<RecoveryCode>(), Ok(code.clone()), "{typed:?}");
         }
-    }
-
-    #[test]
-    fn look_alike_characters_are_forgiven() {
-        // Crockford: O is 0, I and L are 1.
-        let code = RecoveryCode::generate();
-        let confused = code.to_string().replace('0', "O").replace('1', "l");
-        assert_eq!(confused.parse::<RecoveryCode>(), Ok(code));
     }
 
     #[test]
@@ -151,27 +166,39 @@ mod tests {
     #[test]
     fn a_typo_is_caught() {
         let shown = RecoveryCode::generate().to_string();
-        // Change one character to another one that is allowed.
         let mut typed: Vec<char> = shown.chars().collect();
-        typed[3] = if typed[3] == '2' { '3' } else { '2' };
+        typed[3] = if typed[3] == 'Q' { 'P' } else { 'Q' };
         let typed: String = typed.into_iter().collect();
         assert_eq!(typed.parse::<RecoveryCode>(), Err(RecoveryCodeError::Typo));
     }
 
     #[test]
     fn other_text_is_not_a_code() {
-        for text in [
-            "",
-            "just a few words",
-            "K7QMT-4ZP9X",
-            "!!!!!-!!!!!-!!!!!-!!!!!-!!!!!-!!!!!-!!!!!",
-        ] {
+        for text in ["", "just a few words", "QQGZ4J-7XH4NC"] {
             assert_eq!(
                 text.parse::<RecoveryCode>(),
                 Err(RecoveryCodeError::NotACode),
                 "{text:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_backup_opens_only_with_its_code() {
+        let code = RecoveryCode::generate();
+        let sealed = seal(&code.recipient(), b"the family").expect("seal");
+        assert_eq!(code.open(&sealed).expect("open"), b"the family");
+        let typed: RecoveryCode = code.to_string().parse().expect("the same code");
+        assert_eq!(typed.open(&sealed).expect("open"), b"the family");
+        assert!(RecoveryCode::generate().open(&sealed).is_err());
+    }
+
+    #[test]
+    fn the_backup_has_an_id_that_follows_the_code() {
+        let code = RecoveryCode::generate();
+        let typed: RecoveryCode = code.to_string().parse().expect("the same code");
+        assert_eq!(code.backup_id(), typed.backup_id());
+        assert_ne!(code.backup_id(), RecoveryCode::generate().backup_id());
     }
 
     #[test]

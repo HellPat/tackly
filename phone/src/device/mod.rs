@@ -39,7 +39,6 @@ pub use agent_access::{AGENT_NAME, AgentAccess, AgentAsk};
 pub use invite_link::{InviteLink, InviteLinkError};
 pub use membership::Membership;
 pub use pairing::{InviteProgress, InviteTicket, JoinRequest};
-pub use recovery::RecoveryKey;
 pub use recovery_code::{RecoveryCode, RecoveryCodeError};
 pub use sync::LiveTarget;
 
@@ -261,8 +260,15 @@ impl Device {
         self.mls.clear(self.events.lock().device_id)?;
         self.cqrs = Self::framework(&self.events, &self.upload);
         Membership::forget(&self.secrets)?;
-        self.secrets.delete("recovery-words")?;
-        self.secrets.delete("recovery-confirmed")?;
+        for name in [
+            "recovery-secret",
+            "recovery-recipient",
+            // Older versions.
+            "recovery-words",
+            "recovery-confirmed",
+        ] {
+            self.secrets.delete(name)?;
+        }
         self.membership = None;
         self.backed_up = None;
         self.owes_snapshot = false;

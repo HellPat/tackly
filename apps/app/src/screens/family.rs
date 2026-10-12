@@ -170,7 +170,7 @@ pub fn RecoveryGate(code: RecoveryCode) -> Element {
             div { class: "min-h-full flex flex-col justify-center gap-5 p-6 max-w-[430px] mx-auto",
                 h1 { class: "text-2xl font-semibold text-center", "Recovery codes" }
                 p { class: "text-stone-700 text-center", "Save this code in a safe place, such as a password manager. It is the only way back if this phone is lost. Without it, the family is gone with it." }
-                p { class: "{CARD} px-4 py-4 font-mono text-xl leading-9 text-center select-all", aria_label: "Your code", "{code}" }
+                p { class: "{CARD} px-4 py-4 font-mono text-lg leading-8 text-center select-all", aria_label: "Your code", "{code}" }
                 button {
                     class: "{crate::ui::SECONDARY} self-center",
                     onclick: {

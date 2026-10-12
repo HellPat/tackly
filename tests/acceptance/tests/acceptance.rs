@@ -481,18 +481,24 @@ async fn starts_creating(world: &mut Tackly, name: String, family: String) {
     check(world.start_creating_family(&name, &family).await);
 }
 
-#[then(regex = r"^(\w+) sees a recovery code in groups of five$")]
-async fn sees_24_words(world: &mut Tackly, name: String) {
+#[then(regex = r"^(\w+) sees a recovery code in groups$")]
+async fn sees_recovery_code(world: &mut Tackly, name: String) {
     let words = check(
         check(world.page(&name))
             .get_by_label("Your code")
             .text_content()
             .await,
     );
+    // 58 characters in groups of up to six.
     let groups: Vec<&str> = words.trim().split('-').collect();
-    if groups.len() != 7 || groups.iter().any(|group| group.len() != 5) {
+    let total: usize = groups.iter().map(|group| group.len()).sum();
+    if total != 58
+        || groups
+            .iter()
+            .any(|group| group.is_empty() || group.len() > 6)
+    {
         check(Err::<(), _>(Failure(format!(
-            "not 7 groups of 5: {words:?}"
+            "not a recovery code: {words:?}"
         ))));
     }
 }

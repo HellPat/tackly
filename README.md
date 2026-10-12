@@ -159,15 +159,16 @@ network. The prototype the screens were built from is `prototype/index.html`.
   relay token ends at the time given; the head's phone takes it out of the
   group when that time has passed, or at once with Revoke. At most five
   requests wait for a family at once, for ten minutes.
-- **Recovery code.** The head's phone makes a code of 160 random bits (from the
-  system's secure random generator), written as `K7QMT-4ZP9X-WDHC2-RJ8V5-BN3GA-6EYFS-T4K2M`
-  (Crockford base32, three characters of it a typo check; shown once, to be kept
-  in a password manager); HKDF turns it
-  into a key and an ID. After every change it seals a backup (AES-256-GCM:
-  the head's MLS signing key, the group's public state, its relay token and
-  the whole history) and leaves it with the server under the ID, which cannot
-  open it. A new phone with the code takes over the head's identity, comes
-  back into the group from outside (an MLS external commit, which also
+- **Recovery code.** The recovery code is an [age](https://age-encryption.org)
+  identity, made, written and checked by the `age` crate (a 256-bit X25519 key
+  from the system's secure random generator, in Bech32 with a checksum that
+  catches typos); it is shown once, to be kept in a password manager, and the
+  phone forgets it when the head says it saved it. After every change the
+  head's phone seals a backup to the code's public key (age: the head's MLS
+  signing key, the group's public state, its relay token and the whole
+  history) and leaves it with the server under an ID made from that public
+  key. Only the code opens it, and the file is a standard age file.
+  A new phone with the code takes over the head's identity, comes back into the group from outside (an MLS external commit, which also
   removes the lost phone's leaf; the others accept it because it is signed
   with the head's key), then moves to a fresh signing key and a fresh relay
   token, so the lost phone is out. The others send it what happened since

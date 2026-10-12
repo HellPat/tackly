@@ -8,7 +8,6 @@ pub mod live;
 pub use device::{
     AGENT_NAME, AgentAccess, AgentAsk, Device, InviteLink, InviteLinkError, InviteProgress,
     InviteTicket, JoinRequest, LiveTarget, Membership, RecoveryCode, RecoveryCodeError,
-    RecoveryKey,
 };
 pub use infrastructure::geocoder::Geocoder;
 pub use live::{SharedDevice, run_live};
