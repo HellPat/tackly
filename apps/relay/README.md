@@ -76,8 +76,9 @@ A reconnecting client sends it back as `Last-Event-ID`. Keep-alives come every
 
 **Restarts.** Each start of the relay is recorded: it may have come back from
 a backup that misses what it accepted after the last sequence `after` it
-holds, and it numbers new messages from past `sequence` (a gap of a million),
-so no number is used twice and a phone that read further than the backup
+holds, and it numbers new messages from past `sequence` (a gap of a million,
+and at least the start time in microseconds), so no number is used twice, even
+when the same backup is restored again, and a phone that read further than the backup
 skips nothing. A page (and a stream message) that reaches a restart carries
 it as `restart: {sequence, after}`, with no events past it. The phone sends
 its own messages after `after` again (and those it never saw come back; their

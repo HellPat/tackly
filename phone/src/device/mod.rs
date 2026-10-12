@@ -169,8 +169,8 @@ impl Device {
     // ---- creating and leaving a family ----------------------------------------
 
     /// Creates a family with this phone as its head. A relay that cannot be
-    /// reached does not stop it: the family works locally and registers on the
-    /// next sync. A relay that refuses does.
+    /// reached (or fails) does not stop it: the family works locally and
+    /// registers on the next sync, with the same IDs. A relay that refuses does.
     pub async fn create_family(
         &mut self,
         server_url: &ServerUrl,
@@ -187,7 +187,7 @@ impl Device {
             .await
         {
             Ok(()) => true,
-            Err(error) if error.downcast_ref::<HttpError>().is_some() => return Err(error),
+            Err(error) if HttpError::is_refusal(&error) => return Err(error),
             Err(_) => false,
         };
         self.mls.create_group(family_id)?;

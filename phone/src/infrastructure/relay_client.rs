@@ -31,6 +31,12 @@ impl HttpError {
         matches!(error.downcast_ref::<Self>(), Some(Self(status, _)) if status.as_u16() == 410)
     }
 
+    /// 4xx: the relay looked at the request and said no. A 5xx is the relay
+    /// failing (or not yet having it in its backup): try again later.
+    pub fn is_refusal(error: &anyhow::Error) -> bool {
+        matches!(error.downcast_ref::<Self>(), Some(Self(status, _)) if status.is_client_error())
+    }
+
     /// 409 with [`STALE_EPOCH`]: the group moved on; catch up and encrypt again.
     pub fn is_stale_epoch(error: &anyhow::Error) -> bool {
         matches!(error.downcast_ref::<Self>(), Some(Self(status, text)) if status.as_u16() == 409 && text == STALE_EPOCH)

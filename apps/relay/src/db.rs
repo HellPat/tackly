@@ -1,6 +1,9 @@
 //! The SQLite database: opening it, and reading columns without panicking.
 
-use std::{str::FromStr, time::Duration};
+use std::{
+    str::FromStr,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use sqlx::{
     Decode, Row, Sqlite, SqlitePool, Type,
@@ -29,14 +32,24 @@ pub async fn migrate(pool: &SqlitePool) -> Result<(), sqlx::migrate::MigrateErro
     sqlx::migrate!("./migrations").run(pool).await
 }
 
-/// How far past the last sequence number a start moves the counter: more
-/// messages than a backup can miss.
-pub const RESTART_GAP: i64 = 1_000_000;
+/// How far past the last sequence number a start moves the counter at least:
+/// more messages than a backup can miss.
+const RESTART_GAP: i64 = 1_000_000;
+
+/// Where numbering goes on after a start: past the gap, and past the clock in
+/// microseconds. A backup restored again brings back the same last number,
+/// but never an earlier start time, so no number is given twice even then.
+fn restart_sequence(after: i64, now: SystemTime) -> i64 {
+    let micros = now.duration_since(UNIX_EPOCH).map_or(0, |since| {
+        i64::try_from(since.as_micros()).unwrap_or(i64::MAX)
+    });
+    (after + RESTART_GAP).max(micros)
+}
 
 /// Records this start of the relay (see migrations/0009_restarts.sql): what
 /// was accepted after the last sequence number in the database may be lost,
-/// and numbering goes on past a gap. Nothing to record before the first
-/// message.
+/// and numbering goes on past it (see [`restart_sequence`]). Nothing to
+/// record before the first message.
 pub async fn record_restart(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
     let last: Option<i64> =
@@ -44,7 +57,7 @@ pub async fn record_restart(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             .fetch_optional(&mut *tx)
             .await?;
     if let Some(after) = last.filter(|last| *last > 0) {
-        let sequence = after + RESTART_GAP;
+        let sequence = restart_sequence(after, SystemTime::now());
         sqlx::query("INSERT INTO restarts (sequence, after) VALUES (?,?)")
             .bind(sequence)
             .bind(after)
