@@ -150,9 +150,8 @@ try {
   });
 
   await step("choose a photo as my picture: the probe gets it", async () => {
-    // The family is behind my picture, top right.
-    await tap(page.getByRole("button", { name: "Family and settings", exact: true }));
-    await tap(page.getByTestId("main").getByRole("button", { name: /mona/i }).first());
+    // My settings are behind my picture, top right.
+    await tap(page.getByRole("button", { name: "Settings", exact: true }));
     const photo = readFileSync(join(root, "tests/acceptance/tests/fixtures/photo.jpg"));
     await page.getByLabel("Choose a photo").setInputFiles({ name: "photo.jpg", mimeType: "image/jpeg", buffer: photo });
     await probeSees(ask, "Mona's photo", (family) =>

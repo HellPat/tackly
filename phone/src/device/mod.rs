@@ -202,6 +202,8 @@ impl Device {
             owner_name: my_name.to_owned(),
         })
         .await?;
+        // The recovery code comes with the family; the person must save it.
+        self.ensure_recovery_code().await?;
         // Best effort: the sync loop retries when the relay is unreachable.
         let _ = self.flush().await;
         Ok(())
@@ -255,6 +257,7 @@ impl Device {
         self.cqrs = Self::framework(&self.events, &self.upload);
         Membership::forget(&self.secrets)?;
         self.secrets.delete("recovery-words")?;
+        self.secrets.delete("recovery-confirmed")?;
         self.membership = None;
         self.backed_up = None;
         self.owes_snapshot = false;

@@ -10,7 +10,7 @@ use uuid::Uuid;
 use super::{
     addbar::{AddBar, Mode},
     detail::Detail,
-    family::FamilyTab,
+    family::{FamilyTab, SettingsTab},
     places::PlacesTab,
     problems::{AssignProblemSheet, ProblemsTab, RaiseSheet, SomethingWrongSheet},
     sheets::{AgentSheet, AssignSheet, InviteSheet, NameSheet},
@@ -31,8 +31,11 @@ pub enum Tab {
     Problems,
     Tasks,
     Places,
-    /// Behind my picture in the top bar, not in the navigation.
+    /// Not in the navigation: behind the Family button in the top bar (the
+    /// people, and Places).
     Family,
+    /// Not in the navigation: behind my picture, top right.
+    Settings,
 }
 
 /// Where you are. Each tab is an overview you can step into.
@@ -45,10 +48,9 @@ pub struct Nav {
     pub group: Option<Uuid>,
     pub place: Option<Uuid>,
     pub editing_place: bool,
-    /// Family: the person you opened; your own entry opens your settings.
+    /// Family: the person you opened.
     pub person: Option<Uuid>,
-    pub settings: bool,
-    /// The tab the family was opened from (back goes there).
+    /// The tab the family or the settings were opened from (back goes there).
     pub came_from: Tab,
     /// Problems: the problem you stepped into, and whether it is being edited.
     pub problem: Option<Uuid>,
@@ -61,13 +63,13 @@ pub struct Nav {
 
 impl Nav {
     fn back(&mut self) {
-        if self.tab == Tab::Family && !self.settings && self.person.is_none() {
+        if self.tab == Tab::Settings || (self.tab == Tab::Family && self.person.is_none()) {
             *self = Nav {
                 tab: self.came_from,
                 ..Nav::default()
             };
-        } else if self.settings || self.person.is_some() {
-            (self.settings, self.person) = (false, None);
+        } else if self.person.is_some() {
+            self.person = None;
         } else if self.editing_problem {
             self.editing_problem = false;
         } else if self.problem.is_some() {
@@ -80,6 +82,12 @@ impl Nav {
             self.place = None;
         } else if self.group.is_some() {
             self.group = None;
+        } else if self.tab == Tab::Places && self.came_from == Tab::Family {
+            // Places was opened from the family: back to it.
+            *self = Nav {
+                tab: Tab::Family,
+                ..Nav::default()
+            };
         } else {
             self.list = None;
         }
@@ -90,8 +98,10 @@ impl Nav {
             Tab::Today => self.pick_more,
             Tab::Problems => self.problem.is_some(),
             Tab::Tasks => self.list.is_some(),
-            Tab::Places => self.group.is_some() || self.place.is_some(),
-            Tab::Family => true,
+            Tab::Places => {
+                self.group.is_some() || self.place.is_some() || self.came_from == Tab::Family
+            }
+            Tab::Family | Tab::Settings => true,
         }
     }
 }
@@ -151,7 +161,7 @@ pub fn Home() -> Element {
                 .map_or_else(String::new, |group| group.name.clone()),
             (None, None) => "Places".into(),
         },
-        Tab::Family if here.settings => "Your settings".into(),
+        Tab::Settings => "Your settings".into(),
         Tab::Family => here.person.map_or_else(
             || family.name.clone().unwrap_or_else(|| "Family".into()),
             |id| family.member_name(id).to_owned(),
@@ -181,10 +191,10 @@ pub fn Home() -> Element {
             (None, Some(group)) => Some(Mode::Place { group }),
             (None, None) => Some(Mode::Group),
         },
-        Tab::Today | Tab::Problems | Tab::Family => None,
+        Tab::Today | Tab::Problems | Tab::Family | Tab::Settings => None,
     };
     let is_head = (state.membership)().is_some_and(|membership| membership.owner);
-    let show_invite = here.tab == Tab::Family && here.person.is_none() && !here.settings && is_head;
+    let show_invite = here.tab == Tab::Family && here.person.is_none() && is_head;
     let show_something_wrong = here.tab == Tab::Problems && here.problem.is_none();
     let me = (state.my_id)();
     let myself = family.members.get(&me).cloned();
@@ -234,13 +244,23 @@ pub fn Home() -> Element {
                         "Offline"
                     }
                 }
-                if let Some(myself) = myself.filter(|_| here.tab != Tab::Family) {
+                // The family, and next to it, in the corner, my own settings.
+                button {
+                    class: if here.tab == Tab::Family { "size-12 grid place-items-center rounded-full bg-accent-100 text-accent-900" } else { "size-12 grid place-items-center rounded-full text-stone-700 hover:bg-stone-900/5" },
+                    aria_label: "Family",
+                    onclick: move |_| {
+                        let came_from = if matches!(nav().tab, Tab::Family | Tab::Settings) { nav().came_from } else { nav().tab };
+                        nav.set(Nav { tab: Tab::Family, came_from, ..Nav::default() });
+                    },
+                    Icon { name: "group", class: if here.tab == Tab::Family { FILLED } else { "" } }
+                }
+                if let Some(myself) = myself {
                     button {
-                        class: "size-12 grid place-items-center rounded-full",
-                        aria_label: "Family and settings",
+                        class: if here.tab == Tab::Settings { "size-12 grid place-items-center rounded-full ring-2 ring-accent-700" } else { "size-12 grid place-items-center rounded-full" },
+                        aria_label: "Settings",
                         onclick: move |_| {
-                            let came_from = nav().tab;
-                            nav.set(Nav { tab: Tab::Family, came_from, ..Nav::default() });
+                            let came_from = if matches!(nav().tab, Tab::Family | Tab::Settings) { nav().came_from } else { nav().tab };
+                            nav.set(Nav { tab: Tab::Settings, came_from, ..Nav::default() });
                         },
                         Avatar { name: myself.name, picture: myself.picture, size: Size::Medium }
                     }
@@ -253,6 +273,7 @@ pub fn Home() -> Element {
                     Tab::Tasks => rsx! { TasksTab {} },
                     Tab::Places => rsx! { PlacesTab {} },
                     Tab::Family => rsx! { FamilyTab {} },
+                    Tab::Settings => rsx! { SettingsTab {} },
                 }
             }
             if let Some(mode) = bar {
@@ -278,11 +299,10 @@ pub fn Home() -> Element {
                     }
                 }
             }
-            nav { class: "relative z-10 shrink-0 h-20 grid grid-cols-4 bg-[#fffdfb] shadow-[0_-1px_0_var(--color-stone-200)]", aria_label: "Main", "data-testid": "nav",
+            nav { class: "relative z-10 shrink-0 h-20 grid grid-cols-3 bg-[#fffdfb] shadow-[0_-1px_0_var(--color-stone-200)]", aria_label: "Main", "data-testid": "nav",
                 TabButton { tab: Tab::Today, icon: "wb_sunny", label: "Today" }
                 TabButton { tab: Tab::Problems, icon: "report", label: "Problems", badge: my_problems }
                 TabButton { tab: Tab::Tasks, icon: "task_alt", label: "Tasks" }
-                TabButton { tab: Tab::Places, icon: "storefront", label: "Places" }
             }
             if let Some(task) = here.detail {
                 Detail { task }
@@ -294,7 +314,7 @@ pub fn Home() -> Element {
                 Celebration { kitten }
             }
             if let Some(words) = (state.recovery_words)() {
-                super::family::RecoveryCodeSheet { words }
+                super::family::RecoveryGate { words }
             }
             // On top of everything: an Undo must be reachable from Upcoming, too.
             Toasts {}

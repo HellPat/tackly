@@ -858,6 +858,63 @@ async fn an_ai_agent_reads_the_whole_history_until_its_time_is_over() -> Result<
 }
 
 #[tokio::test]
+async fn a_new_family_comes_with_a_recovery_code_the_head_must_confirm() -> Result<()> {
+    let dir = scratch_dir("recovery-confirm")?;
+    let mut relay = Relay::reserve(&dir)?;
+    relay.start().await?;
+    let (patrick, mona, _mara) = family_of_three(&dir, &relay).await?;
+
+    // The code exists from the start and waits for the head to say it saved it.
+    let first = patrick
+        .device
+        .lock()
+        .await
+        .pending_recovery_words()?
+        .context("the family comes with a recovery code")?;
+    ensure!(first.split(' ').count() == 24, "24 words");
+    ensure!(
+        mona.device.lock().await.pending_recovery_words()?.is_none(),
+        "only the head has a code"
+    );
+    patrick.device.lock().await.confirm_recovery_code()?;
+    ensure!(
+        patrick
+            .device
+            .lock()
+            .await
+            .pending_recovery_words()?
+            .is_none(),
+        "saved"
+    );
+
+    // A new code must be confirmed again, and the old one stops working.
+    let second = patrick.device.lock().await.new_recovery_code().await?;
+    ensure!(second != first, "a different code");
+    ensure!(
+        patrick
+            .device
+            .lock()
+            .await
+            .pending_recovery_words()?
+            .as_deref()
+            == Some(second.as_str()),
+        "the new code waits to be saved"
+    );
+    let stranger = Phone::new("stranger", &dir)?;
+    ensure!(
+        stranger
+            .device
+            .lock()
+            .await
+            .restore(&relay.url(), &first)
+            .await
+            .is_err(),
+        "the old words open nothing"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn the_head_comes_back_on_a_new_phone_with_the_recovery_code() -> Result<()> {
     let dir = scratch_dir("recovery")?;
     let mut relay = Relay::reserve(&dir)?;

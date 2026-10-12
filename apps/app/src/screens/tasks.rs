@@ -275,7 +275,7 @@ pub fn TaskCard(
                             class: "group shrink-0 size-12 -mr-2 grid place-items-center",
                             aria_label: "Assign {task.title}",
                             onclick: move |_| sheet.set(Some(SheetKind::Assign(id))),
-                            span { class: "size-8 rounded-full grid place-items-center bg-stone-100 border-2 border-dashed border-white shadow-[0_1px_3px_rgb(41_37_36/.3)] text-stone-500 transition-colors group-hover:text-accent-700",
+                            span { class: "size-8 rounded-full grid place-items-center bg-stone-300 border-2 border-white shadow-[0_1px_3px_rgb(41_37_36/.3)] text-stone-700 transition-colors group-hover:text-accent-700",
                                 Icon { name: "person_add", class: "!text-[18px]" }
                             }
                         }

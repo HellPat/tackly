@@ -132,6 +132,8 @@ impl Device {
     /// What the live loop does now and then: the head's phone takes expired
     /// AI agents out, then everything pending goes up.
     pub async fn tick(&mut self) -> Result<()> {
+        // Heads that have no recovery code yet get one (families made before).
+        self.ensure_recovery_code().await?;
         self.expire_agents().await?;
         self.flush().await
     }

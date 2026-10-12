@@ -19,6 +19,8 @@ use super::{Device, Membership};
 use crate::infrastructure::crypto::{self, random_bytes};
 
 const WORDS: &str = "recovery-words";
+/// Which words the head confirmed to have saved (a hash of them).
+const CONFIRMED: &str = "recovery-confirmed";
 const BACKUP_VERSION: u32 = 1;
 
 /// What the backup holds. The events are the whole history, so a family of
@@ -87,6 +89,10 @@ impl RecoveryKey {
     }
 }
 
+fn confirmation_of(words: &str) -> String {
+    crypto::encode(&crypto::derive("recovery-confirmed", &[words.as_bytes()]))
+}
+
 /// Lower case, single spaces: what a person typed or pasted.
 fn normalize(words: &str) -> String {
     words
@@ -97,13 +103,49 @@ fn normalize(words: &str) -> String {
 }
 
 impl Device {
-    /// Whether the head's phone keeps a backup.
-    pub fn has_recovery_code(&self) -> Result<bool> {
-        Ok(self.secrets.read(WORDS)?.is_some())
+    /// The recovery words the head has not confirmed to have saved yet (the
+    /// app shows them until they are). `None` for everyone else.
+    pub fn pending_recovery_words(&self) -> Result<Option<String>> {
+        if !self.membership.as_ref().is_some_and(|m| m.owner) {
+            return Ok(None);
+        }
+        let Some(words) = self.secrets.read(WORDS)? else {
+            return Ok(None);
+        };
+        let words = String::from_utf8(words).context("the recovery words")?;
+        let confirmed = self.secrets.read(CONFIRMED)?;
+        Ok((confirmed.as_deref() != Some(confirmation_of(&words).as_bytes())).then_some(words))
+    }
+
+    /// The head says it saved the words.
+    pub fn confirm_recovery_code(&mut self) -> Result<()> {
+        let Some(words) = self.secrets.read(WORDS)? else {
+            return Ok(());
+        };
+        let words = String::from_utf8(words).context("the recovery words")?;
+        self.secrets
+            .write(CONFIRMED, confirmation_of(&words).as_bytes())
+    }
+
+    /// The head's first recovery code, made without asking the relay: it is
+    /// backed up as soon as the relay can be reached.
+    pub(super) async fn ensure_recovery_code(&mut self) -> Result<()> {
+        if !self.membership.as_ref().is_some_and(|m| m.owner) || self.secrets.read(WORDS)?.is_some()
+        {
+            return Ok(());
+        }
+        let (words, key) = RecoveryKey::generate()?;
+        self.secrets.write(WORDS, words.as_bytes())?;
+        self.secrets.delete(CONFIRMED)?;
+        self.backed_up = None;
+        // Best effort: `flush` tries again whenever the backup is out of date.
+        let _ = self.upload_backup(&key).await;
+        Ok(())
     }
 
     /// Makes (new) recovery words and backs the family up under them. The
     /// previous backup, if any, is removed: its words are no good any more.
+    /// The new words must be confirmed again.
     pub async fn new_recovery_code(&mut self) -> Result<String> {
         let membership = self.joined()?.clone();
         ensure!(
@@ -123,6 +165,7 @@ impl Device {
                 .await;
         }
         self.secrets.write(WORDS, words.as_bytes())?;
+        self.secrets.delete(CONFIRMED)?;
         self.backed_up = Some(self.backup_mark()?);
         Ok(words)
     }
@@ -207,8 +250,12 @@ impl Device {
             let _ = self.logout();
             return Err(error);
         }
-        // Only now the words are ours: backups continue under them.
-        self.secrets.write(WORDS, normalize(words).as_bytes())?;
+        // Only now the words are ours: backups continue under them. The person
+        // just typed them, so there is nothing to save.
+        let words = normalize(words);
+        self.secrets.write(WORDS, words.as_bytes())?;
+        self.secrets
+            .write(CONFIRMED, confirmation_of(&words).as_bytes())?;
         self.backup().await?;
         Ok(())
     }

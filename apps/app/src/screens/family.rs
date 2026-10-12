@@ -1,11 +1,15 @@
-//! The Family tab: everyone in the family. Opening someone shows the tasks they
-//! are on; opening yourself shows your settings (name, picture, color scheme).
+//! The Family button: the places and everyone in the family, and (for the head)
+//! inviting people and AI agents. Opening someone shows the tasks they are on.
+//! Your own settings are behind your picture, top right.
 
 use dioxus::prelude::*;
 use tackly_domain::{Picture, Task};
 use uuid::Uuid;
 
-use super::{home::Nav, tasks::TaskCard};
+use super::{
+    home::{Nav, Tab},
+    tasks::TaskCard,
+};
 use crate::{
     state::AppState,
     theme::SCHEMES,
@@ -16,12 +20,9 @@ use crate::{
 pub fn FamilyTab() -> Element {
     let state = use_context::<AppState>();
     let mut nav = use_context::<Signal<Nav>>();
-    let (family, me) = ((state.family)(), (state.my_id)());
+    let family = (state.family)();
     let here = nav();
 
-    if here.settings {
-        return rsx! { Settings {} };
-    }
     if let Some(person) = here.person {
         return rsx! { Person { person } };
     }
@@ -30,28 +31,32 @@ pub fn FamilyTab() -> Element {
     let agents: Vec<_> = family.agents().cloned().collect();
     rsx! {
         ul { class: "{CARD} overflow-hidden mt-1",
+            li {
+                button {
+                    class: "w-full flex items-center gap-4 px-4 min-h-16 text-left hover:bg-stone-50 active:bg-stone-100",
+                    onclick: move |_| nav.set(Nav { tab: Tab::Places, came_from: Tab::Family, ..Nav::default() }),
+                    span { class: "size-10 rounded-full grid place-items-center bg-accent-100 text-accent-900", Icon { name: "storefront" } }
+                    span { class: "flex-1 text-base", "Places" }
+                    Icon { name: "chevron_right", class: "text-stone-500" }
+                }
+            }
+        }
+        Heading { text: "Members" }
+        ul { class: "{CARD} overflow-hidden",
             for member in family.people() {
                 li { key: "{member.device_id}",
                     button {
                         class: "w-full flex items-center gap-4 px-4 min-h-16 text-left hover:bg-stone-50 active:bg-stone-100",
                         onclick: {
                             let who = member.device_id;
-                            move |_| {
-                                let mut nav = nav.write();
-                                nav.person = Some(who);
-                                nav.settings = who == me;
-                            }
+                            move |_| nav.write().person = Some(who)
                         },
                         Avatar { name: member.name.clone(), picture: member.picture.clone(), size: Size::Medium }
                         span { class: "flex-1 text-base", "{member.name}" }
-                        if member.device_id == me {
-                            span { class: "text-sm text-stone-600", "Settings" }
-                        } else {
-                            match family.open_tasks().filter(|task| task.assignee == Some(member.device_id)).count() {
-                                0 => rsx! {},
-                                1 => rsx! { span { class: "text-sm text-stone-600", "1 task" } },
-                                n => rsx! { span { class: "text-sm text-stone-600", "{n} tasks" } },
-                            }
+                        match family.open_tasks().filter(|task| task.assignee == Some(member.device_id)).count() {
+                            0 => rsx! {},
+                            1 => rsx! { span { class: "text-sm text-stone-600", "1 task" } },
+                            n => rsx! { span { class: "text-sm text-stone-600", "{n} tasks" } },
                         }
                         Icon { name: "chevron_right", class: "text-stone-500" }
                     }
@@ -103,21 +108,28 @@ fn time_left(
     }
 }
 
-/// The fresh recovery words, shown once: write them down, then close.
+/// The recovery words, over everything: the family opens only once the head
+/// says it saved them. (Right after creating the family, and after a new code.)
 #[component]
-pub fn RecoveryCodeSheet(words: String) -> Element {
+pub fn RecoveryGate(words: String) -> Element {
     let state = use_context::<AppState>();
-    let close = move || {
-        let mut shown = state.recovery_words;
-        shown.set(None);
-    };
+    let mut saved = use_signal(|| false);
     rsx! {
-        crate::ui::Sheet { close: move |_| close(), label: "Your recovery code",
-            div { class: "flex flex-col gap-4",
-                h2 { class: "text-xl font-semibold text-center", "Your recovery code" }
-                p { class: "text-sm text-stone-700 text-center", "Write these 24 words down and keep them somewhere safe. They are shown only now." }
-                p { class: "{CARD} px-4 py-3 font-mono text-base leading-8 break-words select-all", aria_label: "Recovery code", "{words}" }
-                button { class: "{crate::ui::PRIMARY} w-full", onclick: move |_| close(), "I wrote them down" }
+        div { class: "absolute inset-0 z-[60] overflow-y-auto bg-[#fffdfb]", role: "dialog", aria_modal: "true", aria_label: "Save your recovery code", "data-testid": "recovery-gate",
+            div { class: "min-h-full flex flex-col justify-center gap-5 p-6 max-w-[430px] mx-auto",
+                h1 { class: "text-2xl font-semibold text-center", "Save your recovery code" }
+                p { class: "text-stone-700 text-center", "If this phone is lost, these 24 words bring the family back on a new phone. Without them, the family is gone with it." }
+                p { class: "{CARD} px-4 py-3 font-mono text-base leading-8 break-words select-all", aria_label: "Recovery words", "{words}" }
+                label { class: "flex items-center gap-3 min-h-12",
+                    input {
+                        r#type: "checkbox",
+                        class: "size-6 accent-accent-700",
+                        checked: "{saved()}",
+                        onchange: move |event| saved.set(event.checked()),
+                    }
+                    span { class: "text-base", "I saved it" }
+                }
+                button { class: "{crate::ui::PRIMARY} w-full !h-12 text-base", disabled: !saved(), onclick: move |_| state.confirm_recovery_code(), "Continue" }
             }
         }
     }
@@ -129,7 +141,8 @@ fn Person(person: Uuid) -> Element {
     let state = use_context::<AppState>();
     let mut nav = use_context::<Signal<Nav>>();
     let family = (state.family)();
-    let is_head = (state.membership)().is_some_and(|membership| membership.owner);
+    let me = (state.my_id)();
+    let is_head = (state.membership)().is_some_and(|membership| membership.owner) && person != me;
     let mut removing = use_signal(|| false);
     let tasks: Vec<Task> = family
         .open_tasks()
@@ -169,7 +182,7 @@ fn Person(person: Uuid) -> Element {
 /// Your settings: name, picture, color scheme. Name and picture are seen by
 /// the family; the color scheme stays on this phone.
 #[component]
-fn Settings() -> Element {
+pub fn SettingsTab() -> Element {
     let state = use_context::<AppState>();
     let (family, me) = ((state.family)(), (state.my_id)());
     let Some(myself) = family.members.get(&me).cloned() else {
@@ -236,16 +249,10 @@ fn Settings() -> Element {
         if (state.membership)().is_some_and(|membership| membership.owner) {
             Heading { text: "Recovery code" }
             div { class: "{CARD} px-4 py-4 flex flex-col gap-3",
-                p { class: "text-sm text-stone-700",
-                    if (state.has_recovery)() {
-                        "This phone keeps a backup of the family. If it is lost, the 24 words bring the family back on a new phone."
-                    } else {
-                        "If this phone is lost, 24 words bring the family back on a new phone. Without them, the family is gone with it."
-                    }
-                }
+                p { class: "text-sm text-stone-700", "A new code replaces the one you have. The old words stop working." }
                 button { class: "{crate::ui::SECONDARY} self-start", onclick: move |_| state.new_recovery_code(),
                     Icon { name: "key", class: "!text-[18px]" }
-                    if (state.has_recovery)() { "New recovery code" } else { "Make a recovery code" }
+                    "New recovery code"
                 }
             }
         }

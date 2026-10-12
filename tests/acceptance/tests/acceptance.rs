@@ -36,8 +36,8 @@ const KEY_DELAY: Duration = Duration::from_millis(12);
 struct Tackly {
     dir: PathBuf,
     relay: Relay,
-    /// The 24 words the head wrote down.
-    recovery_code: Option<String>,
+    /// The 24 words each head saved, by name (the newest).
+    recovery_codes: HashMap<String, String>,
     geocoder: FakeGeocoder,
     members: HashMap<String, Member>,
 }
@@ -96,7 +96,7 @@ impl Tackly {
             geocoder: FakeGeocoder::start()?,
             dir,
             members: HashMap::new(),
-            recovery_code: None,
+            recovery_codes: HashMap::new(),
         })
     }
 
@@ -123,16 +123,23 @@ impl Tackly {
     }
 
     /// Opens a tab from the navigation at the bottom (back on its overview).
-    /// The family is behind one's own picture in the top bar.
+    /// The family and one's own settings are in the top bar; Places are behind
+    /// the family.
     async fn go(&self, name: &str, tab: &str) -> Outcome<()> {
         let page = self.page(name)?;
-        if tab == "Family" {
-            let avatar = page.get_by_role_exact("button", "Family and settings");
-            // Already on the family: the avatar is not in the top bar there.
-            if avatar.count().await == 0 {
-                return Ok(());
+        match tab {
+            // The family and one's own settings are buttons in the top bar.
+            "Family" | "Settings" => return page.get_by_role_exact("button", tab).click().await,
+            // Places are behind the family.
+            "Places" => {
+                page.get_by_role_exact("button", "Family").click().await?;
+                return page
+                    .get_by_test_id("main")
+                    .get_by_role_exact("button", "Places")
+                    .click()
+                    .await;
             }
-            return avatar.click().await;
+            _ => {}
         }
         page.get_by_test_id("nav")
             .get_by_role_exact("button", tab)
@@ -170,7 +177,8 @@ impl Tackly {
         expect(&page.get_by_label(bar)).to_have_value("").await
     }
 
-    async fn create_family(&self, name: &str, family: &str) -> Outcome<()> {
+    /// Fills in the form and creates the family; the recovery code shows next.
+    async fn start_creating_family(&self, name: &str, family: &str) -> Outcome<()> {
         let page = self.page(name)?;
         page.get_by_role_exact("button", "Create a family")
             .click()
@@ -182,9 +190,37 @@ impl Tackly {
             .press_sequentially(family, KEY_DELAY)
             .await?;
         page.get_by_role_exact("button", "Create").click().await?;
+        expect(&page.get_by_test_id("recovery-gate"))
+            .to_be_visible()
+            .await
+    }
+
+    /// Reads the recovery words, says they are saved, and goes on to the app.
+    async fn save_recovery_code(&self, name: &str) -> Outcome<String> {
+        let page = self.page(name)?;
+        let words = page.get_by_label("Recovery words").text_content().await?;
+        page.get_by_label("I saved it").check().await?;
+        page.get_by_role_exact("button", "Continue").click().await?;
         expect(&page.get_by_test_id("nav")).to_be_visible().await?;
         // The app opens on Today; tasks are added on Tasks.
-        self.go(name, "Tasks").await
+        self.go(name, "Tasks").await?;
+        Ok(words)
+    }
+
+    /// Creates the family and saves the recovery code; returns its words.
+    async fn create_family(&self, name: &str, family: &str) -> Outcome<String> {
+        self.start_creating_family(name, family).await?;
+        self.save_recovery_code(name).await
+    }
+
+    /// The head makes a new recovery code in its settings and saves it.
+    async fn new_recovery_code(&self, head: &str) -> Outcome<String> {
+        let page = self.page(head)?;
+        self.go(head, "Settings").await?;
+        page.get_by_role_exact("button", "New recovery code")
+            .click()
+            .await?;
+        self.save_recovery_code(head).await
     }
 
     /// The head of the family shows an invitation; the other phone gets it by
@@ -304,25 +340,6 @@ impl Tackly {
             return Err("the agent did not get in".into());
         }
         self.go(head, "Tasks").await
-    }
-
-    /// The head makes a recovery code in its settings and reads the words.
-    async fn make_recovery_code(&self, head: &str) -> Outcome<String> {
-        let page = self.page(head)?;
-        self.go(head, "Family").await?;
-        page.get_by_test_id("main")
-            .get_by_role("button", head)
-            .click()
-            .await?;
-        page.get_by_role_exact("button", "Make a recovery code")
-            .click()
-            .await?;
-        let words = page.get_by_label("Recovery code").text_content().await?;
-        page.get_by_role_exact("button", "I wrote them down")
-            .click()
-            .await?;
-        self.go(head, "Tasks").await?;
-        Ok(words)
     }
 
     /// A new phone becomes the head, with the words.
@@ -447,10 +464,67 @@ async fn opened_one(world: &mut Tackly, name: String) {
     check(world.open(&name).await);
 }
 
-#[when(regex = r"^(\w+) makes a recovery code$")]
+#[when(regex = r"^(\w+) makes a new recovery code$")]
 async fn makes_recovery_code(world: &mut Tackly, head: String) {
-    let words = check(world.make_recovery_code(&head).await);
-    world.recovery_code = Some(words);
+    let words = check(world.new_recovery_code(&head).await);
+    world.recovery_codes.insert(head, words);
+}
+
+#[when(regex = r#"^(\w+) starts creating the family "([^"]+)"$"#)]
+async fn starts_creating(world: &mut Tackly, name: String, family: String) {
+    check(world.start_creating_family(&name, &family).await);
+}
+
+#[then(regex = r"^(\w+) sees a recovery code of 24 words$")]
+async fn sees_24_words(world: &mut Tackly, name: String) {
+    let words = check(
+        check(world.page(&name))
+            .get_by_label("Recovery words")
+            .text_content()
+            .await,
+    );
+    if words.split_whitespace().count() != 24 {
+        check(Err::<(), _>(Failure(format!("not 24 words: {words:?}"))));
+    }
+}
+
+#[then(regex = r"^(\w+) (cannot|can) continue$")]
+async fn can_continue(world: &mut Tackly, name: String, can: String) {
+    let button = check(world.page(&name)).get_by_role_exact("button", "Continue");
+    check(if can == "can" {
+        expect(&button).to_be_enabled().await
+    } else {
+        expect(&button).to_be_disabled().await
+    });
+}
+
+#[when(regex = r#"^(\w+) ticks "I saved it"$"#)]
+async fn ticks_saved(world: &mut Tackly, name: String) {
+    check(
+        check(world.page(&name))
+            .get_by_label("I saved it")
+            .check()
+            .await,
+    );
+}
+
+#[when(regex = r"^(\w+) continues$")]
+async fn continues(world: &mut Tackly, name: String) {
+    check(
+        check(world.page(&name))
+            .get_by_role_exact("button", "Continue")
+            .click()
+            .await,
+    );
+}
+
+#[then(regex = r"^(\w+) sees the main navigation$")]
+async fn sees_main_navigation(world: &mut Tackly, name: String) {
+    check(
+        expect(&check(world.page(&name)).get_by_test_id("nav"))
+            .to_be_visible()
+            .await,
+    );
 }
 
 #[when(regex = r"^(\w+)'s phone is lost$")]
@@ -459,13 +533,14 @@ async fn phone_lost(world: &mut Tackly, name: String) {
     world.members.remove(&name);
 }
 
-#[when(regex = r"^(\w+) restores the family with the recovery code$")]
-async fn restores(world: &mut Tackly, name: String) {
+#[when(regex = r"^(\w+) restores the family with (\w+)'s recovery code$")]
+async fn restores(world: &mut Tackly, name: String, head: String) {
     let words = check(
         world
-            .recovery_code
-            .clone()
-            .ok_or(Failure::from("nobody made a recovery code")),
+            .recovery_codes
+            .get(&head)
+            .cloned()
+            .ok_or(Failure::from("nobody saved a recovery code")),
     );
     check(world.restore(&name, &words).await);
 }
@@ -479,7 +554,8 @@ async fn opened(world: &mut Tackly, a: String, b: String, c: String) {
 
 #[given(regex = r#"^(\w+) has created the family "([^"]+)" with (\w+) and (\w+)$"#)]
 async fn family_of_three(world: &mut Tackly, head: String, family: String, a: String, b: String) {
-    check(world.create_family(&head, &family).await);
+    let words = check(world.create_family(&head, &family).await);
+    world.recovery_codes.insert(head.clone(), words);
     check(world.invite(&head, &a, Via::Link).await);
     check(world.invite(&head, &b, Via::Link).await);
 }
@@ -487,7 +563,8 @@ async fn family_of_three(world: &mut Tackly, head: String, family: String, a: St
 #[given(regex = r#"^(\w+) has created the family "([^"]+)"$"#)]
 #[when(regex = r#"^(\w+) creates the family "([^"]+)"$"#)]
 async fn creates_family(world: &mut Tackly, name: String, family: String) {
-    check(world.create_family(&name, &family).await);
+    let words = check(world.create_family(&name, &family).await);
+    world.recovery_codes.insert(name, words);
 }
 
 #[when(regex = r"^(\w+) invites (\w+)(?: by (QR code|link))?$")]
@@ -634,8 +711,7 @@ async fn edits_place(world: &mut Tackly, name: String) {
 
 #[when(regex = r#"^(\w+) opens (?:her|his|their) settings$"#)]
 async fn opens_settings(world: &mut Tackly, name: String) {
-    check(world.go(&name, "Family").await);
-    check(world.open_row(&name, &name).await);
+    check(world.go(&name, "Settings").await);
 }
 
 #[when(regex = r#"^(\w+) changes (?:her|his|their) name to "([^"]+)"$"#)]
@@ -1177,8 +1253,7 @@ async fn badge_shows(world: &mut Tackly, name: String, count: String) {
 #[when(regex = r#"^(\w+) sets (?:her|his|their) planning time to "(\d\d:\d\d)"$"#)]
 async fn sets_plan_time(world: &mut Tackly, name: String, time: String) {
     let page = check(world.page(&name));
-    check(world.go(&name, "Family").await);
-    check(world.open_row(&name, &name).await);
+    check(world.go(&name, "Settings").await);
     check(page.get_by_label("Planning time").fill(&time).await);
 }
 

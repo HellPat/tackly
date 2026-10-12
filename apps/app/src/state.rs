@@ -95,9 +95,8 @@ pub struct AppState {
     pub plan_snoozed_until: Signal<Option<DateTime<Local>>>,
     /// All of today's priorities are done: which kitten celebrates.
     pub celebrate: Signal<Option<usize>>,
-    /// The head's phone keeps a recovery backup.
-    pub has_recovery: Signal<bool>,
-    /// Freshly made recovery words, shown once.
+    /// Recovery words the head has not confirmed to have saved: shown over
+    /// everything until it does.
     pub recovery_words: Signal<Option<String>>,
 }
 
@@ -105,6 +104,7 @@ impl AppState {
     /// Opens this phone's data. Call once, inside a component.
     pub fn open() -> Result<Self> {
         let device = Device::open(platform::data_dir())?;
+        let recovery_words = device.pending_recovery_words().ok().flatten();
         Ok(Self {
             family: Signal::new(device.state()?),
             membership: Signal::new(device.membership().cloned()),
@@ -121,8 +121,7 @@ impl AppState {
             upcoming: Signal::new(Upcoming::default()),
             plan_snoozed_until: Signal::new(None),
             celebrate: Signal::new(None),
-            has_recovery: Signal::new(false),
-            recovery_words: Signal::new(None),
+            recovery_words: Signal::new(recovery_words),
         })
     }
 
@@ -132,20 +131,22 @@ impl AppState {
 
     /// Reads the device into the signals. Cheap enough to call after any change.
     pub async fn refresh(self) {
-        let (family, membership, online, my_id, has_recovery) = {
+        let (family, membership, online, my_id, recovery_words) = {
             let device = self.device().lock_owned().await;
             (
                 device.state(),
                 device.membership().cloned(),
                 device.online_flag().load(Ordering::Relaxed),
                 device.device_id(),
-                device.has_recovery_code().unwrap_or(false),
+                device.pending_recovery_words().ok().flatten(),
             )
         };
         let (mut family_signal, mut membership_signal) = (self.family, self.membership);
         let (mut my_id_signal, mut online_signal) = (self.my_id, self.online);
-        let mut has_recovery_signal = self.has_recovery;
-        has_recovery_signal.set(has_recovery);
+        let mut recovery_signal = self.recovery_words;
+        if *recovery_signal.peek() != recovery_words {
+            recovery_signal.set(recovery_words);
+        }
         if let Ok(family) = family
             && *family_signal.peek() != family
         {
@@ -575,21 +576,20 @@ impl AppState {
         });
     }
 
-    /// New recovery words: shown once, in the sheet.
+    /// New recovery words; they show over everything until saved.
     pub fn new_recovery_code(self) {
         spawn_forever(async move {
             let made = self.device().lock().await.new_recovery_code().await;
-            match made {
-                Ok(words) => {
-                    let mut shown = self.recovery_words;
-                    shown.set(Some(words));
-                }
-                Err(error) => self.say(format!(
-                    "Making a recovery code needs the server: {error:#}"
-                )),
+            if let Err(error) = made {
+                self.say(format!("A new recovery code needs the server: {error:#}"));
             }
             self.refresh().await;
         });
+    }
+
+    /// The head says it saved the recovery words.
+    pub fn confirm_recovery_code(self) {
+        self.act(move |device| async move { device.lock().await.confirm_recovery_code() });
     }
 
     pub fn leave_family(self) {

@@ -84,16 +84,40 @@ Feature: A family of three shares its tasks
     When Patrick revokes the AI agent
     Then Patrick, Mona and Mara see no AI agent
 
+  Scenario: The family opens only after the recovery code is saved
+    Given the sync server is running
+    And Patrick has opened Tackly
+    When Patrick starts creating the family "The Smiths"
+    Then Patrick sees a recovery code of 24 words
+    And Patrick cannot continue
+    When Patrick ticks "I saved it"
+    Then Patrick can continue
+    When Patrick continues
+    Then Patrick sees the main navigation
+
+  Scenario: Places and the members are behind the Family button, my settings behind my picture
+    Given the sync server is running
+    And Patrick, Mona and Mara have opened Tackly
+    And Patrick has created the family "The Smiths" with Mona and Mara
+    Then Mona does not see the "Places" button
+    When Mona opens the tab "Family"
+    Then Mona sees the "Places" button
+    And Mona sees the members Patrick, Mona and Mara
+    When Mona opens her settings
+    Then the field "Your name" of Mona contains "Mona"
+
   Scenario: Patrick loses his phone and comes back on a new one with the recovery code
     Given the sync server is running
     And Patrick, Mona and Mara have opened Tackly
     And Patrick has created the family "The Smiths" with Mona and Mara
     And Patrick has added the task "Before the backup"
-    When Patrick makes a recovery code
+    And Mona shows All
+    And Mona sees the task "Before the backup"
+    When Patrick makes a new recovery code
     And Patrick's phone is lost
     And Mona adds the task "While the phone was lost"
     And Pat opens Tackly
-    And Pat restores the family with the recovery code
+    And Pat restores the family with Patrick's recovery code
     And Pat shows All
     Then Pat sees the tasks "Before the backup" and "While the phone was lost"
     And Pat, Mona and Mara see the members Patrick, Mona and Mara
