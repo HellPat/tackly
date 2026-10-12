@@ -125,6 +125,10 @@ network. The prototype the screens were built from is `prototype/index.html`.
   (`GET /v1/families/{id}/stream`) and reconnects from its cursor with backoff.
 - **Finished twice.** Two members finishing the same task while apart is simply
   done; the first finish the relay received counts. Nobody is asked.
+- **Only https on the internet.** The device token travels as a bearer token,
+  so a relay address must be `https://`; plain `http://` is accepted only on
+  the person's own network (localhost, private addresses, names without a dot
+  or ending in `.local`), such as the Android emulator's `10.0.2.2`.
 - **Values with rules.** Anything that has rules is parsed once, at the edge,
   into a value object that cannot be invalid, and nothing downstream checks
   again: `Name`, `Photo`, `GeoPoint`, `Focus` and `IconName` in

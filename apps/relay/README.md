@@ -93,6 +93,13 @@ A reconnecting client sends it back as `Last-Event-ID`. Keep-alives come every
   from its recovery code; the server keeps one per ID, lets only the family's
   head replace or remove it, and hands it to anyone who asks by ID (the
   words are the key; the ID says nothing about them).
+- **Agent requests.** Anyone who knows a family's ID (it is on the head's
+  Family screen) can leave a request; at most five wait per family, for ten
+  minutes, and old ones are removed. The relay never learns whether the head
+  compared the code: that happens on the phone, against the key package the
+  phone itself fetched and then added, so a swapped key package cannot be let
+  in. Run the relay behind TLS: phones refuse plain `http://` to a host on the
+  internet.
 - **Retention.** Every accepted event is kept forever. There is no expiry,
   pruning or delete API, and database triggers reject updates and deletes of the
   event table (a database administrator can still bypass them). Corrections,

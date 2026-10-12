@@ -34,8 +34,8 @@ const SNAPSHOT_WAIT: Duration = Duration::from_secs(60);
 #[derive(Clone, Debug)]
 pub struct InviteTicket {
     pub invite_id: Uuid,
+    /// Holds the secret, and keeps it out of logs.
     pub link: InviteLink,
-    secret: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,8 +54,8 @@ pub enum InviteProgress {
 #[derive(Clone, Debug)]
 pub struct JoinRequest {
     pub confirmation: ConfirmationCode,
+    /// Holds the secret, and keeps it out of logs.
     invite: InviteLink,
-    secret: Vec<u8>,
     /// Chosen when asking, so that polling again after a lost answer is safe.
     device_token: DeviceToken,
 }
@@ -103,9 +103,8 @@ impl Device {
                 membership.server_url,
                 membership.family_id,
                 invite_id,
-                secret.clone(),
+                secret,
             ),
-            secret,
         })
     }
 
@@ -131,7 +130,7 @@ impl Device {
                     .context("the relay sent no key package")?;
                 InviteProgress::Requested {
                     device_id,
-                    confirmation: confirmation_code(&ticket.secret, key_package.as_slice()),
+                    confirmation: confirmation_code(ticket.link.secret(), key_package.as_slice()),
                 }
             }
             (InviteState::Approved | InviteState::Used, _) => InviteProgress::Approved,
@@ -217,7 +216,6 @@ impl Device {
         Ok(JoinRequest {
             confirmation: confirmation_code(&secret, &key_package),
             invite,
-            secret,
             device_token: DeviceToken::generate(),
         })
     }
@@ -230,7 +228,7 @@ impl Device {
             .claim_invite(
                 request.invite.invite(),
                 &ClaimInvite {
-                    verifier: invite_verifier(&request.secret),
+                    verifier: invite_verifier(request.invite.secret()),
                     device_id: self.device_id(),
                     token_hash: request.device_token.hash(),
                 },

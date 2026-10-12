@@ -5,8 +5,11 @@ use std::{fmt, net::SocketAddr, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
-/// An `http://` or `https://` address with a host, and no query, fragment or
-/// login. Spaces around it and a slash at its end are dropped.
+/// An `https://` address with a host, and no query, fragment or login. Plain
+/// `http://` is allowed only for a relay on the local network (localhost, a
+/// private address, a name without a dot or ending in `.local`): the device
+/// token travels as a bearer token, and on the internet it must not be read
+/// along the way. Spaces around the address and a slash at its end are dropped.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct ServerUrl(String);
@@ -19,6 +22,8 @@ pub enum ServerUrlError {
     Host,
     /// A query, fragment or login: none of them belongs to a relay's address.
     Extras,
+    /// `http://` to a host on the internet.
+    Cleartext,
 }
 
 impl fmt::Display for ServerUrlError {
@@ -27,6 +32,9 @@ impl fmt::Display for ServerUrlError {
             Self::Scheme => "the server address must start with http:// or https://",
             Self::Host => "the server address needs a host, such as https://relay.example.org",
             Self::Extras => "the server address is only the relay's address, nothing after it",
+            Self::Cleartext => {
+                "a server on the internet needs https://; http:// is only for your own network"
+            }
         })
     }
 }
@@ -69,7 +77,27 @@ impl FromStr for ServerUrl {
         {
             return Err(ServerUrlError::Extras);
         }
+        if url.scheme() == "http" && !is_local(&url) {
+            return Err(ServerUrlError::Cleartext);
+        }
         Ok(Self(url.as_str().trim_end_matches('/').to_owned()))
+    }
+}
+
+/// A host on the person's own network, where plain HTTP stays at home: the
+/// loopback, the private ranges (and the Android emulator's 10.0.2.2), a name
+/// with no dot, or a `.local` one.
+fn is_local(url: &reqwest::Url) -> bool {
+    use url::Host;
+    match url.host() {
+        Some(Host::Ipv4(ip)) => ip.is_loopback() || ip.is_private() || ip.is_link_local(),
+        Some(Host::Ipv6(ip)) => ip.is_loopback(),
+        Some(Host::Domain(name)) => {
+            name.eq_ignore_ascii_case("localhost")
+                || !name.contains('.')
+                || name.to_ascii_lowercase().ends_with(".local")
+        }
+        None => false,
     }
 }
 
@@ -123,6 +151,23 @@ mod tests {
         );
         assert_eq!("".parse::<ServerUrl>(), Err(ServerUrlError::Scheme));
         assert_eq!("https://".parse::<ServerUrl>(), Err(ServerUrlError::Host));
+        for local in [
+            "http://127.0.0.1:3000",
+            "http://10.0.2.2:3000",
+            "http://192.168.1.20:3000",
+            "http://localhost:3000",
+            "http://relay:3000",
+            "http://relay.local:3000",
+        ] {
+            assert!(local.parse::<ServerUrl>().is_ok(), "{local}");
+        }
+        for public in ["http://relay.example.org", "http://8.8.8.8:3000"] {
+            assert_eq!(
+                public.parse::<ServerUrl>(),
+                Err(ServerUrlError::Cleartext),
+                "{public}"
+            );
+        }
         for extras in [
             "https://relay.example.org/?a=1",
             "https://relay.example.org/#top",

@@ -51,6 +51,14 @@ pub async fn ask(
         return Err(bad_request("invalid key package size"));
     }
     let mut tx = state.db.begin().await.map_err(internal)?;
+    // Requests that ran out a day ago are of no use to anyone.
+    sqlx::query(
+        "DELETE FROM agent_requests \
+         WHERE expires_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 day')",
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(internal)?;
     sqlx::query("SELECT 1 FROM families WHERE id = ?")
         .bind(family_id.to_string())
         .fetch_optional(&mut *tx)
