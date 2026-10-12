@@ -16,18 +16,28 @@ start members="3":
 reset:
     rm -rf .dev
 
-# Run only the sync server on 127.0.0.1:3000.
+# Run only the relay (the Cloudflare Worker under wrangler dev) on 127.0.0.1:3000.
 server:
     {{shell}} {{scripts}}/relay.sh
 
-# Fast tests without windows: unit tests and the device-level end-to-end suite.
-test:
-    {{shell}} cargo test --locked -p tackly-domain -p tackly-wire -p tackly-phone -p tackly-relay
+# Fast tests without windows: unit tests and the device-level end-to-end suite
+# (against the relay under wrangler dev, one per test).
+test: relay-deps
+    {{shell}} cargo test --locked -p tackly-domain -p tackly-wire -p tackly-phone
+
+# The end-to-end suite against the deployed relay (tests that must stop the
+# relay or play a hostile one skip themselves).
+test-deployed url="https://relay.tackly.hellpat.com":
+    {{shell}} env TACKLY_RELAY_URL={{url}} cargo test --locked -p tackly-phone --test e2e
+
+# wrangler for the relay's tests and `just server`.
+relay-deps:
+    cd apps/relay && npm ci --no-audit --no-fund --silent
 
 # Cucumber acceptance tests: three real app windows (Patrick, Mona, Mara) are
 # opened per scenario and clicked through, against a real server. Windows pop
 # up and move on their own while this runs; let it finish.
-acceptance:
+acceptance: relay-deps
     {{shell}} cargo test --locked -p tackly-acceptance --test acceptance
 
 # Compile the app's styles (Tailwind) into apps/app/src/style.css. Run after
@@ -35,9 +45,11 @@ acceptance:
 css:
     {{shell}} tailwindcss --input apps/app/tailwind.css --output apps/app/src/style.css --minify
 
-# Clippy on everything. Unwrap and expect are denied (see Cargo.toml).
+# Clippy on everything, the relay (WebAssembly) included. Unwrap and expect
+# are denied (see Cargo.toml).
 lint:
     {{shell}} cargo clippy --workspace --all-targets --locked -- -D warnings
+    cd apps/relay && {{shell}} cargo clippy --locked --target wasm32-unknown-unknown -- -D warnings
 
 # Debug APK for Android (needs the Android SDK and NDK; the shell has the rest).
 android-build:

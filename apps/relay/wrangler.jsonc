@@ -1,0 +1,24 @@
+// The relay on Cloudflare: a Worker in front of one Durable Object, which
+// keeps the data in D1 and the phones' live connections open. Workers Builds
+// deploys it with `npm run deploy` when CI calls the deploy hook after the
+// tests pass (.github/workflows/ci.yml); pushes alone do not deploy.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tackly",
+  "main": "build/index.js",
+  "compatibility_date": "2026-10-01",
+  "build": { "command": "sh build.sh" },
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "relay.tackly.hellpat.com", "custom_domain": true }],
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [{ "name": "RELAY", "class_name": "Relay" }]
+  },
+  "exports": {
+    "Relay": { "type": "durable-object", "storage": "sqlite" }
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "tackly-relay", "database_id": "60f424eb-c976-4e27-8a74-c33697374cec" }
+  ]
+}

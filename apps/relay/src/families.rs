@@ -1,57 +1,64 @@
 //! Registering a family.
 
-use axum::{Json, extract::State};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tackly_wire::CreateFamily;
 
 use crate::{
-    AppState,
-    error::{ApiResult, conflict, internal},
+    db::args,
+    error::{ApiResult, conflict},
+    relay::{Call, json},
 };
 
 #[derive(Serialize)]
-pub struct Registered {
+struct Registered {
     owner: bool,
 }
 
-/// Creates a family with its first device as the owner. The token's hash comes
+#[derive(Deserialize)]
+struct Found {}
+
+/// Creates a family with its first device as the head. The token's hash comes
 /// from the phone, so the same request repeated (because the answer was lost)
 /// is recognised and answered the same way; any other request for an existing
 /// family is a conflict.
-pub async fn create_family(
-    State(state): State<AppState>,
-    Json(input): Json<CreateFamily>,
-) -> ApiResult<Registered> {
-    let token_hash = input.token_hash.as_bytes().to_vec();
-    let mut tx = state.db.begin().await.map_err(internal)?;
-    let inserted = sqlx::query("INSERT INTO families (id) VALUES (?) ON CONFLICT DO NOTHING")
-        .bind(input.family_id.to_string())
-        .execute(&mut *tx)
-        .await
-        .map_err(internal)?;
-    if inserted.rows_affected() == 0 {
-        let same_registration = sqlx::query(
-            "SELECT 1 FROM devices WHERE id = ? AND family_id = ? AND token_hash = ? \
-             AND is_owner = 1 AND revoked_at IS NULL",
+pub async fn create(call: &mut Call<'_>) -> ApiResult {
+    let input: CreateFamily = call.body().await?;
+    let token_hash = input.token_hash.as_bytes().as_slice();
+    let exists = call
+        .db
+        .first::<Found>(
+            "SELECT 1 AS found FROM families WHERE id = ?",
+            args![input.family_id],
         )
-        .bind(input.device_id.to_string())
-        .bind(input.family_id.to_string())
-        .bind(&token_hash)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(internal)?;
-        return match same_registration {
-            Some(_) => Ok(Json(Registered { owner: true })),
-            None => Err(conflict("family exists")),
+        .await?
+        .is_some();
+    if exists {
+        let same_registration = call
+            .db
+            .first::<Found>(
+                "SELECT 1 AS found FROM devices WHERE id = ? AND family_id = ? AND token_hash = ? \
+                 AND is_owner = 1 AND revoked_at IS NULL",
+                args![input.device_id, input.family_id, token_hash],
+            )
+            .await?
+            .is_some();
+        return if same_registration {
+            json(&Registered { owner: true })
+        } else {
+            Err(conflict("family exists"))
         };
     }
-    sqlx::query("INSERT INTO devices (id, family_id, token_hash, is_owner) VALUES (?, ?, ?, 1)")
-        .bind(input.device_id.to_string())
-        .bind(input.family_id.to_string())
-        .bind(&token_hash)
-        .execute(&mut *tx)
-        .await
-        .map_err(internal)?;
-    tx.commit().await.map_err(internal)?;
-    Ok(Json(Registered { owner: true }))
+    call.db
+        .batch(vec![
+            call.db.statement(
+                "INSERT INTO families (id) VALUES (?)",
+                args![input.family_id],
+            )?,
+            call.db.statement(
+                "INSERT INTO devices (id, family_id, token_hash, is_owner) VALUES (?, ?, ?, 1)",
+                args![input.device_id, input.family_id, token_hash],
+            )?,
+        ])
+        .await?;
+    json(&Registered { owner: true })
 }

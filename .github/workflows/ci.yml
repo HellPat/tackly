@@ -21,16 +21,22 @@ jobs:
           chmod +x "$RUNNER_TEMP/tailwindcss"
           "$RUNNER_TEMP/tailwindcss" --input apps/app/tailwind.css --output apps/app/src/style.css --minify
           git diff --exit-code apps/app/src/style.css
-      - name: Unit and end-to-end tests (real server, three phones, SSE, outages)
-        run: cargo test --locked -p tackly-domain -p tackly-wire -p tackly-phone -p tackly-relay -p tackly-agent
+      - uses: ./.github/actions/relay-tools
+      - name: The relay (WebAssembly) is formatted and passes clippy
+        working-directory: apps/relay
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --target wasm32-unknown-unknown -- -D warnings
+      - name: Unit and end-to-end tests (the relay under wrangler dev, three phones, live, outages)
+        run: cargo test --locked -p tackly-domain -p tackly-wire -p tackly-phone -p tackly-agent
 
   deploy-relay:
-    # Cloudflare builds and deploys the relay (apps/relay/cloudflare) only
-    # when this calls its deploy hook; pushes alone do not deploy.
+    # Cloudflare builds and deploys the relay (apps/relay) only when this
+    # calls its deploy hook; pushes alone do not deploy.
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     concurrency:
       group: deploy-relay
       cancel-in-progress: true
@@ -50,13 +56,11 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: App tests (color schemes, the embedded icon font)
         run: cargo test --locked -p tackly-app
-      - run: cargo build --locked --release -p tackly-relay -p tackly-app
+      - run: cargo build --locked --release -p tackly-app
       - uses: actions/upload-artifact@v4
         with:
           name: tackly-macos
-          path: |
-            target/release/tackly-relay
-            target/release/tackly
+          path: target/release/tackly
 
   acceptance-macos:
     # Real app windows: the macOS runner has a desktop session.
@@ -64,4 +68,5 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/relay-tools
       - run: cargo test --locked -p tackly-acceptance --test acceptance

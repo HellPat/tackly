@@ -71,8 +71,6 @@ pub struct Device {
     backed_up: Option<(usize, u64)>,
     /// The head came back from outside: it needs the history from us.
     owes_snapshot: bool,
-    /// The relay restarted and may have lost some of our events: send them again.
-    owes_resend: bool,
 }
 
 impl Device {
@@ -95,7 +93,6 @@ impl Device {
             early: Vec::new(),
             backed_up: None,
             owes_snapshot: false,
-            owes_resend: false,
         })
     }
 
@@ -275,7 +272,6 @@ impl Device {
         self.membership = None;
         self.backed_up = None;
         self.owes_snapshot = false;
-        self.owes_resend = false;
         Ok(())
     }
 }

@@ -1,7 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["domain", "wire", "phone", "apps/app", "apps/relay", "apps/agent", "tests/testkit", "tests/acceptance"]
-default-members = ["domain", "wire", "phone", "apps/relay", "apps/agent"]
+# The relay is a Cloudflare Worker with its own workspace (WebAssembly only).
+exclude = ["apps/relay"]
+members = ["domain", "wire", "phone", "apps/app", "apps/agent", "tests/testkit", "tests/acceptance"]
+default-members = ["domain", "wire", "phone", "apps/agent"]
 
 [workspace.lints.clippy]
 # Errors are handled, not unwrapped. `.cargo/config.toml` runs clippy on every

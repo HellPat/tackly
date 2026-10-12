@@ -9,7 +9,7 @@
 //    receives, so the test checks what really synced.
 //
 // Needs: an emulator or device on adb, the debug APK installed, and the relay
-// and probe built (`cargo build -p tackly-relay -p tackly-testkit`).
+// probe built (`cargo build -p tackly-testkit`) and `npm ci` in apps/relay.
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -26,10 +26,13 @@ const HERE = { latitude: 48.8752, longitude: 9.3775 };
 const root = resolve(import.meta.dirname, "../..");
 const dir = mkdtempSync(join(tmpdir(), "tackly-android-"));
 
+/** The relay: the Cloudflare Worker under `wrangler dev`, with its data in `dir`. */
 function startRelay() {
-  return spawn(join(root, "target/debug/tackly-relay"), [], {
-    env: { ...process.env, DATABASE_URL: `sqlite://${dir}/relay.db`, TACKLY_BIND: `127.0.0.1:${PORT}` },
+  const wrangler = join(root, "apps/relay/node_modules/.bin/wrangler");
+  return spawn(wrangler, ["dev", "--ip", "127.0.0.1", "--port", `${PORT}`, "--persist-to", join(dir, "relay"), "--show-interactive-dev-session=false"], {
+    cwd: join(root, "apps/relay"),
     stdio: "inherit",
+    detached: true,
   });
 }
 
@@ -64,7 +67,13 @@ const step = async (name, action) => {
 };
 
 const relay = startRelay();
-await new Promise((done) => setTimeout(done, 1000));
+// The first start builds the Worker; wait until it answers.
+for (let tries = 0; ; tries++) {
+  const up = await fetch(`http://127.0.0.1:${PORT}/health`).then((r) => r.status === 204, () => false);
+  if (up) break;
+  if (tries > 240) throw new Error("the relay did not start");
+  await new Promise((done) => setTimeout(done, 500));
+}
 const { probe, ask } = startProbe();
 let device;
 let failed = false;
@@ -170,7 +179,7 @@ try {
   console.error(error);
 } finally {
   probe.kill();
-  relay.kill();
+  process.kill(-relay.pid);
   if (device) {
     // Closing can hang once the app is idle; do not wait for it forever.
     await Promise.race([device.close(), new Promise((done) => setTimeout(done, 5000))]);

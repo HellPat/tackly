@@ -1,12 +1,8 @@
 {
-  "name": "tackly-relay-cloudflare",
+  "name": "tackly-relay",
   "private": true,
-  "type": "module",
   "scripts": {
     "deploy": "wrangler deploy --var TACKLY_COMMIT:$(git rev-parse HEAD)"
-  },
-  "dependencies": {
-    "@cloudflare/containers": "0.3.7"
   },
   "devDependencies": {
     "wrangler": "4.149.0"

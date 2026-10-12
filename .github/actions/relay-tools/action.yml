@@ -1,0 +1,20 @@
+name: Relay tools
+description: >
+  What the tests need to run the relay (a Cloudflare Worker) under wrangler
+  dev: the WebAssembly target, worker-build and wrangler.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: rustup target add wasm32-unknown-unknown
+    - id: cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/bin/worker-build
+        key: worker-build-0.8.7-${{ runner.os }}-${{ runner.arch }}
+    - if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: cargo install --locked worker-build --version 0.8.7
+    - shell: bash
+      working-directory: apps/relay
+      run: npm ci --no-audit --no-fund

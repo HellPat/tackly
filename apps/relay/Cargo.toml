@@ -1,22 +1,34 @@
 [package]
 name = "tackly-relay"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+description = "The Tackly relay as a Cloudflare Worker: one Durable Object, D1 as its store"
+version = "0.2.0"
+edition = "2024"
+license = "MIT"
+
+# Its own workspace: it only builds for WebAssembly (worker-build), so the
+# host builds of the main workspace leave it alone.
+[workspace]
 
 [lib]
-name = "tackly_relay"
+crate-type = ["cdylib"]
 
-[lints]
-workspace = true
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
 
 [dependencies]
-tackly-wire.workspace = true
-axum = "0.8"
-futures-util.workspace = true
-openmls.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "migrate", "macros"] }
-tokio.workspace = true
-uuid.workspace = true
+tackly-wire = { path = "../../wire" }
+worker = { version = "=0.8.7", features = ["d1"] }
+openmls = { version = "0.9", features = ["js"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["serde", "js"] }
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
+getrandom_03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+js-sys = "0.3.106"
+wasm-bindgen = "=0.2.129"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+
+[profile.release]
+opt-level = "s"
+lto = true

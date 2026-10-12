@@ -1,95 +1,189 @@
-//! A real relay (the server's router, a SQLite file, real HTTP) that tests can
-//! stop and start again on the same address, to play a server outage, and
-//! bring back from a backup, to play a relay that lost its last messages.
+//! A real relay (the Cloudflare Worker under `wrangler dev`: the Worker, its
+//! Durable Object and a local D1, real HTTP and WebSockets) that tests can
+//! stop and start again on the same address and data, to play an outage.
+//!
+//! With `TACKLY_RELAY_URL` set, the tests talk to that relay instead (a
+//! deployed one); then the relay cannot be stopped.
 
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
+    process::{Child, Command, Stdio},
+    sync::OnceLock,
+    time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail, ensure};
 use tackly_phone::infrastructure::server_url::ServerUrl;
-use tokio::runtime::Runtime;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    runtime::Runtime,
+};
 
 pub struct Relay {
-    addr: SocketAddr,
-    database: PathBuf,
-    runtime: Option<Runtime>,
+    target: Target,
 }
 
-/// A copy of a stopped relay's database files.
-pub struct Backup {
-    dir: PathBuf,
+enum Target {
+    Local {
+        addr: SocketAddr,
+        /// The runtime's devtools port: its own, so relays run side by side.
+        inspector: u16,
+        state: PathBuf,
+        process: Option<Child>,
+    },
+    Deployed(ServerUrl),
 }
 
-/// The database and its write-ahead log.
-const DATABASE_FILES: [&str; 3] = ["", "-wal", "-shm"];
+/// The Worker's folder in the repository.
+fn worker_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/relay")
+}
+
+/// Builds the Worker once per test run; every `wrangler dev` uses that build.
+fn build_worker() -> Result<()> {
+    static BUILT: OnceLock<Result<(), String>> = OnceLock::new();
+    BUILT
+        .get_or_init(|| {
+            let status = Command::new("worker-build")
+                .arg("--release")
+                .current_dir(worker_dir())
+                .status()
+                .map_err(|error| format!("worker-build did not run (Nix shell?): {error}"))?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err(format!("worker-build failed: {status}"))
+            }
+        })
+        .clone()
+        .map_err(anyhow::Error::msg)
+}
 
 impl Relay {
-    /// Picks an address and a database file in `dir`, without serving yet: a
+    /// Picks an address and a data folder in `dir`, without serving yet: a
     /// relay that is "down" until [`Self::start`].
     pub fn reserve(dir: &Path) -> Result<Self> {
-        let addr = std::net::TcpListener::bind("127.0.0.1:0")
-            .context("reserve a port")?
-            .local_addr()?;
+        if let Ok(url) = std::env::var("TACKLY_RELAY_URL") {
+            return Ok(Self {
+                target: Target::Deployed(url.parse().context("TACKLY_RELAY_URL")?),
+            });
+        }
+        let free_port = || -> Result<SocketAddr> {
+            Ok(std::net::TcpListener::bind("127.0.0.1:0")
+                .context("reserve a port")?
+                .local_addr()?)
+        };
+        let (addr, inspector) = (free_port()?, free_port()?.port());
         Ok(Self {
-            addr,
-            database: dir.join("relay.db"),
-            runtime: None,
+            target: Target::Local {
+                addr,
+                inspector,
+                state: dir.join("relay-state"),
+                process: None,
+            },
         })
     }
 
-    /// Copies the stopped relay's database aside, as a backup would.
-    pub fn back_up(&self, name: &str) -> Result<Backup> {
-        anyhow::ensure!(!self.is_running(), "stop the relay before backing it up");
-        let dir = self.database.with_file_name(format!("backup-{name}"));
-        std::fs::create_dir_all(&dir)?;
-        copy_files(&self.database, &dir.join("relay.db"))?;
-        Ok(Backup { dir })
-    }
-
-    /// Puts a backup in place of the stopped relay's database: the relay
-    /// loses everything it accepted since.
-    pub fn restore(&self, backup: &Backup) -> Result<()> {
-        anyhow::ensure!(!self.is_running(), "stop the relay before restoring it");
-        copy_files(&backup.dir.join("relay.db"), &self.database)
-    }
-
     pub fn url(&self) -> ServerUrl {
-        ServerUrl::http(self.addr)
+        match &self.target {
+            Target::Local { addr, .. } => ServerUrl::http(*addr),
+            Target::Deployed(url) => url.clone(),
+        }
+    }
+
+    /// Whether the tests talk to a deployed relay, which they cannot stop.
+    pub fn is_deployed(&self) -> bool {
+        matches!(self.target, Target::Deployed(_))
     }
 
     pub fn is_running(&self) -> bool {
-        self.runtime.is_some()
+        match &self.target {
+            Target::Local { process, .. } => process.is_some(),
+            Target::Deployed(_) => true,
+        }
     }
 
-    /// Starts serving. Does nothing when it already runs.
+    /// Starts serving and waits until it answers. Does nothing when it
+    /// already runs.
     pub async fn start(&mut self) -> Result<()> {
-        if self.is_running() {
+        let Target::Local {
+            addr,
+            inspector,
+            state,
+            process,
+        } = &mut self.target
+        else {
+            return Ok(());
+        };
+        if process.is_some() {
             return Ok(());
         }
-        // Its own runtime, so that stopping also drops the open SSE connections.
-        let runtime = Runtime::new().context("start the relay's runtime")?;
-        let database_url = format!("sqlite://{}", self.database.display());
-        let addr = self.addr;
-        let (ready, listening) = tokio::sync::oneshot::channel();
-        runtime.spawn(async move {
-            let result = serve(&database_url, addr, ready).await;
-            if let Err(error) = result {
-                eprintln!("test relay stopped: {error:#}");
+        build_worker()?;
+        let wrangler = worker_dir().join("node_modules/.bin/wrangler");
+        ensure!(wrangler.exists(), "no wrangler: run `npm ci` in apps/relay");
+        let mut command = Command::new(wrangler);
+        command
+            .args(["dev", "--ip", "127.0.0.1", "--port"])
+            .arg(addr.port().to_string())
+            .arg("--inspector-port")
+            .arg(inspector.to_string())
+            .arg("--persist-to")
+            .arg(&*state)
+            .args([
+                "--log-level",
+                "error",
+                "--show-interactive-dev-session=false",
+            ])
+            .env("TACKLY_RELAY_PREBUILT", "1")
+            .current_dir(worker_dir())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null());
+        #[cfg(unix)]
+        std::os::unix::process::CommandExt::process_group(&mut command, 0);
+        let mut child = command.spawn().context("start wrangler dev")?;
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while !healthy(*addr).await {
+            if let Some(status) = child.try_wait()? {
+                bail!("wrangler dev exited: {status}");
             }
-        });
-        listening
-            .await
-            .context("the relay failed to start (see its log line above)")?;
-        self.runtime = Some(runtime);
+            if Instant::now() > deadline {
+                stop_process(&mut child);
+                bail!("the relay did not answer within a minute");
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        *process = Some(child);
         Ok(())
+    }
+
+    /// The local D1 database file, for tests that play a hostile relay.
+    pub fn database_file(&self) -> Result<PathBuf> {
+        let Target::Local { state, .. } = &self.target else {
+            bail!("a deployed relay's database is out of reach");
+        };
+        let dir = state.join("v3/d1/miniflare-D1DatabaseObject");
+        for entry in std::fs::read_dir(&dir).with_context(|| format!("read {}", dir.display()))? {
+            let path = entry?.path();
+            if path
+                .extension()
+                .is_some_and(|extension| extension == "sqlite")
+                && !path
+                    .file_name()
+                    .is_some_and(|name| name == "metadata.sqlite")
+            {
+                return Ok(path);
+            }
+        }
+        bail!("no D1 database in {}", dir.display())
     }
 
     /// Stops serving and drops every connection. Does nothing when stopped.
     pub fn stop(&mut self) {
-        if let Some(runtime) = self.runtime.take() {
-            runtime.shutdown_background();
+        if let Target::Local { process, .. } = &mut self.target
+            && let Some(mut child) = process.take()
+        {
+            stop_process(&mut child);
         }
     }
 }
@@ -100,40 +194,29 @@ impl Drop for Relay {
     }
 }
 
-/// Copies the database files at `from` over those at `to`; a file `from`
-/// lacks is removed at `to`.
-fn copy_files(from: &Path, to: &Path) -> Result<()> {
-    for suffix in DATABASE_FILES {
-        let (source, target) = (with_suffix(from, suffix), with_suffix(to, suffix));
-        if source.exists() {
-            std::fs::copy(&source, &target)
-                .with_context(|| format!("copy {}", source.display()))?;
-        } else if target.exists() {
-            std::fs::remove_file(&target)?;
-        }
+/// Stops `wrangler dev` and the runtime it started (its process group).
+fn stop_process(child: &mut Child) {
+    #[cfg(unix)]
+    if let Ok(group) = i32::try_from(child.id()) {
+        // SAFETY: sends a signal; no memory is involved.
+        unsafe { libc::killpg(group, libc::SIGKILL) };
     }
-    Ok(())
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
-fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
-    let mut name = path.as_os_str().to_owned();
-    name.push(suffix);
-    PathBuf::from(name)
-}
-
-async fn serve(
-    database_url: &str,
-    addr: SocketAddr,
-    ready: tokio::sync::oneshot::Sender<()>,
-) -> Result<()> {
-    let pool = tackly_relay::connect(database_url).await?;
-    tackly_relay::migrate(&pool).await?;
-    tackly_relay::record_restart(&pool).await?;
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    // The receiver is gone only if the test gave up waiting.
-    let _ = ready.send(());
-    axum::serve(listener, tackly_relay::router(pool)).await?;
-    Ok(())
+/// Whether `GET /health` answers 204.
+async fn healthy(addr: SocketAddr) -> bool {
+    let Ok(mut stream) = tokio::net::TcpStream::connect(addr).await else {
+        return false;
+    };
+    let request = format!("GET /health HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
+    if stream.write_all(request.as_bytes()).await.is_err() {
+        return false;
+    }
+    let mut answer = Vec::new();
+    let _ = tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut answer)).await;
+    answer.starts_with(b"HTTP/1.1 204")
 }
 
 /// A stand-in for the address search (Photon) so tests need no internet. It

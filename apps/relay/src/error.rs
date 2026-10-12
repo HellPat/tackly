@@ -1,59 +1,55 @@
-//! How failures reach the client: a status code and a short message.
+//! How failures reach the client: a status code and a short message, as
+//! `{"error": "..."}`.
 
-use axum::{
-    Json,
-    http::StatusCode,
-    response::{IntoResponse, Response},
-};
+use tackly_wire::ApiErrorBody;
+use worker::Response;
 
 #[derive(Debug)]
-pub struct ApiError(StatusCode, &'static str);
+pub struct ApiError(pub u16, pub &'static str);
+
+pub type ApiResult = Result<Response, ApiError>;
 
 impl ApiError {
-    pub const fn new(status: StatusCode, message: &'static str) -> Self {
-        Self(status, message)
+    pub fn into_response(self) -> worker::Result<Response> {
+        Ok(Response::from_json(&ApiErrorBody {
+            error: self.1.to_owned(),
+        })?
+        .with_status(self.0))
     }
 }
 
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        (self.0, Json(serde_json::json!({ "error": self.1 }))).into_response()
-    }
-}
-
-pub type ApiResult<T> = Result<Json<T>, ApiError>;
-
-/// A database failure: logged here, reported as a plain 500.
-pub fn internal(error: sqlx::Error) -> ApiError {
-    eprintln!("database error: {error}");
-    ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "database error")
+/// A failure of D1 or the runtime: logged here, reported as a plain 500.
+pub fn internal(error: impl std::fmt::Display) -> ApiError {
+    worker::console_error!("relay error: {error}");
+    ApiError(500, "database error")
 }
 
 pub const fn bad_request(message: &'static str) -> ApiError {
-    ApiError::new(StatusCode::BAD_REQUEST, message)
+    ApiError(400, message)
 }
 
 pub const fn unauthorized(message: &'static str) -> ApiError {
-    ApiError::new(StatusCode::UNAUTHORIZED, message)
+    ApiError(401, message)
 }
 
 pub const fn forbidden(message: &'static str) -> ApiError {
-    ApiError::new(StatusCode::FORBIDDEN, message)
+    ApiError(403, message)
 }
 
 pub const fn not_found(message: &'static str) -> ApiError {
-    ApiError::new(StatusCode::NOT_FOUND, message)
-}
-
-pub const fn too_many(message: &'static str) -> ApiError {
-    ApiError::new(StatusCode::TOO_MANY_REQUESTS, message)
+    ApiError(404, message)
 }
 
 pub const fn conflict(message: &'static str) -> ApiError {
-    ApiError::new(StatusCode::CONFLICT, message)
+    ApiError(409, message)
 }
 
-/// 410: an invitation that is expired, used, cancelled or never existed.
+/// 410: an invitation or request that is expired, used, cancelled or never
+/// existed.
 pub const fn gone(message: &'static str) -> ApiError {
-    ApiError::new(StatusCode::GONE, message)
+    ApiError(410, message)
+}
+
+pub const fn too_many(message: &'static str) -> ApiError {
+    ApiError(429, message)
 }

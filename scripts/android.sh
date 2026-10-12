@@ -48,7 +48,7 @@ case "${1:-}" in
   test)
     build
     ensure_device
-    cargo build --locked -p tackly-relay -p tackly-testkit --bins
+    cargo build --locked -p tackly-testkit --bins
     adb install -r "$apk"
     cd "$root/tests/android-e2e"
     npm ci --no-audit --no-fund

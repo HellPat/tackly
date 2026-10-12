@@ -1,8 +1,0 @@
-# The relay image (apps/relay/cloudflare/Dockerfile) builds from the repository
-# root; send it the sources, not build output or local state.
-.git
-.direnv
-.dev
-target
-prototype
-**/node_modules

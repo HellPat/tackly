@@ -1,36 +1,29 @@
-//! The family's message log: appending, reading by cursor, and following live.
+//! The family's message log: appending and reading by cursor.
 //!
 //! Messages are MLS messages to the family's group. The relay cannot read
 //! one; it checks who sent it, that it is for the group's current epoch (a
 //! commit moves the epoch on; only the head commits), gives it the next
 //! sequence number, keeps it forever, and passes it on.
 
-use std::{convert::Infallible, time::Duration};
+use std::collections::HashSet;
 
-use axum::{
-    Json,
-    extract::{Path, Query, State},
-    http::HeaderMap,
-    response::sse::{Event, KeepAlive, Sse},
-};
-use futures_util::Stream;
 use openmls::prelude::{ContentType, MlsMessageBodyIn, MlsMessageIn, tls_codec::Deserialize as _};
-use sqlx::SqlitePool;
+use serde::Deserialize;
 use tackly_wire::{
-    AppendEvents, AppendResult, Bytes, EncryptedEvent, EventsPage, EventsQuery, MAX_APPEND_BATCH,
-    MAX_MESSAGE_BYTES, MAX_PAGE, Restart, SSE_EVENTS, STALE_EPOCH, SequencedEvent,
+    AppendEvents, AppendResult, Bytes, EncryptedEvent, EventsPage, MAX_APPEND_BATCH,
+    MAX_MESSAGE_BYTES, MAX_PAGE, STALE_EPOCH, SequencedEvent,
 };
-use tokio::sync::broadcast::error::RecvError;
 use uuid::Uuid;
 
 use crate::{
-    AppState,
     auth::Device,
-    db::{column, uuid_column},
+    db::{Db, args},
     error::{ApiError, ApiResult, bad_request, conflict, forbidden, internal},
+    live,
+    relay::{Call, json, stored_uuid},
 };
 
-/// What the relay reads of a message: which group, which epoch, what kind.
+/// What the relay reads of a message: which epoch, what kind.
 struct Framing {
     epoch: i64,
     content_type: ContentType,
@@ -64,46 +57,52 @@ fn framing(bytes: &[u8], family_id: Uuid) -> Result<Framing, ApiError> {
         ));
     }
     Ok(Framing {
-        epoch: epoch.as_u64() as i64,
+        epoch: i64::try_from(epoch.as_u64()).map_err(|_| bad_request("epoch out of range"))?,
         content_type,
     })
 }
 
+#[derive(Deserialize)]
+struct EpochRow {
+    epoch: i64,
+}
+
+#[derive(Deserialize)]
+struct SenderRow {
+    origin_device_id: String,
+}
+
 /// Stores up to eight messages from the calling device, all or none. A
-/// message for an epoch that is over is refused (the phone catches up and
-/// encrypts again); a commit moves the epoch on, and only the head commits.
-/// A message ID sent again by the same device is accepted and changes nothing.
-pub async fn append_events(
-    State(state): State<AppState>,
-    Path(family_id): Path<Uuid>,
-    headers: HeaderMap,
-    Json(input): Json<AppendEvents>,
-) -> ApiResult<AppendResult> {
-    let caller = Device::authenticate(&state.db, &headers, family_id).await?;
+/// message for another epoch is refused (the phone catches up and encrypts
+/// again); a commit moves the epoch on, and only the head commits. A message
+/// ID sent again by the same device is accepted and changes nothing.
+pub async fn append(call: &mut Call<'_>, family_id: Uuid) -> ApiResult {
+    let caller = Device::authenticate(call, family_id).await?;
     if caller.agent {
         return Err(forbidden("an AI agent only reads"));
     }
+    let input: AppendEvents = call.body().await?;
     if input.events.is_empty() || input.events.len() > MAX_APPEND_BATCH {
         return Err(bad_request("send between one and eight events"));
     }
-    let mut tx = state.db.begin().await.map_err(internal)?;
-    let mut epoch: i64 = {
-        let row = sqlx::query("SELECT epoch FROM families WHERE id=?")
-            .bind(family_id.to_string())
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(internal)?;
-        column(&row, "epoch")?
-    };
+    let db = call.db;
+    let mut epoch = db
+        .first::<EpochRow>("SELECT epoch FROM families WHERE id = ?", args![family_id])
+        .await?
+        .ok_or_else(|| internal("the caller's family is missing"))?
+        .epoch;
+    let start_epoch = epoch;
+    let mut batch = Vec::new();
+    let mut in_batch = HashSet::new();
     for event in &input.events {
         if event.origin_device_id != caller.id {
             return Err(forbidden("a message must come from the sending device"));
         }
-        let message = event.message.as_slice().to_vec();
+        let message = event.message.as_slice();
         if message.is_empty() || message.len() > MAX_MESSAGE_BYTES {
             return Err(bad_request("message exceeds limit"));
         }
-        let framing = framing(&message, family_id)?;
+        let framing = framing(message, family_id)?;
         if framing.epoch != epoch {
             return Err(conflict(STALE_EPOCH));
         }
@@ -112,179 +111,115 @@ pub async fn append_events(
                 "only the head of the family changes who is in it",
             ));
         }
-        let inserted = sqlx::query(
-            "INSERT INTO group_messages \
-             (family_id, event_id, origin_device_id, epoch, content_type, message) \
-             VALUES (?,?,?,?,?,?) \
-             ON CONFLICT (family_id, event_id) DO NOTHING",
-        )
-        .bind(family_id.to_string())
-        .bind(event.event_id.to_string())
-        .bind(event.origin_device_id.to_string())
-        .bind(epoch)
-        .bind(framing.content_type as i64)
-        .bind(&message)
-        .execute(&mut *tx)
-        .await
-        .map_err(internal)?;
-        if inserted.rows_affected() == 0 {
-            let stored = sqlx::query(
-                "SELECT origin_device_id FROM group_messages WHERE family_id=? AND event_id=?",
+        if !in_batch.insert(event.event_id) {
+            continue;
+        }
+        let stored = db
+            .first::<SenderRow>(
+                "SELECT origin_device_id FROM group_messages WHERE family_id = ? AND event_id = ?",
+                args![family_id, event.event_id],
             )
-            .bind(family_id.to_string())
-            .bind(event.event_id.to_string())
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(internal)?;
-            if column::<String>(&stored, "origin_device_id")? != event.origin_device_id.to_string()
-            {
+            .await?;
+        if let Some(stored) = stored {
+            if stored_uuid(&stored.origin_device_id)? != event.origin_device_id {
                 return Err(conflict("message id already used by another device"));
             }
             continue;
         }
+        batch.push(db.statement(
+            "INSERT INTO group_messages \
+             (family_id, event_id, origin_device_id, epoch, content_type, message) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+            args![
+                family_id,
+                event.event_id,
+                event.origin_device_id,
+                epoch,
+                framing.content_type as i64,
+                message,
+            ],
+        )?);
         if framing.content_type == ContentType::Commit {
             epoch += 1;
-            sqlx::query("UPDATE families SET epoch=? WHERE id=?")
-                .bind(epoch)
-                .bind(family_id.to_string())
-                .execute(&mut *tx)
-                .await
-                .map_err(internal)?;
         }
     }
-    tx.commit().await.map_err(internal)?;
-    state.live.notify(family_id).await;
-    Ok(Json(AppendResult {
+    if epoch != start_epoch {
+        batch.push(db.statement(
+            "UPDATE families SET epoch = ? WHERE id = ?",
+            args![epoch, family_id],
+        )?);
+    }
+    let stored_any = !batch.is_empty();
+    db.batch(batch).await?;
+    if stored_any {
+        live::wake(call, family_id).await;
+    }
+    json(&AppendResult {
         accepted: input.events.len(),
-    }))
+    })
 }
 
-/// Up to `limit` events after the sequence `after`, oldest first, and the
-/// relay's next start after them once the page reaches it: a phone then
-/// sends its own events again and reads on from past the gap.
-async fn page_after(
-    db: &SqlitePool,
+/// One page of history, for a phone catching up.
+pub async fn list(call: &mut Call<'_>, family_id: Uuid) -> ApiResult {
+    Device::authenticate(call, family_id).await?;
+    let after = cursor(call.query("after"))?.unwrap_or(0);
+    let limit = match call.query("limit") {
+        Some(limit) => limit
+            .parse()
+            .map_err(|_| bad_request("invalid cursor or limit"))?,
+        None => MAX_PAGE,
+    };
+    if !(1..=MAX_PAGE).contains(&limit) {
+        return Err(bad_request("invalid cursor or limit"));
+    }
+    json(&page_after(call.db, family_id, after, limit).await?)
+}
+
+/// A cursor from the query: a sequence number, never negative.
+pub fn cursor(value: Option<String>) -> Result<Option<i64>, ApiError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    match value.parse::<i64>() {
+        Ok(after) if after >= 0 => Ok(Some(after)),
+        _ => Err(bad_request("invalid cursor or limit")),
+    }
+}
+
+#[derive(Deserialize)]
+struct MessageRow {
+    sequence: i64,
+    event_id: String,
+    origin_device_id: String,
+    message: Vec<u8>,
+}
+
+/// Up to `limit` messages after the sequence `after`, oldest first.
+pub async fn page_after(
+    db: &Db,
     family_id: Uuid,
     after: i64,
     limit: i64,
 ) -> Result<EventsPage, ApiError> {
-    let restart = sqlx::query(
-        "SELECT sequence, after FROM restarts WHERE sequence>? ORDER BY sequence LIMIT 1",
-    )
-    .bind(after)
-    .fetch_optional(db)
-    .await
-    .map_err(internal)?
-    .map(|row| {
-        Ok::<_, ApiError>(Restart {
-            sequence: column(&row, "sequence")?,
-            after: column(&row, "after")?,
-        })
-    })
-    .transpose()?;
-    let rows = sqlx::query(
-        "SELECT sequence, event_id, origin_device_id, message FROM group_messages \
-         WHERE family_id=? AND sequence>? AND sequence<? ORDER BY sequence LIMIT ?",
-    )
-    .bind(family_id.to_string())
-    .bind(after)
-    .bind(restart.map_or(i64::MAX, |restart| restart.sequence))
-    .bind(limit)
-    .fetch_all(db)
-    .await
-    .map_err(internal)?;
+    let rows: Vec<MessageRow> = db
+        .all(
+            "SELECT sequence, event_id, origin_device_id, message FROM group_messages \
+             WHERE family_id = ? AND sequence > ? ORDER BY sequence LIMIT ?",
+            args![family_id, after, limit],
+        )
+        .await?;
     let events = rows
-        .iter()
+        .into_iter()
         .map(|row| {
             Ok(SequencedEvent {
-                sequence: column(row, "sequence")?,
+                sequence: row.sequence,
                 event: EncryptedEvent {
-                    event_id: uuid_column(row, "event_id")?,
-                    origin_device_id: uuid_column(row, "origin_device_id")?,
-                    message: Bytes::from(column::<Vec<u8>>(row, "message")?),
+                    event_id: stored_uuid(&row.event_id)?,
+                    origin_device_id: stored_uuid(&row.origin_device_id)?,
+                    message: Bytes::from(row.message),
                 },
             })
         })
-        .collect::<Result<Vec<_>, ApiError>>()?;
-    // A full page may stop short of the restart: it comes with the next one.
-    let restart = restart.filter(|_| (events.len() as i64) < limit);
-    Ok(EventsPage { events, restart })
-}
-
-/// One page of history, for a phone catching up.
-pub async fn list_events(
-    State(state): State<AppState>,
-    Path(family_id): Path<Uuid>,
-    headers: HeaderMap,
-    Query(query): Query<EventsQuery>,
-) -> ApiResult<EventsPage> {
-    Device::authenticate(&state.db, &headers, family_id).await?;
-    let after = query.after.unwrap_or(0);
-    let limit = query.limit.unwrap_or(MAX_PAGE);
-    if after < 0 || !(1..=MAX_PAGE).contains(&limit) {
-        return Err(bad_request("invalid cursor or limit"));
-    }
-    Ok(Json(page_after(&state.db, family_id, after, limit).await?))
-}
-
-/// Server-Sent Events: first everything after the cursor (`after`, or the
-/// `Last-Event-ID` header of a reconnecting client), then each newly accepted
-/// event as it arrives. The SSE `id` is the sequence of the last event sent.
-pub async fn stream_events(
-    State(state): State<AppState>,
-    Path(family_id): Path<Uuid>,
-    headers: HeaderMap,
-    Query(query): Query<EventsQuery>,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    Device::authenticate(&state.db, &headers, family_id).await?;
-    let after = headers
-        .get("last-event-id")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse().ok())
-        .or(query.after)
-        .unwrap_or(0);
-    if after < 0 {
-        return Err(bad_request("invalid cursor"));
-    }
-    // Subscribe before the first read, so nothing slips in between.
-    let wake = state.live.subscribe(family_id).await;
-    let stream = futures_util::stream::unfold(
-        (state, wake, after, true),
-        move |(state, mut wake, mut cursor, mut first_read)| async move {
-            loop {
-                if !first_read {
-                    match wake.recv().await {
-                        Ok(()) | Err(RecvError::Lagged(_)) => {}
-                        Err(RecvError::Closed) => return None,
-                    }
-                }
-                first_read = false;
-                let Ok(page) = page_after(&state.db, family_id, cursor, MAX_PAGE).await else {
-                    return None;
-                };
-                let Some(last) = page
-                    .restart
-                    .map(|restart| restart.sequence)
-                    .or(page.events.last().map(|event| event.sequence))
-                else {
-                    continue;
-                };
-                cursor = last;
-                // A full page, or one that ends at a restart, may have more
-                // behind it: wake ourselves again.
-                if page.events.len() as i64 == MAX_PAGE || page.restart.is_some() {
-                    state.live.notify(family_id).await;
-                }
-                let Ok(message) = Event::default()
-                    .event(SSE_EVENTS)
-                    .id(cursor.to_string())
-                    .json_data(page)
-                else {
-                    return None;
-                };
-                return Some((Ok(message), (state, wake, cursor, false)));
-            }
-        },
-    );
-    Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
+        .collect::<Result<_, ApiError>>()?;
+    Ok(EventsPage { events })
 }

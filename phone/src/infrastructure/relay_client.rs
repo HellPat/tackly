@@ -2,9 +2,12 @@
 
 use anyhow::{Result, bail};
 use reqwest::{Client, RequestBuilder, Response, StatusCode};
-use reqwest_eventsource::EventSource;
 use serde::{Serialize, de::DeserializeOwned};
 use tackly_wire::*;
+use tokio_tungstenite::{
+    MaybeTlsStream, WebSocketStream,
+    tungstenite::{client::IntoClientRequest, http::HeaderValue},
+};
 use uuid::Uuid;
 
 use super::{device_token::DeviceToken, server_url::ServerUrl};
@@ -333,21 +336,30 @@ impl Api {
             .await
     }
 
-    /// A resumable Server-Sent Events subscription. `reqwest-eventsource`
-    /// parses the stream and, after a drop, reconnects with backoff and sends
-    /// the last event ID it saw. A bad status (for example a revoked token)
-    /// ends the stream instead of retrying.
-    pub fn event_source(
+    /// Follows the family's log live: a WebSocket on which the relay sends
+    /// every message after `after`, then each new one, as [`EventsPage`]s in
+    /// JSON text. A refused connection (for example a revoked token) is an
+    /// error; the caller reconnects from its cursor when it drops.
+    pub async fn live(
         &self,
         family: Uuid,
         token: &DeviceToken,
         after: i64,
-    ) -> Result<EventSource> {
-        let request = self
-            .http
-            .get(self.url(&format!("/v1/families/{family}/stream")))
-            .query(&[("after", after)])
-            .bearer_auth(token.as_str());
-        Ok(EventSource::new(request)?)
+    ) -> Result<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>> {
+        let url = self.url(&format!("/v1/families/{family}/stream?after={after}"));
+        let url = match url.split_once("://") {
+            Some(("https", rest)) => format!("wss://{rest}"),
+            Some((_, rest)) => format!("ws://{rest}"),
+            None => bail!("not a URL: {url}"),
+        };
+        let mut request = url.into_client_request()?;
+        request.headers_mut().insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Bearer {}", token.as_str()))?,
+        );
+        let connect = tokio_tungstenite::connect_async(request);
+        let (socket, _) =
+            tokio::time::timeout(std::time::Duration::from_secs(15), connect).await??;
+        Ok(socket)
     }
 }

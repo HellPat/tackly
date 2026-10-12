@@ -1,12 +1,15 @@
-//! Tackly sync relay: keeps each family's encrypted events, hands them to the
-//! family's phones by cursor, and pushes new ones over Server-Sent Events.
+//! The Tackly relay on Cloudflare: every request goes to one Durable Object
+//! ([`relay::Relay`]), which keeps the families' data in D1 and holds the
+//! phones' live connections.
 //!
 //! - [`families`]: registering a family
-//! - [`events`]: the encrypted event log
+//! - [`events`]: the encrypted message log
+//! - [`live`]: following the log over a WebSocket
 //! - [`invites`]: letting a new phone join
 //! - [`agents`]: an AI agent asks for access, the head allows it
 //! - [`recovery`]: the head's sealed backup
 //! - [`auth`]: who is calling, taking a device out, moving to a new token
+//! - [`schema`]: the tables in D1
 
 mod agents;
 mod auth;
@@ -17,80 +20,31 @@ mod families;
 mod invites;
 mod live;
 mod recovery;
+mod relay;
+mod schema;
 
-use axum::{
-    Router,
-    extract::DefaultBodyLimit,
-    http::StatusCode,
-    routing::{get, post},
-};
-use sqlx::SqlitePool;
+use worker::{Env, Request, Response, Result, event};
 
-pub use db::{connect, migrate, record_restart};
+/// Where the one Durable Object lives: next to the D1 database.
+const LOCATION: &str = "weur";
 
-const MAX_REQUEST_BYTES: usize = 10 * 1024 * 1024;
-
-#[derive(Clone)]
-struct AppState {
-    db: SqlitePool,
-    live: live::Live,
-}
-
-pub fn router(pool: SqlitePool) -> Router {
-    Router::new()
-        .route("/health", get(|| async { StatusCode::NO_CONTENT }))
-        .route("/v1/families", post(families::create_family))
-        .route(
-            "/v1/families/{family_id}/events",
-            get(events::list_events).post(events::append_events),
-        )
-        .route(
-            "/v1/families/{family_id}/stream",
-            get(events::stream_events),
-        )
-        .route(
-            "/v1/families/{family_id}/devices/{device_id}",
-            axum::routing::delete(auth::revoke_device),
-        )
-        .route(
-            "/v1/families/{family_id}/agent-requests",
-            get(agents::pending).post(agents::ask),
-        )
-        .route(
-            "/v1/families/{family_id}/agent-requests/{request_id}/approve",
-            post(agents::approve),
-        )
-        .route(
-            "/v1/families/{family_id}/agent-requests/{request_id}/deny",
-            post(agents::deny),
-        )
-        .route("/v1/agent-requests/{request_id}/claim", post(agents::claim))
-        .route("/v1/families/{family_id}/token", post(auth::rotate_token))
-        .route(
-            "/v1/families/{family_id}/recovery/{id}",
-            axum::routing::put(recovery::put_recovery).delete(recovery::delete_recovery),
-        )
-        .route("/v1/recovery/{id}", get(recovery::get_recovery))
-        .route(
-            "/v1/families/{family_id}/invites",
-            post(invites::create_invite),
-        )
-        .route(
-            "/v1/families/{family_id}/invites/{invite_id}",
-            get(invites::invite_status).delete(invites::cancel_invite),
-        )
-        .route(
-            "/v1/families/{family_id}/invites/{invite_id}/approve",
-            post(invites::approve_join),
-        )
-        .route(
-            "/v1/invites/{invite_id}/request",
-            post(invites::request_join),
-        )
-        .route("/v1/invites/{invite_id}/claim", post(invites::claim_invite))
-        .layer(DefaultBodyLimit::max(MAX_REQUEST_BYTES))
-        .with_state(AppState {
-            db: pool,
-            live: live::Live::default(),
-        })
+#[event(fetch)]
+async fn fetch(request: Request, env: Env, _ctx: worker::Context) -> Result<Response> {
+    let relay = env
+        .durable_object("RELAY")?
+        .id_from_name("relay")?
+        .get_stub_with_location_hint(LOCATION)?;
+    let response = relay.fetch_with_request(request).await?;
+    if response.status_code() == 101 {
+        return Ok(response);
+    }
+    // Which commit is live (CI waits for its own: scripts/deploy-relay.sh),
+    // and nothing the relay answers may be kept by a cache on the way.
+    let commit = env
+        .var("TACKLY_COMMIT")
+        .map_or_else(|_| "unknown".to_owned(), |commit| commit.to_string());
+    let headers = response.headers().clone();
+    headers.set("x-tackly-commit", &commit)?;
+    headers.set("cache-control", "no-store")?;
+    Ok(response.with_headers(headers))
 }

@@ -16,11 +16,13 @@
       devShells = forAll (pkgs: fx: {
         default = pkgs.mkShell {
           packages = [
-            # Rust with the Android standard libraries, so `just android` works.
+            # Rust with the Android standard libraries, so `just android` works,
+            # and WebAssembly for the relay (a Cloudflare Worker).
             (fx.combine [
               (fx.stable.withComponents [ "cargo" "clippy" "rust-src" "rust-std" "rustc" "rustfmt" ])
               fx.targets.aarch64-linux-android.stable.rust-std
               fx.targets.x86_64-linux-android.stable.rust-std
+              fx.targets.wasm32-unknown-unknown.stable.rust-std
             ])
           ] ++ (with pkgs; [
             dioxus-cli
@@ -30,6 +32,7 @@
             pkg-config
             sqlite
             tailwindcss_4  # `just css` compiles the app styles
+            worker-build   # builds the relay for Cloudflare Workers
           ]) ++ pkgs.lib.optionals pkgs.stdenv.isLinux (with pkgs; [
             gtk3
             libsoup_3

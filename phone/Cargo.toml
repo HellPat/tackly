@@ -33,7 +33,7 @@ sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 uuid.workspace = true
-reqwest-eventsource = "0.6"
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 url.workspace = true
 
 [dev-dependencies]

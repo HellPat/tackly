@@ -1,92 +1,138 @@
-//! The SQLite database: opening it, and reading columns without panicking.
+//! D1, the relay's store: prepared statements with bound values, rows read
+//! into structs, and batches, which D1 runs as one transaction. D1 has no
+//! transactions across calls; the Durable Object lets one request run at a
+//! time, so a handler reads, decides, and writes one batch.
 
-use std::{
-    str::FromStr,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
-
-use sqlx::{
-    Decode, Row, Sqlite, SqlitePool, Type,
-    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow},
-};
+use js_sys::Uint8Array;
+use serde::de::DeserializeOwned;
 use uuid::Uuid;
+use wasm_bindgen::JsValue;
+use worker::{D1Database, D1PreparedStatement};
 
 use crate::error::{ApiError, internal};
 
-/// Opens (creating if needed) the database with a single writer connection,
-/// which also serializes the allocation of event sequence numbers.
-pub async fn connect(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
-    let options = SqliteConnectOptions::from_str(database_url)?
-        .create_if_missing(true)
-        .foreign_keys(true)
-        .busy_timeout(Duration::from_secs(10))
-        .journal_mode(SqliteJournalMode::Wal);
-    SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect_with(options)
-        .await
+/// A value bound to a `?` in a statement.
+pub enum Arg {
+    Text(String),
+    Int(i64),
+    Blob(Vec<u8>),
+    Null,
 }
 
-/// Applies the migrations that are built into the binary.
-pub async fn migrate(pool: &SqlitePool) -> Result<(), sqlx::migrate::MigrateError> {
-    sqlx::migrate!("./migrations").run(pool).await
-}
-
-/// How far past the last sequence number a start moves the counter at least:
-/// more messages than a backup can miss.
-const RESTART_GAP: i64 = 1_000_000;
-
-/// Where numbering goes on after a start: past the gap, and past the clock in
-/// microseconds. A backup restored again brings back the same last number,
-/// but never an earlier start time, so no number is given twice even then.
-fn restart_sequence(after: i64, now: SystemTime) -> i64 {
-    let micros = now.duration_since(UNIX_EPOCH).map_or(0, |since| {
-        i64::try_from(since.as_micros()).unwrap_or(i64::MAX)
-    });
-    (after + RESTART_GAP).max(micros)
-}
-
-/// Records this start of the relay (see migrations/0009_restarts.sql): what
-/// was accepted after the last sequence number in the database may be lost,
-/// and numbering goes on past it (see [`restart_sequence`]). Nothing to
-/// record before the first message.
-pub async fn record_restart(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    let mut tx = pool.begin().await?;
-    let last: Option<i64> =
-        sqlx::query_scalar("SELECT seq FROM sqlite_sequence WHERE name='group_messages'")
-            .fetch_optional(&mut *tx)
-            .await?;
-    if let Some(after) = last.filter(|last| *last > 0) {
-        let sequence = restart_sequence(after, SystemTime::now());
-        sqlx::query("INSERT INTO restarts (sequence, after) VALUES (?,?)")
-            .bind(sequence)
-            .bind(after)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("UPDATE sqlite_sequence SET seq=? WHERE name='group_messages'")
-            .bind(sequence)
-            .execute(&mut *tx)
-            .await?;
+impl From<&str> for Arg {
+    fn from(value: &str) -> Self {
+        Self::Text(value.to_owned())
     }
-    tx.commit().await
 }
 
-/// A column of a row, or a 500 if the query and the code disagree.
-pub fn column<'r, T>(row: &'r SqliteRow, name: &str) -> Result<T, ApiError>
-where
-    T: Decode<'r, Sqlite> + Type<Sqlite>,
-{
-    row.try_get(name).map_err(internal)
+impl From<String> for Arg {
+    fn from(value: String) -> Self {
+        Self::Text(value)
+    }
 }
 
-/// A column holding a UUID as text.
-pub fn uuid_column(row: &SqliteRow, name: &str) -> Result<Uuid, ApiError> {
-    let text: String = column(row, name)?;
-    Uuid::parse_str(&text).map_err(|error| {
-        eprintln!("stored value in {name} is not a UUID: {error}");
-        ApiError::new(
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "database error",
-        )
-    })
+impl From<Uuid> for Arg {
+    fn from(value: Uuid) -> Self {
+        Self::Text(value.to_string())
+    }
+}
+
+impl From<i64> for Arg {
+    fn from(value: i64) -> Self {
+        Self::Int(value)
+    }
+}
+
+impl From<&[u8]> for Arg {
+    fn from(value: &[u8]) -> Self {
+        Self::Blob(value.to_vec())
+    }
+}
+
+impl From<Vec<u8>> for Arg {
+    fn from(value: Vec<u8>) -> Self {
+        Self::Blob(value)
+    }
+}
+
+impl From<Option<String>> for Arg {
+    fn from(value: Option<String>) -> Self {
+        value.map_or(Self::Null, Self::Text)
+    }
+}
+
+impl Arg {
+    fn to_js(&self) -> JsValue {
+        match self {
+            Self::Text(text) => JsValue::from_str(text),
+            // D1 has no BigInt: integers travel as numbers (53 bits).
+            Self::Int(number) => JsValue::from_f64(*number as f64),
+            // D1 stores an ArrayBuffer as a BLOB.
+            Self::Blob(bytes) => Uint8Array::from(bytes.as_slice()).buffer().into(),
+            Self::Null => JsValue::null(),
+        }
+    }
+}
+
+/// `args![a, b]`: the values for a statement's `?`s, in order.
+macro_rules! args {
+    ($($value:expr),* $(,)?) => {
+        vec![$($crate::db::Arg::from($value)),*]
+    };
+}
+pub(crate) use args;
+
+pub struct Db(pub D1Database);
+
+impl Db {
+    pub fn statement(&self, sql: &str, args: Vec<Arg>) -> Result<D1PreparedStatement, ApiError> {
+        let values: Vec<JsValue> = args.iter().map(Arg::to_js).collect();
+        self.0.prepare(sql).bind(&values).map_err(internal)
+    }
+
+    /// Every row, read into `T` (BLOBs come back as byte lists, integers as
+    /// numbers, NULL as `None`).
+    pub async fn all<T: DeserializeOwned>(
+        &self,
+        sql: &str,
+        args: Vec<Arg>,
+    ) -> Result<Vec<T>, ApiError> {
+        self.statement(sql, args)?
+            .all()
+            .await
+            .map_err(internal)?
+            .results()
+            .map_err(internal)
+    }
+
+    pub async fn first<T: DeserializeOwned>(
+        &self,
+        sql: &str,
+        args: Vec<Arg>,
+    ) -> Result<Option<T>, ApiError> {
+        Ok(self.all(sql, args).await?.into_iter().next())
+    }
+
+    /// Runs one statement; how many rows it changed.
+    pub async fn run(&self, sql: &str, args: Vec<Arg>) -> Result<usize, ApiError> {
+        let result = self.statement(sql, args)?.run().await.map_err(internal)?;
+        changes(&result)
+    }
+
+    /// Runs the statements as one transaction: all of them or none.
+    pub async fn batch(&self, statements: Vec<D1PreparedStatement>) -> Result<(), ApiError> {
+        if statements.is_empty() {
+            return Ok(());
+        }
+        self.0.batch(statements).await.map_err(internal)?;
+        Ok(())
+    }
+}
+
+fn changes(result: &worker::D1Result) -> Result<usize, ApiError> {
+    Ok(result
+        .meta()
+        .map_err(internal)?
+        .and_then(|meta| meta.changes)
+        .unwrap_or(0))
 }

@@ -65,14 +65,6 @@ impl Phone {
         self.live = Some(tokio::spawn(run_live(self.device.clone(), || {})));
     }
 
-    /// No network: the phone neither sends nor hears anything until it goes
-    /// live again.
-    fn go_offline(&mut self) {
-        if let Some(live) = self.live.take() {
-            live.abort();
-        }
-    }
-
     async fn state(&self) -> Result<Family> {
         self.device.lock().await.state()
     }
@@ -177,6 +169,15 @@ fn winnenden() -> Result<GeoPoint> {
     Ok(GeoPoint::new(48.8752, 9.3775, Some(12.0))?)
 }
 
+/// Whether the test must be skipped: it stops the relay or plays a hostile
+/// one, which only a local relay allows (not one under `TACKLY_RELAY_URL`).
+fn needs_local_relay(relay: &Relay) -> bool {
+    if relay.is_deployed() {
+        eprintln!("skipped: needs a local relay");
+    }
+    relay.is_deployed()
+}
+
 /// Patrick creates the family; Mona and Mara join.
 async fn family_of_three(dir: &Path, relay: &Relay) -> Result<(Phone, Phone, Phone)> {
     let mut patrick = Phone::new("patrick", dir)?;
@@ -266,6 +267,9 @@ async fn three_members_share_tasks_and_see_each_other_live() -> Result<()> {
 async fn finished_twice_while_apart_is_simply_done() -> Result<()> {
     let dir = scratch_dir("twice")?;
     let mut relay = Relay::reserve(&dir)?;
+    if needs_local_relay(&relay) {
+        return Ok(());
+    }
     relay.start().await?;
     let (patrick, mona, mara) = family_of_three(&dir, &relay).await?;
 
@@ -565,6 +569,9 @@ async fn places_and_their_tasks_sync_to_everyone() -> Result<()> {
 async fn everything_works_without_a_server_and_syncs_later() -> Result<()> {
     let dir = scratch_dir("offline")?;
     let mut relay = Relay::reserve(&dir)?; // not started: the relay is down
+    if needs_local_relay(&relay) {
+        return Ok(());
+    }
 
     let mut patrick = Phone::new("patrick", &dir)?;
     patrick
@@ -617,6 +624,9 @@ async fn everything_works_without_a_server_and_syncs_later() -> Result<()> {
 async fn a_server_outage_does_not_stop_members_and_they_converge_afterwards() -> Result<()> {
     let dir = scratch_dir("outage")?;
     let mut relay = Relay::reserve(&dir)?;
+    if needs_local_relay(&relay) {
+        return Ok(());
+    }
     relay.start().await?;
     let (patrick, mona, mara) = family_of_three(&dir, &relay).await?;
     let mona_id = mona.id().await;
@@ -659,62 +669,6 @@ async fn a_server_outage_does_not_stop_members_and_they_converge_afterwards() ->
     Ok(())
 }
 
-/// The relay comes back from a backup that misses what it accepted last
-/// (Litestream replicates within a second). The phone that sent the lost
-/// event sends it again, so a phone that never got it still does; and what
-/// comes after the restart reaches the phones that had read further than the
-/// backup.
-#[tokio::test]
-async fn after_the_relay_lost_its_last_messages_the_phones_send_theirs_again() -> Result<()> {
-    let dir = scratch_dir("restored")?;
-    let mut relay = Relay::reserve(&dir)?;
-    relay.start().await?;
-    let (patrick, mona, mut mara) = family_of_three(&dir, &relay).await?;
-    patrick.add_task("Laundry").await?;
-    for phone in [&mona, &mara] {
-        eventually("Laundry synced", || async {
-            Ok(phone.state().await?.task_by_title("Laundry").is_some())
-        })
-        .await?;
-    }
-    relay.stop();
-    let backup = relay.back_up("before-vacuum")?;
-    relay.start().await?;
-
-    // Mara is offline; Patrick adds a task the relay accepts and Mona gets.
-    mara.go_offline();
-    patrick.add_task("Vacuum").await?;
-    eventually("Mona got Vacuum", || async {
-        Ok(mona.state().await?.task_by_title("Vacuum").is_some())
-    })
-    .await?;
-
-    // The relay crashes and comes back without Vacuum.
-    relay.stop();
-    relay.restore(&backup)?;
-    relay.start().await?;
-    mara.go_live();
-    mona.add_task("Dishes").await?;
-
-    for phone in [&patrick, &mona, &mara] {
-        eventually("converged after the restore", || async {
-            let state = phone.state().await?;
-            Ok(["Laundry", "Vacuum", "Dishes"]
-                .iter()
-                .all(|title| state.task_by_title(title).is_some()))
-        })
-        .await?;
-    }
-    let (a, b, c) = (
-        patrick.state().await?,
-        mona.state().await?,
-        mara.state().await?,
-    );
-    assert_eq!(a.tasks, b.tasks);
-    assert_eq!(b.tasks, c.tasks);
-    Ok(())
-}
-
 /// A phone whose registration answer was lost asks again with the same token
 /// and succeeds; a different token for the same family is refused.
 #[tokio::test]
@@ -725,6 +679,9 @@ async fn a_relay_that_swaps_the_joiners_key_is_caught_by_the_digits() -> Result<
     // Mona sees, so Patrick does not let it in.
     let dir = scratch_dir("hostile-relay")?;
     let mut relay = Relay::reserve(&dir)?;
+    if needs_local_relay(&relay) {
+        return Ok(());
+    }
     relay.start().await?;
     let mut patrick = Phone::new("patrick", &dir)?;
     patrick
@@ -747,7 +704,7 @@ async fn a_relay_that_swaps_the_joiners_key_is_caught_by_the_digits() -> Result<
     eve.device.lock().await.request_join(&for_eve.link).await?;
 
     // The relay's doing: Eve's key package under Mona's invitation.
-    let db = rusqlite::Connection::open(dir.join("relay.db"))?;
+    let db = rusqlite::Connection::open(relay.database_file()?)?;
     db.execute(
         "UPDATE invitations SET key_package = (SELECT key_package FROM invitations WHERE id = ?1) WHERE id = ?2",
         [for_eve.invite_id.to_string(), for_mona.invite_id.to_string()],
@@ -959,6 +916,9 @@ async fn a_denied_agent_is_turned_away() -> Result<()> {
 async fn a_relay_that_swaps_the_agents_key_is_caught_by_the_code() -> Result<()> {
     let dir = scratch_dir("agent-swap")?;
     let mut relay = Relay::reserve(&dir)?;
+    if needs_local_relay(&relay) {
+        return Ok(());
+    }
     relay.start().await?;
     let (patrick, _mona, _mara) = family_of_three(&dir, &relay).await?;
     let family = family_id_of(&patrick).await?;
@@ -977,7 +937,7 @@ async fn a_relay_that_swaps_the_agents_key_is_caught_by_the_code() -> Result<()>
         .await?;
 
     // The relay's doing: Eve's key package under the agent's request.
-    let db = rusqlite::Connection::open(dir.join("relay.db"))?;
+    let db = rusqlite::Connection::open(relay.database_file()?)?;
     let (agent_id, eve_id) = (agent.id().await.to_string(), eve.id().await.to_string());
     db.execute(
         "UPDATE agent_requests SET key_package = (SELECT key_package FROM agent_requests WHERE device_id = ?1) WHERE device_id = ?2",

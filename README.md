@@ -35,15 +35,16 @@ Android first, iOS maybe later. No restore: lost phone means join again.
 ```
 apps/app           the Dioxus app (desktop windows and Android), styled with Tailwind;
                    one screens folder per area (today, problems, tasks, places, family)
-apps/relay         the server: stores encrypted messages, pushes them over SSE
+apps/relay         the server, a Cloudflare Worker: stores encrypted messages in D1,
+                   pushes them live over WebSockets (one Durable Object)
 apps/agent         tackly-agent, the command line tool an AI agent reads along with
 domain/            the rules, no network or disk: the Family aggregate (cqrs-es), split
                    into members, tasks, places and problems
 phone/             what a phone does without a screen: use cases (device), keeping in
                    sync (live), and infrastructure (SQLite log, MLS group, relay client,
                    key files, address search)
-wire/              the messages between phone and relay (HTTP and SSE payloads)
-tests/testkit      a stoppable real relay, shared by the test suites
+wire/              the messages between phone and relay (HTTP and WebSocket payloads)
+tests/testkit      a stoppable real relay (wrangler dev), shared by the test suites
 tests/acceptance   Cucumber scenarios clicked through real app windows
 tests/android-e2e  Playwright on an Android emulator (see below)
 scripts            what the just recipes run
@@ -85,6 +86,7 @@ This builds everything, starts the relay and opens **three app windows**
 | Recipe | |
 | --- | --- |
 | `just test` | unit tests and the device-level end-to-end suite |
+| `just test-deployed` | the end-to-end suite against the deployed relay |
 | `just acceptance` | the Cucumber suite in real windows |
 | `just lint` | clippy on everything |
 | `just css` | compile the styles (Tailwind) after changing class names; CI checks they are up to date |
@@ -92,9 +94,10 @@ This builds everything, starts the relay and opens **three app windows**
 | `just android` | build, install and start it on the emulator or device, booting the first AVD if none runs |
 | `just android-test` | the Playwright-on-Android suite |
 
-Without Nix, install Rust (with the clippy component), and for Android the SDK,
-NDK, JDK 21 and `dioxus-cli`, then run the scripts in `scripts/` or
-`cargo run -p tackly-relay` and `cargo run -p tackly-app` (binary `tackly`) yourself.
+Without Nix, install Rust (with the clippy component and the
+`wasm32-unknown-unknown` target), `worker-build` and Node.js, and for Android
+the SDK, NDK, JDK 21 and `dioxus-cli`, then run the scripts in `scripts/` or
+`scripts/relay.sh` and `cargo run -p tackly-app` (binary `tackly`) yourself.
 
 **No unwrap.** Errors are handled, not unwrapped: `unwrap` and `expect` are
 denied by clippy (tests may use them). `.cargo/config.toml` runs clippy on every
@@ -121,8 +124,8 @@ network. The prototype the screens were built from is `prototype/index.html`.
 - **Offline first.** Every command commits to the phone's SQLite log first.
   A family can be created and used with no server; the phone registers and
   uploads later. Pairing needs the server.
-- **Live updates.** The app keeps an SSE connection
-  (`GET /v1/families/{id}/stream`) and reconnects from its cursor with backoff.
+- **Live updates.** The app keeps a WebSocket open
+  (`GET /v1/families/{id}/stream`) and reconnects from its cursor when it drops.
 - **Finished twice.** Two members finishing the same task while apart is simply
   done; the first finish the relay received counts. Nobody is asked.
 - **Only https on the internet.** The device token travels as a bearer token,
@@ -187,7 +190,8 @@ All run against a real server with a SQLite file.
     this, then these events (or this error), with cqrs-es's test framework.
   - `domain/tests/projection.rs`: given these events, then the family
     every phone shows.
-  - `phone/tests/e2e.rs`: a real relay and three real phones (live
+  - `phone/tests/e2e.rs`: a real relay (the Worker under `wrangler dev`,
+    one per test) and three real phones (live
     sync, server outage, offline start, lists, places, giving tasks away,
     photos, a raised problem and a day's plan).
 - `just acceptance`: Cucumber scenarios in

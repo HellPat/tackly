@@ -194,18 +194,6 @@ impl EventStore {
         Ok(())
     }
 
-    /// The relay came back from a backup that may miss what it accepted after
-    /// `after`: this phone's own events from there, and those it never saw
-    /// come back, go out again. Returns how many.
-    pub fn resend_after(&self, after: i64) -> Result<usize> {
-        Ok(self.db.execute(
-            "UPDATE events SET pushed=0, server_sequence=NULL
-             WHERE origin_device_id=? AND pushed=1
-               AND (server_sequence IS NULL OR server_sequence>?)",
-            params![self.device_id.to_string(), after],
-        )?)
-    }
-
     pub fn mark_pushed(&self, event_id: Uuid) -> Result<()> {
         self.db.execute(
             "UPDATE events SET pushed=1 WHERE event_id=?",

@@ -1,4 +1,5 @@
-//! The messages between a Tackly phone and the relay: HTTP and SSE payloads.
+//! The messages between a Tackly phone and the relay: HTTP and WebSocket
+//! payloads.
 //! Binary values are unpadded base64url strings. Nothing here knows the
 //! family: the relay sees only these.
 
@@ -9,11 +10,9 @@ use uuid::Uuid;
 
 pub use binary::{BinaryError, Bytes, Digest};
 
-/// SSE event name for a batch of [`SequencedEvent`]s in an [`EventsPage`].
-pub const SSE_EVENTS: &str = "events";
 /// Maximum events per POST.
 pub const MAX_APPEND_BATCH: usize = 8;
-/// Maximum events per GET page and per SSE message.
+/// Maximum events per GET page and per live message.
 pub const MAX_PAGE: i64 = 20;
 
 /// What the relay keeps of a device token: the token itself stays on the phone,
@@ -78,20 +77,6 @@ pub struct SequencedEvent {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct EventsPage {
     pub events: Vec<SequencedEvent>,
-    /// The relay started again after this page's events: it may have come
-    /// back from a backup that misses what it accepted last.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub restart: Option<Restart>,
-}
-
-/// A start of the relay. Whatever it accepted after `after` may be lost; it
-/// numbers what comes next from past `sequence`, so no number is used twice.
-/// A phone sends its own events after `after` again and reads on from
-/// `sequence`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Restart {
-    pub sequence: i64,
-    pub after: i64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

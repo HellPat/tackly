@@ -5,11 +5,7 @@
 //! here) → used. The relay only moves key package and welcome along; the
 //! secret both phones derive their digits from never reaches it.
 
-use axum::{
-    Json,
-    extract::{Path, State},
-    http::HeaderMap,
-};
+use serde::Deserialize;
 use tackly_wire::{
     ApproveJoin, Bytes, ClaimInvite, ClaimedInvite, CreateInvite, InviteExpiry, InviteProof,
     InviteState, InviteStatus,
@@ -17,10 +13,10 @@ use tackly_wire::{
 use uuid::Uuid;
 
 use crate::{
-    AppState,
     auth::Device,
-    db::{column, uuid_column},
-    error::{ApiError, ApiResult, bad_request, gone, internal},
+    db::args,
+    error::{ApiResult, bad_request, gone, internal},
+    relay::{Call, json, stored_uuid},
 };
 
 const MAX_KEY_PACKAGE_BYTES: usize = 8 * 1024;
@@ -30,207 +26,204 @@ const MAX_WELCOME_BYTES: usize = 256 * 1024;
 /// True while the invitation's five minutes have not passed (SQL fragment).
 const NOT_EXPIRED: &str = "expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
 
-pub async fn create_invite(
-    State(state): State<AppState>,
-    Path(family_id): Path<Uuid>,
-    headers: HeaderMap,
-    Json(input): Json<CreateInvite>,
-) -> ApiResult<InviteExpiry> {
-    let caller = Device::authenticate_owner(&state.db, &headers, family_id).await?;
-    let verifier = input.verifier.as_bytes().to_vec();
-    let row = sqlx::query(
-        "INSERT INTO invitations (id, family_id, verifier_hash, created_by) \
-         VALUES (?,?,?,?) RETURNING expires_at",
-    )
-    .bind(input.invite_id.to_string())
-    .bind(family_id.to_string())
-    .bind(verifier)
-    .bind(caller.id.to_string())
-    .fetch_one(&state.db)
-    .await
-    .map_err(internal)?;
-    Ok(Json(InviteExpiry {
-        expires_at_utc: column(&row, "expires_at")?,
-    }))
+#[derive(Deserialize)]
+struct ExpiryRow {
+    expires_at: String,
+}
+
+pub async fn create(call: &mut Call<'_>, family_id: Uuid) -> ApiResult {
+    let caller = Device::authenticate_owner(call, family_id).await?;
+    let input: CreateInvite = call.body().await?;
+    let row: ExpiryRow = call
+        .db
+        .first(
+            "INSERT INTO invitations (id, family_id, verifier_hash, created_by) \
+             VALUES (?, ?, ?, ?) RETURNING expires_at",
+            args![
+                input.invite_id,
+                family_id,
+                input.verifier.as_bytes().as_slice(),
+                caller.id,
+            ],
+        )
+        .await?
+        .ok_or_else(|| internal("the invitation was not stored"))?;
+    json(&InviteExpiry {
+        expires_at_utc: row.expires_at,
+    })
 }
 
 /// The new phone asks to join, proving it knows the invitation's secret.
-pub async fn request_join(
-    State(state): State<AppState>,
-    Path(invite_id): Path<Uuid>,
-    Json(input): Json<InviteProof>,
-) -> ApiResult<InviteStatus> {
-    let verifier = input.verifier.as_bytes().to_vec();
-    let key_package = input.key_package.as_slice().to_vec();
+pub async fn request(call: &mut Call<'_>, invite_id: Uuid) -> ApiResult {
+    let input: InviteProof = call.body().await?;
+    let key_package = input.key_package.as_slice();
     if key_package.is_empty() || key_package.len() > MAX_KEY_PACKAGE_BYTES {
         return Err(bad_request("invalid key package size"));
     }
-    let result = sqlx::query(&format!(
-        "UPDATE invitations SET status='pending', pending_device_id=?, key_package=? \
-         WHERE id=? AND verifier_hash=? AND status='open' AND {NOT_EXPIRED}"
-    ))
-    .bind(input.device_id.to_string())
-    .bind(&key_package)
-    .bind(invite_id.to_string())
-    .bind(verifier)
-    .execute(&state.db)
-    .await
-    .map_err(internal)?;
-    if result.rows_affected() != 1 {
+    let changed = call
+        .db
+        .run(
+            &format!(
+                "UPDATE invitations SET status = 'pending', pending_device_id = ?, key_package = ? \
+                 WHERE id = ? AND verifier_hash = ? AND status = 'open' AND {NOT_EXPIRED}"
+            ),
+            args![
+                input.device_id,
+                key_package,
+                invite_id,
+                input.verifier.as_bytes().as_slice(),
+            ],
+        )
+        .await?;
+    if changed != 1 {
         return Err(gone("invitation unavailable"));
     }
-    Ok(Json(InviteStatus {
+    json(&InviteStatus {
         status: InviteState::Pending,
         pending_device_id: Some(input.device_id),
         pending_key_package: Some(input.key_package),
-    }))
+    })
 }
 
-pub async fn invite_status(
-    State(state): State<AppState>,
-    Path((family_id, invite_id)): Path<(Uuid, Uuid)>,
-    headers: HeaderMap,
-) -> ApiResult<InviteStatus> {
-    Device::authenticate_owner(&state.db, &headers, family_id).await?;
-    let row = sqlx::query(&format!(
-        "SELECT status, pending_device_id, key_package FROM invitations \
-         WHERE id=? AND family_id=? AND {NOT_EXPIRED}"
-    ))
-    .bind(invite_id.to_string())
-    .bind(family_id.to_string())
-    .fetch_optional(&state.db)
-    .await
-    .map_err(internal)?
-    .ok_or(gone("invitation unavailable"))?;
-    let status: String = column(&row, "status")?;
-    let status = serde_json::from_value(serde_json::Value::String(status)).map_err(|_| {
-        ApiError::new(
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "invalid invitation state",
+#[derive(Deserialize)]
+struct StatusRow {
+    status: String,
+    pending_device_id: Option<String>,
+    key_package: Option<Vec<u8>>,
+}
+
+pub async fn status(call: &mut Call<'_>, family_id: Uuid, invite_id: Uuid) -> ApiResult {
+    Device::authenticate_owner(call, family_id).await?;
+    let row: StatusRow = call
+        .db
+        .first(
+            &format!(
+                "SELECT status, pending_device_id, key_package FROM invitations \
+                 WHERE id = ? AND family_id = ? AND {NOT_EXPIRED}"
+            ),
+            args![invite_id, family_id],
         )
-    })?;
-    let pending_device_id = match column::<Option<String>>(&row, "pending_device_id")? {
-        Some(_) => Some(uuid_column(&row, "pending_device_id")?),
-        None => None,
-    };
-    let pending_key_package = column::<Option<Vec<u8>>>(&row, "key_package")?
-        .as_deref()
-        .map(Bytes::from);
-    Ok(Json(InviteStatus {
+        .await?
+        .ok_or(gone("invitation unavailable"))?;
+    let status = serde_json::from_value(serde_json::Value::String(row.status))
+        .map_err(|_| internal("invalid invitation state"))?;
+    json(&InviteStatus {
         status,
-        pending_device_id,
-        pending_key_package,
-    }))
+        pending_device_id: row
+            .pending_device_id
+            .as_deref()
+            .map(stored_uuid)
+            .transpose()?,
+        pending_key_package: row.key_package.map(Bytes::from),
+    })
 }
 
 /// The head, after comparing the six digits, leaves the welcome here.
-pub async fn approve_join(
-    State(state): State<AppState>,
-    Path((family_id, invite_id)): Path<(Uuid, Uuid)>,
-    headers: HeaderMap,
-    Json(input): Json<ApproveJoin>,
-) -> ApiResult<InviteStatus> {
-    Device::authenticate_owner(&state.db, &headers, family_id).await?;
-    let welcome = input.welcome.as_slice().to_vec();
+pub async fn approve(call: &mut Call<'_>, family_id: Uuid, invite_id: Uuid) -> ApiResult {
+    Device::authenticate_owner(call, family_id).await?;
+    let input: ApproveJoin = call.body().await?;
+    let welcome = input.welcome.as_slice();
     if welcome.is_empty() || welcome.len() > MAX_WELCOME_BYTES {
         return Err(bad_request("invalid welcome size"));
     }
     // The new member reads from after the commit that added it; its history
     // comes from the head as a snapshot.
-    let result = sqlx::query(&format!(
-        "UPDATE invitations SET status='approved', welcome=?, \
-         joined_after=(SELECT COALESCE(MAX(sequence), 0) FROM group_messages WHERE family_id=?) \
-         WHERE id=? AND family_id=? AND pending_device_id=? AND status='pending' AND {NOT_EXPIRED}"
-    ))
-    .bind(&welcome)
-    .bind(family_id.to_string())
-    .bind(invite_id.to_string())
-    .bind(family_id.to_string())
-    .bind(input.device_id.to_string())
-    .execute(&state.db)
-    .await
-    .map_err(internal)?;
-    if result.rows_affected() != 1 {
+    let changed = call
+        .db
+        .run(
+            &format!(
+                "UPDATE invitations SET status = 'approved', welcome = ?1, \
+                 joined_after = (SELECT COALESCE(MAX(sequence), 0) FROM group_messages \
+                                 WHERE family_id = ?2) \
+                 WHERE id = ?3 AND family_id = ?2 AND pending_device_id = ?4 \
+                 AND status = 'pending' AND {NOT_EXPIRED}"
+            ),
+            args![welcome, family_id, invite_id, input.device_id],
+        )
+        .await?;
+    if changed != 1 {
         return Err(gone("invitation unavailable"));
     }
-    Ok(Json(InviteStatus {
+    json(&InviteStatus {
         status: InviteState::Approved,
         pending_device_id: Some(input.device_id),
         pending_key_package: None,
-    }))
+    })
 }
 
-pub async fn claim_invite(
-    State(state): State<AppState>,
-    Path(invite_id): Path<Uuid>,
-    Json(input): Json<ClaimInvite>,
-) -> ApiResult<ClaimedInvite> {
-    let verifier = input.verifier.as_bytes().to_vec();
-    let token_hash = input.token_hash.as_bytes().to_vec();
-    let mut tx = state.db.begin().await.map_err(internal)?;
-    let row = sqlx::query(&format!(
-        "SELECT family_id, status, welcome, joined_after \
-         FROM invitations WHERE id=? AND verifier_hash=? AND pending_device_id=? \
-         AND status IN ('approved', 'used') AND {NOT_EXPIRED}"
-    ))
-    .bind(invite_id.to_string())
-    .bind(verifier)
-    .bind(input.device_id.to_string())
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(internal)?
-    .ok_or(gone("invitation unavailable"))?;
-    let family_id = uuid_column(&row, "family_id")?;
-    if column::<String>(&row, "status")? == "approved" {
-        sqlx::query("INSERT INTO devices (id, family_id, token_hash) VALUES (?,?,?)")
-            .bind(input.device_id.to_string())
-            .bind(family_id.to_string())
-            .bind(&token_hash)
-            .execute(&mut *tx)
-            .await
-            .map_err(internal)?;
-        sqlx::query("UPDATE invitations SET status='used' WHERE id=?")
-            .bind(invite_id.to_string())
-            .execute(&mut *tx)
-            .await
-            .map_err(internal)?;
+#[derive(Deserialize)]
+struct ClaimRow {
+    family_id: String,
+    status: String,
+    welcome: Vec<u8>,
+    joined_after: i64,
+}
+
+#[derive(Deserialize)]
+struct Found {}
+
+pub async fn claim(call: &mut Call<'_>, invite_id: Uuid) -> ApiResult {
+    let input: ClaimInvite = call.body().await?;
+    let token_hash = input.token_hash.as_bytes().as_slice();
+    let row: ClaimRow = call
+        .db
+        .first(
+            &format!(
+                "SELECT family_id, status, welcome, joined_after FROM invitations \
+                 WHERE id = ? AND verifier_hash = ? AND pending_device_id = ? \
+                 AND status IN ('approved', 'used') AND {NOT_EXPIRED}"
+            ),
+            args![
+                invite_id,
+                input.verifier.as_bytes().as_slice(),
+                input.device_id,
+            ],
+        )
+        .await?
+        .ok_or(gone("invitation unavailable"))?;
+    let family_id = stored_uuid(&row.family_id)?;
+    if row.status == "approved" {
+        call.db
+            .batch(vec![
+                call.db.statement(
+                    "INSERT INTO devices (id, family_id, token_hash) VALUES (?, ?, ?)",
+                    args![input.device_id, family_id, token_hash],
+                )?,
+                call.db.statement(
+                    "UPDATE invitations SET status = 'used' WHERE id = ?",
+                    args![invite_id],
+                )?,
+            ])
+            .await?;
     } else {
         // Already used: only the same phone with the same token may ask again.
-        sqlx::query("SELECT 1 FROM devices WHERE id=? AND family_id=? AND token_hash=?")
-            .bind(input.device_id.to_string())
-            .bind(family_id.to_string())
-            .bind(&token_hash)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(internal)?
+        call.db
+            .first::<Found>(
+                "SELECT 1 AS found FROM devices WHERE id = ? AND family_id = ? AND token_hash = ?",
+                args![input.device_id, family_id, token_hash],
+            )
+            .await?
             .ok_or(gone("invitation unavailable"))?;
     }
-    tx.commit().await.map_err(internal)?;
-    Ok(Json(ClaimedInvite {
+    json(&ClaimedInvite {
         family_id,
-        welcome: Bytes::from(column::<Vec<u8>>(&row, "welcome")?),
-        after: column(&row, "joined_after")?,
-    }))
+        welcome: Bytes::from(row.welcome),
+        after: row.joined_after,
+    })
 }
 
-pub async fn cancel_invite(
-    State(state): State<AppState>,
-    Path((family_id, invite_id)): Path<(Uuid, Uuid)>,
-    headers: HeaderMap,
-) -> ApiResult<InviteStatus> {
-    Device::authenticate_owner(&state.db, &headers, family_id).await?;
-    sqlx::query(
-        "UPDATE invitations SET status='cancelled' \
-         WHERE id=? AND family_id=? AND status IN ('open','pending','approved')",
-    )
-    .bind(invite_id.to_string())
-    .bind(family_id.to_string())
-    .execute(&state.db)
-    .await
-    .map_err(internal)?;
-    Ok(Json(InviteStatus {
+pub async fn cancel(call: &mut Call<'_>, family_id: Uuid, invite_id: Uuid) -> ApiResult {
+    Device::authenticate_owner(call, family_id).await?;
+    call.db
+        .run(
+            "UPDATE invitations SET status = 'cancelled' \
+             WHERE id = ? AND family_id = ? AND status IN ('open', 'pending', 'approved')",
+            args![invite_id, family_id],
+        )
+        .await?;
+    json(&InviteStatus {
         status: InviteState::Cancelled,
         pending_device_id: None,
         pending_key_package: None,
-    }))
+    })
 }

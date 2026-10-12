@@ -1,5 +1,5 @@
 //! Keeps a device in sync: uploads pending events, then follows the relay's
-//! SSE stream and reconnects with backoff when the network drops.
+//! live WebSocket and reconnects from its cursor when the network drops.
 
 use std::{
     sync::{
@@ -9,9 +9,9 @@ use std::{
     time::Duration,
 };
 
-use futures_util::StreamExt;
-use reqwest_eventsource::Event;
+use futures_util::{SinkExt, StreamExt};
 use tokio::sync::Mutex;
+use tokio_tungstenite::tungstenite::Message;
 
 use crate::device::{Device, LiveTarget};
 
@@ -53,6 +53,8 @@ pub async fn run_live(device: SharedDevice, on_change: impl Fn() + Send + Sync +
 
 /// How often the live loop looks for expired AI agents.
 const TICK: Duration = Duration::from_secs(30);
+/// How often an idle live connection says it is still there.
+const PING: Duration = Duration::from_secs(30);
 
 async fn sync_loop(
     device: SharedDevice,
@@ -75,34 +77,50 @@ async fn sync_loop(
             tokio::time::sleep(Duration::from_secs(1)).await;
             continue;
         };
-        match api.event_source(family_id, &token, cursor) {
-            Ok(mut source) => {
-                while let Some(event) = source.next().await {
-                    match event {
-                        // Connected, or reconnected after a drop: catch up uploads.
-                        Ok(Event::Open) => {
-                            let _ = device.lock().await.tick().await;
-                            online.store(true, Ordering::Relaxed);
-                        }
-                        Ok(Event::Message(message)) => match serde_json::from_str(&message.data) {
-                            Ok(page) => {
-                                let mut device = device.lock().await;
-                                if let Err(error) = device.ingest(page) {
-                                    eprintln!("live sync: {error:#}");
-                                }
-                                // The head came back and gets the history from
-                                // here, or the relay restarted and may miss ours.
-                                if device.owes_upload() {
-                                    let _ = device.flush().await;
-                                }
+        match api.live(family_id, &token, cursor).await {
+            Ok(mut socket) => {
+                // Connected, or reconnected after a drop: catch up uploads.
+                let _ = device.lock().await.tick().await;
+                online.store(true, Ordering::Relaxed);
+                on_change();
+                let mut ping = tokio::time::interval(PING);
+                ping.tick().await;
+                loop {
+                    let message = tokio::select! {
+                        message = socket.next() => message,
+                        _ = ping.tick() => {
+                            // Keeps the connection open through proxies; the
+                            // relay's runtime answers without waking it.
+                            if socket.send(Message::text("ping")).await.is_err() {
+                                break;
                             }
-                            Err(error) => eprintln!("live sync: bad update: {error}"),
-                        },
-                        // The source retries by itself unless it closed.
-                        Err(error) => {
-                            online.store(false, Ordering::Relaxed);
-                            eprintln!("live sync: {error}");
+                            continue;
                         }
+                    };
+                    let text = match message {
+                        Some(Ok(Message::Text(text))) => text,
+                        Some(Ok(Message::Close(_))) | None => break,
+                        Some(Ok(_)) => continue,
+                        Some(Err(error)) => {
+                            eprintln!("live sync: {error}");
+                            break;
+                        }
+                    };
+                    if text.as_str() == "pong" {
+                        continue;
+                    }
+                    match serde_json::from_str(text.as_str()) {
+                        Ok(page) => {
+                            let mut device = device.lock().await;
+                            if let Err(error) = device.ingest(page) {
+                                eprintln!("live sync: {error:#}");
+                            }
+                            // The head came back: it gets the history from here.
+                            if device.owes_snapshot() {
+                                let _ = device.flush().await;
+                            }
+                        }
+                        Err(error) => eprintln!("live sync: bad update: {error}"),
                     }
                     on_change();
                 }

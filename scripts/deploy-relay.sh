@@ -4,9 +4,6 @@
 # until the relay answers /health from this commit. Fails when that does not
 # happen, so a broken deploy fails the pipeline.
 #
-# Not caught: wrangler makes the Worker live before it builds the image, so if
-# only the image fails, the previous container answers for the new commit.
-#
 # Needs DEPLOY_HOOK_URL, RELAY_URL and GITHUB_SHA.
 set -euo pipefail
 
@@ -24,9 +21,9 @@ fi
 curl -sSf -X POST "$DEPLOY_HOOK_URL" >/dev/null
 echo "Deploy hook called; waiting for $RELAY_URL to answer from $GITHUB_SHA"
 
-# A build takes about three minutes; the container then starts and restores
-# the database from R2.
-deadline=$((SECONDS + 10 * 60))
+# A build installs Rust and worker-build on Cloudflare's build machine, then
+# compiles the relay: several minutes.
+deadline=$((SECONDS + 20 * 60))
 while :; do
   answer=$(curl -s -o /dev/null -D - -H 'cache-control: no-cache' "$RELAY_URL/health" || true)
   status=$(awk 'NR == 1 { print $2 }' <<<"$answer")
@@ -36,7 +33,7 @@ while :; do
     exit 0
   fi
   if [ "$SECONDS" -ge "$deadline" ]; then
-    echo "::error::After 10 minutes $RELAY_URL/health answers ${status:-nothing} from ${commit:-unknown}, not 204 from $GITHUB_SHA. Workers Builds log: https://dash.cloudflare.com/?to=/:account/workers/services/view/tackly/production/builds"
+    echo "::error::After 20 minutes $RELAY_URL/health answers ${status:-nothing} from ${commit:-unknown}, not 204 from $GITHUB_SHA. Workers Builds log: https://dash.cloudflare.com/?to=/:account/workers/services/view/tackly/production/builds"
     exit 1
   fi
   sleep 15
