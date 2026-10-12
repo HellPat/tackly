@@ -28,7 +28,7 @@ echo "Deploy hook called; waiting for $RELAY_URL to answer from $GITHUB_SHA"
 # the database from R2.
 deadline=$((SECONDS + 10 * 60))
 while :; do
-  answer=$(curl -s -o /dev/null -D - "$RELAY_URL/health" || true)
+  answer=$(curl -s -o /dev/null -D - -H 'cache-control: no-cache' "$RELAY_URL/health" || true)
   status=$(awk 'NR == 1 { print $2 }' <<<"$answer")
   commit=$(awk 'tolower($1) == "x-tackly-commit:" { print $2 }' <<<"$answer" | tr -d '\r')
   if [ "$commit" = "$GITHUB_SHA" ] && [ "$status" = 204 ]; then

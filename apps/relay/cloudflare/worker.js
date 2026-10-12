@@ -27,6 +27,8 @@ export default {
     // Which commit is live: CI waits for its own (scripts/deploy-relay.sh).
     const answer = new Response(response.body, response);
     answer.headers.set("x-tackly-commit", env.TACKLY_COMMIT ?? "unknown");
+    // Nothing the relay answers may be kept by a cache on the way.
+    answer.headers.set("cache-control", "no-store");
     return answer;
   },
 };
