@@ -8,7 +8,9 @@ use dioxus::prelude::*;
 use tackly_domain::PlaceLocation;
 use uuid::Uuid;
 
+use super::home::{Nav, Tab};
 use crate::{
+    settings::Filter,
     state::AppState,
     ui::{CARD, Icon},
 };
@@ -51,6 +53,7 @@ impl Mode {
 #[component]
 pub fn AddBar(mode: Mode) -> Element {
     let state = use_context::<AppState>();
+    let nav = use_context::<Signal<Nav>>();
     let mut text = use_signal(String::new);
     let mut found = use_signal(Vec::<PlaceLocation>::new);
     let mut searched = use_signal(|| 0_u64);
@@ -67,7 +70,11 @@ pub fn AddBar(mode: Mode) -> Element {
         }
         let location = picked.unwrap_or_else(|| PlaceLocation::named(name.clone()));
         match mode {
-            Mode::Task { list, place } => state.add_task(name, list, place.into_iter().collect()),
+            Mode::Task { list, place } => {
+                // Added on My Tasks, a task is mine from the start.
+                let mine = nav().tab == Tab::Tasks && (state.settings)().filter == Filter::Mine;
+                state.add_task(name, list, place.into_iter().collect(), mine);
+            }
             Mode::Group => state.create_group(name),
             Mode::Place { group } => state.create_place(group, name, location),
             Mode::Location { place } => state.add_location(place, location),

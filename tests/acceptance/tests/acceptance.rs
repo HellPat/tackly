@@ -67,7 +67,7 @@ fn location(name: &str) -> &'static str {
     }
 }
 
-/// The task with this title, wherever its card is shown (a list, "Other", a
+/// The task with this title, wherever its card is shown (Tasks, a list, a
 /// place, a problem, Today).
 fn task(page: &Page, title: &str) -> Locator {
     page.get_by_test_id("main")
@@ -888,17 +888,16 @@ async fn sees_row(world: &mut Tackly, who: String, row: String, detail: String) 
     }
 }
 
-#[then(regex = r#"^(\w+) sees the text "([^"]+)"$"#)]
-async fn sees_text(world: &mut Tackly, name: String, text: String) {
-    check(
-        expect(
-            &check(world.page(&name))
-                .get_by_test_id("main")
-                .get_by_text(&text),
-        )
-        .to_be_visible()
-        .await,
-    );
+#[then(regex = r#"^(\w+) (sees|does not see) the text "([^"]+)"$"#)]
+async fn sees_text(world: &mut Tackly, name: String, seen: String, text: String) {
+    let located = check(world.page(&name))
+        .get_by_test_id("main")
+        .get_by_text(&text);
+    check(if seen == "sees" {
+        expect(&located).to_be_visible().await
+    } else {
+        expect(&located).to_be_hidden().await
+    });
 }
 
 #[when(regex = r"^(\w+) removes (\w+) from the family$")]

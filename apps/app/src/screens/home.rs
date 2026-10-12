@@ -19,6 +19,7 @@ use super::{
     upcoming::{Upcoming, should_plan},
 };
 use crate::{
+    settings::Filter,
     state::AppState,
     theme,
     ui::{Avatar, FILLED, Icon, PRIMARY, SECONDARY, Size, Toasts},
@@ -145,10 +146,16 @@ pub fn Home() -> Element {
             .problem
             .and_then(|id| family.problems.get(&id))
             .map_or("Problems".into(), |problem| problem.title.clone()),
-        Tab::Tasks => here
-            .list
-            .and_then(|id| family.lists.get(&id))
-            .map_or("Tasks".into(), |list| list.name.clone()),
+        Tab::Tasks => here.list.and_then(|id| family.lists.get(&id)).map_or_else(
+            || {
+                if (state.settings)().filter == Filter::Mine {
+                    "My Tasks".into()
+                } else {
+                    "Tasks".into()
+                }
+            },
+            |list| list.name.clone(),
+        ),
         Tab::Places => match (here.place, here.group) {
             (Some(_), _) if here.editing_place => "Edit place".into(),
             (Some(id), _) => family
@@ -299,10 +306,11 @@ pub fn Home() -> Element {
                     }
                 }
             }
-            nav { class: "relative z-10 shrink-0 h-20 grid grid-cols-3 bg-[#fffdfb] shadow-[0_-1px_0_var(--color-stone-200)]", aria_label: "Main", "data-testid": "nav",
+            nav { class: "relative z-10 shrink-0 h-20 grid grid-cols-4 bg-[#fffdfb] shadow-[0_-1px_0_var(--color-stone-200)]", aria_label: "Main", "data-testid": "nav",
                 TabButton { tab: Tab::Today, icon: "wb_sunny", label: "Today" }
+                TabButton { tab: Tab::Tasks, icon: "person", label: "My Tasks", filter: Filter::Mine }
+                TabButton { tab: Tab::Tasks, icon: "task_alt", label: "Tasks", filter: Filter::All }
                 TabButton { tab: Tab::Problems, icon: "report", label: "Problems", badge: my_problems }
-                TabButton { tab: Tab::Tasks, icon: "task_alt", label: "Tasks" }
             }
             if let Some(task) = here.detail {
                 Detail { task }
@@ -341,16 +349,31 @@ enum Edit {
 }
 
 /// A tab in the navigation: the active one has a tinted pill and a filled icon.
-/// A badge counts what waits there (open problems that are mine).
+/// A badge counts what waits there (open problems that are mine). My Tasks and
+/// Tasks are the same page: My Tasks shows it filtered to mine, Tasks to all.
 #[component]
-fn TabButton(tab: Tab, icon: String, label: String, #[props(default)] badge: usize) -> Element {
+fn TabButton(
+    tab: Tab,
+    icon: String,
+    label: String,
+    #[props(default)] badge: usize,
+    #[props(default)] filter: Option<Filter>,
+) -> Element {
+    let state = use_context::<AppState>();
     let mut nav = use_context::<Signal<Nav>>();
-    let active = nav().tab == tab;
+    let mine_now = (state.settings)().filter == Filter::Mine;
+    let active =
+        nav().tab == tab && filter.is_none_or(|wanted| (wanted == Filter::Mine) == mine_now);
     rsx! {
         button {
             class: "flex flex-col items-center justify-center gap-1",
             aria_current: if active { "page" } else { "false" },
-            onclick: move |_| nav.set(Nav { tab, ..Nav::default() }),
+            onclick: move |_| {
+                if let Some(filter) = filter {
+                    state.set_filter(filter);
+                }
+                nav.set(Nav { tab, ..Nav::default() });
+            },
             span { class: if active { "relative w-16 h-8 rounded-full grid place-items-center transition-colors bg-accent-100 text-accent-900" } else { "relative w-16 h-8 rounded-full grid place-items-center transition-colors text-stone-600" },
                 Icon { name: icon, class: if active { FILLED } else { "" } }
                 if badge > 0 {

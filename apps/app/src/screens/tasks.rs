@@ -1,5 +1,5 @@
-//! The Tasks tab: your lists to step into, "Other" shown open below them, and
-//! the task card used everywhere.
+//! The Tasks tab: your lists to step into, and the tasks that are in no list
+//! standing on their own below them, and the task card used everywhere.
 
 use dioxus::prelude::*;
 use tackly_domain::{Progress, Task};
@@ -85,26 +85,23 @@ pub fn TasksTab() -> Element {
                 }
             }
         }
-        // "Other" looks like a list, but is always open. Nothing to show: no card.
+        // Tasks without a list are just tasks: no group around them.
         if !other.is_empty() {
-            section { class: "{CARD} overflow-hidden mt-4", aria_label: "Other",
-                div { class: "flex items-center gap-3 px-4 min-h-14",
-                    span { class: "size-9 shrink-0 rounded-full grid place-items-center bg-stone-100 text-stone-600",
-                        Icon { name: "checklist", class: "!text-[18px]" }
-                    }
-                    h2 { class: "flex-1 text-base", "Other" }
-                    span { class: "text-sm text-stone-600", "{other.len()} {filter_word(filter)}" }
-                    Icon { name: "expand_less", class: "text-stone-500" }
-                }
-                ul { class: "pb-1",
-                    for task in other {
-                        TaskCard { key: "{task.id}", task, flat: true }
-                    }
+            ul { class: if family.lists.is_empty() { "" } else { "mt-4" },
+                for task in other.clone() {
+                    TaskCard { key: "{task.id}", task }
                 }
             }
         }
         if all.is_empty() && family.lists.is_empty() {
             EmptyState { icon: "celebration", title: "All done", line: "Nothing left to do. Add a task below." }
+        } else if other.is_empty() && family.lists.is_empty() {
+            p { class: "py-16 text-center text-stone-600",
+                match filter {
+                    Filter::Mine => "Nothing of yours here.",
+                    _ => "Every task here has someone on it.",
+                }
+            }
         }
         div { class: "mt-3 flex justify-center",
             button { class: SECONDARY, onclick: move |_| sheet.set(Some(SheetKind::NewList)),

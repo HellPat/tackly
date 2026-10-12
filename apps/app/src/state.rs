@@ -257,10 +257,17 @@ impl AppState {
 
     // ---- tasks ---------------------------------------------------------------------------------
 
-    /// Adds a task to a list (`None`: "Other"), needed at the given places.
-    pub fn add_task(self, title: String, list: Option<Uuid>, places: Vec<Uuid>) {
+    /// Adds a task to a list (`None`: in no list), needed at the given places;
+    /// with `mine`, it is mine from the start.
+    pub fn add_task(self, title: String, list: Option<Uuid>, places: Vec<Uuid>, mine: bool) {
+        let me = *self.my_id.peek();
         self.act_then(move |device| async move {
-            let task = device.lock().await.add_task(&title, list, &places).await?;
+            let mut device = device.lock().await;
+            let task = device.add_task(&title, list, &places).await?;
+            if mine {
+                device.assign_task(task, Some(me)).await?;
+            }
+            drop(device);
             Ok((
                 format!("Added {}", title.trim()),
                 Some(Undo::DeleteTask(task)),

@@ -255,7 +255,7 @@ mod tests {
 
     /// Every icon the app shows. The embedded icon font holds exactly these;
     /// see `fonts/README.md` when adding one.
-    const ICONS: [&str; 50] = [
+    const ICONS: [&str; 51] = [
         "add",
         "add_task",
         "arrow_back",
@@ -288,6 +288,7 @@ mod tests {
         "location_on",
         "music_note",
         "pause",
+        "person",
         "person_add",
         "person_off",
         "pets",
