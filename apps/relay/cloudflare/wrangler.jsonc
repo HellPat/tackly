@@ -1,0 +1,34 @@
+// The relay on Cloudflare Containers. Workers Builds deploys it from this
+// directory when CI calls the deploy hook after the tests pass (see
+// .github/workflows/ci.yml); pushes alone do not deploy.
+//
+// Secrets (wrangler secret put): R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, an R2
+// API token limited to the bucket below.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tackly",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "vars": {
+    "R2_ACCOUNT_ID": "a4a292902e0d49030166b927dc11b3e8",
+    "R2_BUCKET": "tackly-relay"
+  },
+  "containers": [
+    {
+      "class_name": "Relay",
+      "image": "./Dockerfile",
+      "image_build_context": "../../..",
+      "instance_type": "basic",
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "RELAY", "class_name": "Relay" }]
+  },
+  "exports": {
+    "Relay": { "type": "durable-object", "storage": "sqlite" }
+  }
+}

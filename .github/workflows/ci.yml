@@ -24,6 +24,27 @@ jobs:
       - name: Unit and end-to-end tests (real server, three phones, SSE, outages)
         run: cargo test --locked -p tackly-domain -p tackly-wire -p tackly-phone -p tackly-relay -p tackly-agent
 
+  deploy-relay:
+    # Cloudflare builds and deploys the relay (apps/relay/cloudflare) only
+    # when this calls its deploy hook; pushes alone do not deploy.
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: deploy-relay
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - uses: actions/checkout@v6
+      - run: scripts/deploy-relay.sh
+        env:
+          DEPLOY_HOOK_URL: ${{ secrets.CLOUDFLARE_DEPLOY_HOOK }}
+          RELAY_URL: https://tackly.hellpat-playground.workers.dev
+          GH_TOKEN: ${{ github.token }}
+
   app-macos:
     runs-on: macos-latest
     timeout-minutes: 45

@@ -27,8 +27,21 @@ nothing.
 
 Put a TLS reverse proxy in front of it and give the app the proxy's HTTPS URL.
 Do not expose the listener itself to the internet without TLS, request limits
-and abuse controls. This repository does not deploy the server or back up its
-database; the file and its write-ahead log both need backing up.
+and abuse controls. Anywhere else, the file and its write-ahead log both need
+backing up.
+
+## Deploy
+
+`cloudflare/` runs this binary as a Cloudflare Container behind a small
+Worker, under Litestream, which restores the database from R2 on start and
+replicates every change to R2 within a second. CI deploys it from `main` after
+the tests pass: `scripts/deploy-relay.sh` calls the Workers Builds deploy hook,
+waits for the build's check run and fails the pipeline if the build or
+`/health` fails. The image is a plain Dockerfile, so it runs on any other host
+given the R2 variables in `cloudflare/entrypoint.sh`.
+
+A crash can lose the last second of accepted events, and the phones do not yet
+notice or resend them.
 
 ## API
 
