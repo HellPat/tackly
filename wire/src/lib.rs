@@ -78,6 +78,20 @@ pub struct SequencedEvent {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct EventsPage {
     pub events: Vec<SequencedEvent>,
+    /// The relay started again after this page's events: it may have come
+    /// back from a backup that misses what it accepted last.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restart: Option<Restart>,
+}
+
+/// A start of the relay. Whatever it accepted after `after` may be lost; it
+/// numbers what comes next from past `sequence`, so no number is used twice.
+/// A phone sends its own events after `after` again and reads on from
+/// `sequence`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Restart {
+    pub sequence: i64,
+    pub after: i64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

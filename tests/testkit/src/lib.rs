@@ -1,7 +1,11 @@
 //! A real relay (the server's router, a SQLite file, real HTTP) that tests can
-//! stop and start again on the same address, to play a server outage.
+//! stop and start again on the same address, to play a server outage, and
+//! bring back from a backup, to play a relay that lost its last messages.
 
-use std::{net::SocketAddr, path::Path};
+use std::{
+    net::SocketAddr,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result};
 use tackly_phone::infrastructure::server_url::ServerUrl;
@@ -9,9 +13,17 @@ use tokio::runtime::Runtime;
 
 pub struct Relay {
     addr: SocketAddr,
-    database_url: String,
+    database: PathBuf,
     runtime: Option<Runtime>,
 }
+
+/// A copy of a stopped relay's database files.
+pub struct Backup {
+    dir: PathBuf,
+}
+
+/// The database and its write-ahead log.
+const DATABASE_FILES: [&str; 3] = ["", "-wal", "-shm"];
 
 impl Relay {
     /// Picks an address and a database file in `dir`, without serving yet: a
@@ -22,9 +34,25 @@ impl Relay {
             .local_addr()?;
         Ok(Self {
             addr,
-            database_url: format!("sqlite://{}", dir.join("relay.db").display()),
+            database: dir.join("relay.db"),
             runtime: None,
         })
+    }
+
+    /// Copies the stopped relay's database aside, as a backup would.
+    pub fn back_up(&self, name: &str) -> Result<Backup> {
+        anyhow::ensure!(!self.is_running(), "stop the relay before backing it up");
+        let dir = self.database.with_file_name(format!("backup-{name}"));
+        std::fs::create_dir_all(&dir)?;
+        copy_files(&self.database, &dir.join("relay.db"))?;
+        Ok(Backup { dir })
+    }
+
+    /// Puts a backup in place of the stopped relay's database: the relay
+    /// loses everything it accepted since.
+    pub fn restore(&self, backup: &Backup) -> Result<()> {
+        anyhow::ensure!(!self.is_running(), "stop the relay before restoring it");
+        copy_files(&backup.dir.join("relay.db"), &self.database)
     }
 
     pub fn url(&self) -> ServerUrl {
@@ -42,7 +70,8 @@ impl Relay {
         }
         // Its own runtime, so that stopping also drops the open SSE connections.
         let runtime = Runtime::new().context("start the relay's runtime")?;
-        let (database_url, addr) = (self.database_url.clone(), self.addr);
+        let database_url = format!("sqlite://{}", self.database.display());
+        let addr = self.addr;
         let (ready, listening) = tokio::sync::oneshot::channel();
         runtime.spawn(async move {
             let result = serve(&database_url, addr, ready).await;
@@ -71,6 +100,27 @@ impl Drop for Relay {
     }
 }
 
+/// Copies the database files at `from` over those at `to`; a file `from`
+/// lacks is removed at `to`.
+fn copy_files(from: &Path, to: &Path) -> Result<()> {
+    for suffix in DATABASE_FILES {
+        let (source, target) = (with_suffix(from, suffix), with_suffix(to, suffix));
+        if source.exists() {
+            std::fs::copy(&source, &target)
+                .with_context(|| format!("copy {}", source.display()))?;
+        } else if target.exists() {
+            std::fs::remove_file(&target)?;
+        }
+    }
+    Ok(())
+}
+
+fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
 async fn serve(
     database_url: &str,
     addr: SocketAddr,
@@ -78,6 +128,7 @@ async fn serve(
 ) -> Result<()> {
     let pool = tackly_relay::connect(database_url).await?;
     tackly_relay::migrate(&pool).await?;
+    tackly_relay::record_restart(&pool).await?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     // The receiver is gone only if the test gave up waiting.
     let _ = ready.send(());

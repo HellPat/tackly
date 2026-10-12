@@ -26,7 +26,7 @@ use axum::{
 };
 use sqlx::SqlitePool;
 
-pub use db::{connect, migrate};
+pub use db::{connect, migrate, record_restart};
 
 const MAX_REQUEST_BYTES: usize = 10 * 1024 * 1024;
 

@@ -147,6 +147,7 @@ impl Device {
             return Ok(());
         }
         self.ensure_registered().await?;
+        self.owes_resend = false;
         let pending = self.events.lock().pending_events()?;
         for batch in pending.chunks(MAX_APPEND_BATCH) {
             self.send(|device| {
@@ -165,11 +166,6 @@ impl Device {
             self.send_snapshot().await?;
         }
         self.backup().await
-    }
-
-    /// Whether the head came back and still needs the history from this phone.
-    pub fn owes_snapshot(&self) -> bool {
-        self.owes_snapshot
     }
 
     /// Sends the whole history to the group, in chunks, for a member that
@@ -243,7 +239,20 @@ impl Device {
             }
             self.events.lock().advance_cursor(update.sequence)?;
         }
+        if let Some(restart) = page.restart {
+            let store = self.events.lock();
+            if store.resend_after(restart.after)? > 0 {
+                self.owes_resend = true;
+            }
+            store.advance_cursor(restart.sequence)?;
+        }
         Ok(())
+    }
+
+    /// Whether this phone has something to upload right away: the history for
+    /// a head that came back, or its own events a restarted relay may have lost.
+    pub fn owes_upload(&self) -> bool {
+        self.owes_snapshot || self.owes_resend
     }
 
     fn take_in(

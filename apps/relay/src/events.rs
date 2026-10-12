@@ -18,7 +18,7 @@ use openmls::prelude::{ContentType, MlsMessageBodyIn, MlsMessageIn, tls_codec::D
 use sqlx::SqlitePool;
 use tackly_wire::{
     AppendEvents, AppendResult, Bytes, EncryptedEvent, EventsPage, EventsQuery, MAX_APPEND_BATCH,
-    MAX_MESSAGE_BYTES, MAX_PAGE, SSE_EVENTS, STALE_EPOCH, SequencedEvent,
+    MAX_MESSAGE_BYTES, MAX_PAGE, Restart, SSE_EVENTS, STALE_EPOCH, SequencedEvent,
 };
 use tokio::sync::broadcast::error::RecvError;
 use uuid::Uuid;
@@ -159,24 +159,42 @@ pub async fn append_events(
     }))
 }
 
-/// Up to `limit` events after the sequence `after`, oldest first.
-async fn events_after(
+/// Up to `limit` events after the sequence `after`, oldest first, and the
+/// relay's next start after them once the page reaches it: a phone then
+/// sends its own events again and reads on from past the gap.
+async fn page_after(
     db: &SqlitePool,
     family_id: Uuid,
     after: i64,
     limit: i64,
-) -> Result<Vec<SequencedEvent>, ApiError> {
+) -> Result<EventsPage, ApiError> {
+    let restart = sqlx::query(
+        "SELECT sequence, after FROM restarts WHERE sequence>? ORDER BY sequence LIMIT 1",
+    )
+    .bind(after)
+    .fetch_optional(db)
+    .await
+    .map_err(internal)?
+    .map(|row| {
+        Ok::<_, ApiError>(Restart {
+            sequence: column(&row, "sequence")?,
+            after: column(&row, "after")?,
+        })
+    })
+    .transpose()?;
     let rows = sqlx::query(
         "SELECT sequence, event_id, origin_device_id, message FROM group_messages \
-         WHERE family_id=? AND sequence>? ORDER BY sequence LIMIT ?",
+         WHERE family_id=? AND sequence>? AND sequence<? ORDER BY sequence LIMIT ?",
     )
     .bind(family_id.to_string())
     .bind(after)
+    .bind(restart.map_or(i64::MAX, |restart| restart.sequence))
     .bind(limit)
     .fetch_all(db)
     .await
     .map_err(internal)?;
-    rows.iter()
+    let events = rows
+        .iter()
         .map(|row| {
             Ok(SequencedEvent {
                 sequence: column(row, "sequence")?,
@@ -187,7 +205,10 @@ async fn events_after(
                 },
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>, ApiError>>()?;
+    // A full page may stop short of the restart: it comes with the next one.
+    let restart = restart.filter(|_| (events.len() as i64) < limit);
+    Ok(EventsPage { events, restart })
 }
 
 /// One page of history, for a phone catching up.
@@ -203,9 +224,7 @@ pub async fn list_events(
     if after < 0 || !(1..=MAX_PAGE).contains(&limit) {
         return Err(bad_request("invalid cursor or limit"));
     }
-    Ok(Json(EventsPage {
-        events: events_after(&state.db, family_id, after, limit).await?,
-    }))
+    Ok(Json(page_after(&state.db, family_id, after, limit).await?))
 }
 
 /// Server-Sent Events: first everything after the cursor (`after`, or the
@@ -240,19 +259,26 @@ pub async fn stream_events(
                     }
                 }
                 first_read = false;
-                let Ok(events) = events_after(&state.db, family_id, cursor, MAX_PAGE).await else {
+                let Ok(page) = page_after(&state.db, family_id, cursor, MAX_PAGE).await else {
                     return None;
                 };
-                let Some(last) = events.last() else { continue };
-                cursor = last.sequence;
-                // A full page means there may be more: wake ourselves again.
-                if events.len() as i64 == MAX_PAGE {
+                let Some(last) = page
+                    .restart
+                    .map(|restart| restart.sequence)
+                    .or(page.events.last().map(|event| event.sequence))
+                else {
+                    continue;
+                };
+                cursor = last;
+                // A full page, or one that ends at a restart, may have more
+                // behind it: wake ourselves again.
+                if page.events.len() as i64 == MAX_PAGE || page.restart.is_some() {
                     state.live.notify(family_id).await;
                 }
                 let Ok(message) = Event::default()
                     .event(SSE_EVENTS)
                     .id(cursor.to_string())
-                    .json_data(EventsPage { events })
+                    .json_data(page)
                 else {
                     return None;
                 };

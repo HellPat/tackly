@@ -40,8 +40,9 @@ and fails the pipeline unless `/health` answers from the new commit within ten
 minutes (the Worker names it in `x-tackly-commit`). The image is a plain Dockerfile, so it runs on any other host
 given the R2 variables in `cloudflare/entrypoint.sh`.
 
-A crash can lose the last second of accepted events, and the phones do not yet
-notice or resend them.
+A crash can lose the last second of accepted events; the phones send theirs
+again (see **Restarts** below). A lost commit is not sent again yet: the
+members it added or removed would have to be added or removed again.
 
 ## API
 
@@ -72,6 +73,15 @@ events after the cursor, then pushes each newly accepted batch as an `events`
 message whose data is a page of events and whose SSE `id` is the last sequence.
 A reconnecting client sends it back as `Last-Event-ID`. Keep-alives come every
 15 seconds.
+
+**Restarts.** Each start of the relay is recorded: it may have come back from
+a backup that misses what it accepted after the last sequence `after` it
+holds, and it numbers new messages from past `sequence` (a gap of a million),
+so no number is used twice and a phone that read further than the backup
+skips nothing. A page (and a stream message) that reaches a restart carries
+it as `restart: {sequence, after}`, with no events past it. The phone sends
+its own messages after `after` again (and those it never saw come back; their
+IDs make that harmless), and reads on from `sequence`.
 
 ## Design
 

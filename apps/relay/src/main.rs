@@ -10,6 +10,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("migrations applied");
         return Ok(());
     }
+    tackly_relay::record_restart(&pool).await?;
     let address: SocketAddr = env::var("TACKLY_BIND")
         .unwrap_or_else(|_| "127.0.0.1:3000".into())
         .parse()?;

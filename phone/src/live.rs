@@ -90,8 +90,9 @@ async fn sync_loop(
                                 if let Err(error) = device.ingest(page) {
                                     eprintln!("live sync: {error:#}");
                                 }
-                                // The head came back: it gets the history from here.
-                                if device.owes_snapshot() {
+                                // The head came back and gets the history from
+                                // here, or the relay restarted and may miss ours.
+                                if device.owes_upload() {
                                     let _ = device.flush().await;
                                 }
                             }

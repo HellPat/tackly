@@ -65,6 +65,14 @@ impl Phone {
         self.live = Some(tokio::spawn(run_live(self.device.clone(), || {})));
     }
 
+    /// No network: the phone neither sends nor hears anything until it goes
+    /// live again.
+    fn go_offline(&mut self) {
+        if let Some(live) = self.live.take() {
+            live.abort();
+        }
+    }
+
     async fn state(&self) -> Result<Family> {
         self.device.lock().await.state()
     }
@@ -638,6 +646,62 @@ async fn a_server_outage_does_not_stop_members_and_they_converge_afterwards() ->
             Ok(phone.sees("Laundry", working(mona_id)).await?
                 && phone.sees("Groceries", is_done).await?
                 && phone.state().await?.task_by_title("Vacuum").is_some())
+        })
+        .await?;
+    }
+    let (a, b, c) = (
+        patrick.state().await?,
+        mona.state().await?,
+        mara.state().await?,
+    );
+    assert_eq!(a.tasks, b.tasks);
+    assert_eq!(b.tasks, c.tasks);
+    Ok(())
+}
+
+/// The relay comes back from a backup that misses what it accepted last
+/// (Litestream replicates within a second). The phone that sent the lost
+/// event sends it again, so a phone that never got it still does; and what
+/// comes after the restart reaches the phones that had read further than the
+/// backup.
+#[tokio::test]
+async fn after_the_relay_lost_its_last_messages_the_phones_send_theirs_again() -> Result<()> {
+    let dir = scratch_dir("restored")?;
+    let mut relay = Relay::reserve(&dir)?;
+    relay.start().await?;
+    let (patrick, mona, mut mara) = family_of_three(&dir, &relay).await?;
+    patrick.add_task("Laundry").await?;
+    for phone in [&mona, &mara] {
+        eventually("Laundry synced", || async {
+            Ok(phone.state().await?.task_by_title("Laundry").is_some())
+        })
+        .await?;
+    }
+    relay.stop();
+    let backup = relay.back_up("before-vacuum")?;
+    relay.start().await?;
+
+    // Mara is offline; Patrick adds a task the relay accepts and Mona gets.
+    mara.go_offline();
+    patrick.add_task("Vacuum").await?;
+    eventually("Mona got Vacuum", || async {
+        Ok(mona.state().await?.task_by_title("Vacuum").is_some())
+    })
+    .await?;
+
+    // The relay crashes and comes back without Vacuum.
+    relay.stop();
+    relay.restore(&backup)?;
+    relay.start().await?;
+    mara.go_live();
+    mona.add_task("Dishes").await?;
+
+    for phone in [&patrick, &mona, &mara] {
+        eventually("converged after the restore", || async {
+            let state = phone.state().await?;
+            Ok(["Laundry", "Vacuum", "Dishes"]
+                .iter()
+                .all(|title| state.task_by_title(title).is_some()))
         })
         .await?;
     }
