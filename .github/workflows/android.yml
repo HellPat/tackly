@@ -49,9 +49,10 @@ jobs:
           fi
       - name: Build the APK
         working-directory: apps/app
-        env:
-          NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
-        run: dx build --android --package tackly-app --no-default-features --features mobile --target aarch64-linux-android
+        run: |
+          export NDK_HOME="$ANDROID_NDK_HOME"
+          echo "NDK: $NDK_HOME"
+          dx build --android --package tackly-app --no-default-features --features mobile --target aarch64-linux-android
       - name: Collect it
         run: |
           apk="$(find target/dx -name app-debug.apk | head -n 1)"
