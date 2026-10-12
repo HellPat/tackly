@@ -29,7 +29,7 @@ use std::{
 
 use anyhow::{Context, Result, ensure};
 use cqrs_es::CqrsFramework;
-use tackly_domain::{CommandContext, Family, FamilyCommand};
+use tackly_domain::{CommandContext, Family, FamilyCommand, Name};
 use tokio::sync::Notify;
 use uuid::Uuid;
 
@@ -172,10 +172,7 @@ impl Device {
         my_name: &str,
     ) -> Result<()> {
         ensure!(self.membership.is_none(), "already in a family");
-        ensure!(
-            !family_name.trim().is_empty() && !my_name.trim().is_empty(),
-            "names are required"
-        );
+        let (family_name, my_name): (Name, Name) = (family_name.parse()?, my_name.parse()?);
         let api = Api::new(server_url)?;
         let family_id = Uuid::new_v4();
         let device_token = crypto::encode(&random_bytes::<32>());
@@ -195,15 +192,15 @@ impl Device {
             device_token,
             registered,
             owner: true,
-            name: my_name.trim().to_owned(),
+            name: my_name.clone(),
             agent: false,
             removed: false,
             restoring: false,
         })?;
         self.run(FamilyCommand::CreateFamily {
             family_id,
-            name: family_name.to_owned(),
-            owner_name: my_name.to_owned(),
+            name: family_name,
+            owner_name: my_name,
         })
         .await?;
         // The recovery code comes with the family; the person must save it.

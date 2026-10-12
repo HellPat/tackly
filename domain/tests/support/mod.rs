@@ -3,11 +3,13 @@
 //! say "Patrick did this to that".
 
 #![allow(dead_code)] // each test file uses part of it
+#![allow(clippy::expect_used)] // a test fails by panicking
 
 use chrono::{DateTime, TimeZone, Utc};
 use cqrs_es::test::TestFramework;
 use tackly_domain::{
-    CommandContext, DomainEvent, Family, FamilyEvent, GeoPoint, PlaceLocation, Solution,
+    CommandContext, DomainEvent, Family, FamilyEvent, Focus, GeoPoint, Name, PlaceLocation,
+    Solution,
 };
 use uuid::Uuid;
 
@@ -32,6 +34,16 @@ pub const PASTA: Uuid = Uuid::from_u128(0x71);
 
 /// Every event in these tests has this ID and happens at 9:00 (plus minutes).
 pub const EVENT: Uuid = Uuid::from_u128(0xE);
+
+/// A day's plan (the tests only use sensible ones).
+pub fn focus(tasks: &[Uuid]) -> Focus {
+    Focus::new(tasks.iter().copied()).expect("a plan")
+}
+
+/// A name or title (the tests only use good ones).
+pub fn named(text: &str) -> Name {
+    text.parse().expect("a name")
+}
 
 pub fn nine_o_clock() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 10, 11, 9, 0, 0)
@@ -69,22 +81,22 @@ pub fn the_smiths() -> Vec<FamilyEvent> {
             PATRICK,
             SMITHS,
             DomainEvent::FamilyCreated {
-                name: "The Smiths".into(),
-                owner_name: "Patrick".into(),
+                name: named("The Smiths"),
+                owner_name: named("Patrick"),
             },
         ),
         by(
             MONA,
             SMITHS,
             DomainEvent::MemberJoined {
-                name: "Mona".into(),
+                name: named("Mona"),
             },
         ),
         by(
             MARA,
             SMITHS,
             DomainEvent::MemberJoined {
-                name: "Mara".into(),
+                name: named("Mara"),
             },
         ),
     ]
@@ -95,7 +107,7 @@ pub fn shopping_list() -> FamilyEvent {
         PATRICK,
         SHOPPING,
         DomainEvent::ListCreated {
-            name: "Shopping".into(),
+            name: named("Shopping"),
         },
     )
 }
@@ -106,7 +118,7 @@ pub fn lidl_in_the_grocery_store() -> Vec<FamilyEvent> {
             PATRICK,
             GROCERY_STORE,
             DomainEvent::PlaceGroupCreated {
-                name: "Grocery Store".into(),
+                name: named("Grocery Store"),
             },
         ),
         by(
@@ -114,7 +126,7 @@ pub fn lidl_in_the_grocery_store() -> Vec<FamilyEvent> {
             LIDL,
             DomainEvent::PlaceCreated {
                 group_id: GROCERY_STORE,
-                name: "LIDL".into(),
+                name: named("LIDL"),
                 location: winnenden(),
             },
         ),
@@ -124,7 +136,7 @@ pub fn lidl_in_the_grocery_store() -> Vec<FamilyEvent> {
 pub fn winnenden() -> PlaceLocation {
     PlaceLocation {
         id: Uuid::from_u128(0x41),
-        name: "LIDL Winnenden".into(),
+        name: named("LIDL Winnenden"),
         address: None,
         point: None,
     }
@@ -133,7 +145,7 @@ pub fn winnenden() -> PlaceLocation {
 pub fn backnang() -> PlaceLocation {
     PlaceLocation {
         id: Uuid::from_u128(0x42),
-        name: "LIDL Backnang".into(),
+        name: named("LIDL Backnang"),
         address: None,
         point: None,
     }
@@ -141,11 +153,9 @@ pub fn backnang() -> PlaceLocation {
 
 /// A task created by Patrick, in "Other".
 /// Where the GPS says the phone is: in Winnenden.
-pub const HERE: GeoPoint = GeoPoint {
-    latitude: 48.8752,
-    longitude: 9.3775,
-    accuracy_meters: Some(12.0),
-};
+pub fn here() -> GeoPoint {
+    GeoPoint::new(48.8752, 9.3775, Some(12.0)).expect("coordinates")
+}
 
 pub fn task(id: Uuid, title: &str) -> FamilyEvent {
     by(
@@ -153,7 +163,7 @@ pub fn task(id: Uuid, title: &str) -> FamilyEvent {
         id,
         DomainEvent::TaskCreated {
             list_id: None,
-            title: title.into(),
+            title: named(title),
             place_ids: vec![],
             problem_id: None,
         },
@@ -167,7 +177,7 @@ pub fn out_of_food() -> Vec<FamilyEvent> {
             PATRICK,
             OUT_OF_FOOD,
             DomainEvent::ProblemCreated {
-                title: "Out of food".into(),
+                title: named("Out of food"),
                 icon: "kitchen".into(),
             },
         ),
@@ -191,14 +201,14 @@ pub fn out_of_food() -> Vec<FamilyEvent> {
 pub fn go_shopping() -> Solution {
     Solution {
         id: GO_SHOPPING,
-        title: "Go shopping".into(),
+        title: named("Go shopping"),
     }
 }
 
 pub fn cook_pasta() -> Solution {
     Solution {
         id: COOK_PASTA,
-        title: "Cook pasta".into(),
+        title: named("Cook pasta"),
     }
 }
 
@@ -210,7 +220,7 @@ pub fn step(who: Uuid, problem: Uuid, id: Uuid, title: &str, holder: Uuid) -> [F
             id,
             DomainEvent::TaskCreated {
                 list_id: None,
-                title: title.into(),
+                title: named(title),
                 place_ids: vec![],
                 problem_id: Some(problem),
             },

@@ -21,7 +21,7 @@ impl Device {
         self.run(FamilyCommand::AddTask {
             task_id,
             list_id,
-            title: title.to_owned(),
+            title: title.parse()?,
             place_ids: place_ids.to_vec(),
         })
         .await?;
@@ -75,7 +75,7 @@ impl Device {
         let list_id = Uuid::now_v7();
         self.run(FamilyCommand::CreateList {
             list_id,
-            name: name.to_owned(),
+            name: name.parse()?,
         })
         .await?;
         Ok(list_id)
@@ -84,7 +84,7 @@ impl Device {
     pub async fn rename_list(&mut self, list_id: Uuid, name: &str) -> Result<()> {
         self.run(FamilyCommand::RenameList {
             list_id,
-            name: name.to_owned(),
+            name: name.parse()?,
         })
         .await
     }
@@ -98,7 +98,7 @@ impl Device {
 
     pub async fn rename_me(&mut self, name: &str) -> Result<()> {
         self.run(FamilyCommand::Rename {
-            name: name.to_owned(),
+            name: name.parse()?,
         })
         .await
     }

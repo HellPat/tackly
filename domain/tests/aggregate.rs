@@ -1,6 +1,8 @@
 //! The family aggregate: given what happened, when someone does something,
 //! then these events happen (or this error).
 
+#![allow(clippy::expect_used)] // a test fails by panicking
+
 mod support;
 
 use support::*;
@@ -16,7 +18,7 @@ fn a_new_task_lands_in_other() {
         .when(Do::AddTask {
             task_id: MILK,
             list_id: None,
-            title: " Milk ".into(),
+            title: named(" Milk "),
             place_ids: vec![],
         })
         .then_expect_events(vec![by(
@@ -24,24 +26,11 @@ fn a_new_task_lands_in_other() {
             MILK,
             Happened::TaskCreated {
                 list_id: None,
-                title: "Milk".into(),
+                title: named("Milk"),
                 place_ids: vec![],
                 problem_id: None,
             },
         )]);
-}
-
-#[test]
-fn a_task_needs_a_title() {
-    as_member(PATRICK)
-        .given(the_smiths())
-        .when(Do::AddTask {
-            task_id: MILK,
-            list_id: None,
-            title: "  ".into(),
-            place_ids: vec![],
-        })
-        .then_expect_error(FamilyError::Empty);
 }
 
 #[test]
@@ -51,7 +40,7 @@ fn a_task_can_go_into_a_list_that_exists() {
         .when(Do::AddTask {
             task_id: MILK,
             list_id: Some(SHOPPING),
-            title: "Milk".into(),
+            title: named("Milk"),
             place_ids: vec![],
         })
         .then_expect_events(vec![by(
@@ -59,7 +48,7 @@ fn a_task_can_go_into_a_list_that_exists() {
             MILK,
             Happened::TaskCreated {
                 list_id: Some(SHOPPING),
-                title: "Milk".into(),
+                title: named("Milk"),
                 place_ids: vec![],
                 problem_id: None,
             },
@@ -78,7 +67,7 @@ fn a_list_with_open_tasks_cannot_be_deleted() {
                     MILK,
                     Happened::TaskCreated {
                         list_id: Some(SHOPPING),
-                        title: "Milk".into(),
+                        title: named("Milk"),
                         place_ids: vec![],
                         problem_id: None,
                     },
@@ -307,7 +296,7 @@ fn a_place_belongs_to_a_group_that_exists() {
         .when(Do::CreatePlace {
             place_id: LIDL,
             group_id: GROCERY_STORE,
-            name: "LIDL".into(),
+            name: named("LIDL"),
             location: winnenden(),
         })
         .then_expect_error(FamilyError::UnknownGroup);
@@ -388,8 +377,8 @@ fn a_phone_can_only_create_one_family() {
         .given(the_smiths())
         .when(Do::CreateFamily {
             family_id: SMITHS,
-            name: "Again".into(),
-            owner_name: "Patrick".into(),
+            name: named("Again"),
+            owner_name: named("Patrick"),
         })
         .then_expect_error(FamilyError::AlreadyCreated);
 }
@@ -398,11 +387,11 @@ fn a_phone_can_only_create_one_family() {
 fn members_rename_themselves() {
     as_member(MONA)
         .given(the_smiths())
-        .when(Do::Rename { name: "Mo".into() })
+        .when(Do::Rename { name: named("Mo") })
         .then_expect_events(vec![by(
             MONA,
             SMITHS,
-            Happened::MemberRenamed { name: "Mo".into() },
+            Happened::MemberRenamed { name: named("Mo") },
         )]);
 }
 
@@ -412,13 +401,13 @@ fn finishing_records_where_it_happened() {
         .given(given(vec![the_smiths(), vec![task(MILK, "Milk")]]))
         .when(Do::CompleteTask {
             task_id: MILK,
-            location: Some(HERE),
+            location: Some(here()),
         })
         .then_expect_events(vec![by(
             MARA,
             MILK,
             Happened::TaskCompleted {
-                location: Some(HERE),
+                location: Some(here()),
             },
         )]);
 }
@@ -435,12 +424,12 @@ fn where_it_was_finished_can_follow_once_the_gps_knows() {
         ]))
         .when(Do::LocateCompletion {
             task_id: MILK,
-            location: HERE,
+            location: here(),
         })
         .then_expect_events(vec![by(
             MARA,
             MILK,
-            Happened::TaskCompletionLocated { location: HERE },
+            Happened::TaskCompletionLocated { location: here() },
         )]);
 }
 
@@ -456,7 +445,7 @@ fn only_who_finished_it_says_where() {
         ]))
         .when(Do::LocateCompletion {
             task_id: MILK,
-            location: HERE,
+            location: here(),
         })
         .then_expect_error(FamilyError::NotYours);
 }
@@ -467,7 +456,7 @@ fn an_open_task_has_no_place_it_was_finished() {
         .given(given(vec![the_smiths(), vec![task(MILK, "Milk")]]))
         .when(Do::LocateCompletion {
             task_id: MILK,
-            location: HERE,
+            location: here(),
         })
         .then_expect_error(FamilyError::NotDone);
 }
@@ -483,14 +472,14 @@ fn where_it_was_finished_is_said_once() {
                     MARA,
                     MILK,
                     Happened::TaskCompleted {
-                        location: Some(HERE),
+                        location: Some(here()),
                     },
                 ),
             ],
         ]))
         .when(Do::LocateCompletion {
             task_id: MILK,
-            location: HERE,
+            location: here(),
         })
         .then_expect_error(FamilyError::AlreadyLocated);
 }
@@ -501,7 +490,11 @@ fn photo(data: &str) -> tackly_domain::Picture {
     tackly_domain::Picture {
         icon: "pets".into(),
         tint: 1,
-        photo: Some(format!("data:image/jpeg;base64,{data}")),
+        photo: Some(
+            format!("data:image/jpeg;base64,{data}")
+                .parse()
+                .expect("a photo"),
+        ),
     }
 }
 
@@ -521,28 +514,6 @@ fn a_member_sets_a_photo_as_their_picture() {
         )]);
 }
 
-#[test]
-fn a_photo_that_is_too_big_is_refused() {
-    as_member(MONA)
-        .given(the_smiths())
-        .when(Do::SetPicture {
-            picture: photo(&"A".repeat(tackly_domain::MAX_PHOTO_BYTES)),
-        })
-        .then_expect_error(FamilyError::BadPhoto);
-}
-
-#[test]
-fn only_a_jpeg_is_a_photo() {
-    let mut not_a_jpeg = photo("PHN2Zz4=");
-    not_a_jpeg.photo = Some("data:image/svg+xml;base64,PHN2Zz4=".into());
-    as_member(MONA)
-        .given(the_smiths())
-        .when(Do::SetPicture {
-            picture: not_a_jpeg,
-        })
-        .then_expect_error(FamilyError::BadPhoto);
-}
-
 // ---- problems -----------------------------------------------------------------------------------
 
 #[test]
@@ -551,7 +522,7 @@ fn a_problem_is_created_with_its_solutions() {
         .given(the_smiths())
         .when(Do::CreateProblem {
             problem_id: OUT_OF_FOOD,
-            title: " Out of food ".into(),
+            title: named(" Out of food "),
             icon: "kitchen".into(),
             solutions: vec![go_shopping(), cook_pasta()],
         })
@@ -647,7 +618,7 @@ fn assigning_a_problem_hands_over_its_open_steps() {
 fn a_new_solution_of_an_open_problem_is_a_step_right_away() {
     let tidy_up = tackly_domain::Solution {
         id: Uuid::from_u128(0x63),
-        title: "Write a shopping list".into(),
+        title: named("Write a shopping list"),
     };
     let task_id = Uuid::from_u128(0x72);
     let mut expected = vec![by(
@@ -736,7 +707,7 @@ fn planning_a_day_takes_free_tasks_and_keeps_my_order() {
         ]))
         .when(Do::PlanDay {
             day: tomorrow(),
-            task_ids: vec![DISHES, MILK, DISHES],
+            task_ids: focus(&[DISHES, MILK, DISHES]),
         })
         .then_expect_events(vec![
             by(
@@ -751,7 +722,7 @@ fn planning_a_day_takes_free_tasks_and_keeps_my_order() {
                 PATRICK,
                 Happened::DayPlanned {
                     day: tomorrow(),
-                    task_ids: vec![DISHES, MILK],
+                    task_ids: focus(&[DISHES, MILK]),
                 },
             ),
         ]);
@@ -775,7 +746,7 @@ fn someone_elses_task_cannot_be_in_my_plan() {
         ]))
         .when(Do::PlanDay {
             day: tomorrow(),
-            task_ids: vec![DISHES],
+            task_ids: focus(&[DISHES]),
         })
         .then_expect_error(FamilyError::Taken);
 }
@@ -819,7 +790,7 @@ fn the_head_admits_an_agent_for_a_while() {
         .given(the_smiths())
         .when(Do::AdmitAgent {
             member_id: AGENT,
-            name: "AI agent".into(),
+            name: named("AI agent"),
             until,
         })
         .then_expect_events(vec![by(
@@ -827,7 +798,7 @@ fn the_head_admits_an_agent_for_a_while() {
             SMITHS,
             Happened::AgentAdmitted {
                 member_id: AGENT,
-                name: "AI agent".into(),
+                name: named("AI agent"),
                 until,
             },
         )]);
@@ -835,7 +806,7 @@ fn the_head_admits_an_agent_for_a_while() {
         .given(the_smiths())
         .when(Do::AdmitAgent {
             member_id: AGENT,
-            name: "AI agent".into(),
+            name: named("AI agent"),
             until,
         })
         .then_expect_error(FamilyError::NotHead);

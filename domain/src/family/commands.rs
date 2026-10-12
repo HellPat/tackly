@@ -3,20 +3,21 @@
 use chrono::{DateTime, NaiveDate, Utc};
 use uuid::Uuid;
 
-use super::events::{GeoPoint, Picture, PlaceLocation, Solution};
+use super::events::{Picture, PlaceLocation, Solution};
+use crate::values::{Focus, GeoPoint, Name};
 
 #[derive(Clone, Debug)]
 pub enum FamilyCommand {
     CreateFamily {
         family_id: Uuid,
-        name: String,
-        owner_name: String,
+        name: Name,
+        owner_name: Name,
     },
     Join {
-        name: String,
+        name: Name,
     },
     Rename {
-        name: String,
+        name: Name,
     },
     SetPicture {
         picture: Picture,
@@ -28,17 +29,17 @@ pub enum FamilyCommand {
     /// The head lets an AI agent read along until `until`.
     AdmitAgent {
         member_id: Uuid,
-        name: String,
+        name: Name,
         until: DateTime<Utc>,
     },
 
     CreateList {
         list_id: Uuid,
-        name: String,
+        name: Name,
     },
     RenameList {
         list_id: Uuid,
-        name: String,
+        name: Name,
     },
     DeleteList {
         list_id: Uuid,
@@ -46,11 +47,11 @@ pub enum FamilyCommand {
 
     CreatePlaceGroup {
         group_id: Uuid,
-        name: String,
+        name: Name,
     },
     RenamePlaceGroup {
         group_id: Uuid,
-        name: String,
+        name: Name,
     },
     DeletePlaceGroup {
         group_id: Uuid,
@@ -58,12 +59,12 @@ pub enum FamilyCommand {
     CreatePlace {
         place_id: Uuid,
         group_id: Uuid,
-        name: String,
+        name: Name,
         location: PlaceLocation,
     },
     RenamePlace {
         place_id: Uuid,
-        name: String,
+        name: Name,
     },
     MovePlace {
         place_id: Uuid,
@@ -85,7 +86,7 @@ pub enum FamilyCommand {
     AddTask {
         task_id: Uuid,
         list_id: Option<Uuid>,
-        title: String,
+        title: Name,
         place_ids: Vec<Uuid>,
     },
     DeleteTask {
@@ -130,13 +131,13 @@ pub enum FamilyCommand {
     /// A problem the family knows from now on, with its solutions.
     CreateProblem {
         problem_id: Uuid,
-        title: String,
+        title: Name,
         icon: String,
         solutions: Vec<Solution>,
     },
     RenameProblem {
         problem_id: Uuid,
-        title: String,
+        title: Name,
     },
     /// While the problem is open, the new solution is a step right away: `task_id`.
     AddSolution {
@@ -171,7 +172,7 @@ pub enum FamilyCommand {
     /// My focus for a day, in order. Free tasks become mine.
     PlanDay {
         day: NaiveDate,
-        task_ids: Vec<Uuid>,
+        task_ids: Focus,
     },
 }
 

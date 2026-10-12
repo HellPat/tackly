@@ -1,15 +1,11 @@
 //! Why the family refuses a command.
 
-use super::problems::MAX_FOCUS;
-
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum FamilyError {
     #[error("this phone is already in a family")]
     AlreadyCreated,
     #[error("not in a family yet")]
     NoFamily,
-    #[error("names and titles must not be empty")]
-    Empty,
     #[error("unknown member")]
     UnknownMember,
     #[error("only the head of the family can do that")]
@@ -28,8 +24,6 @@ pub enum FamilyError {
     UnknownPlace,
     #[error("a place keeps at least one location")]
     LastLocation,
-    #[error("a photo must be a small JPEG")]
-    BadPhoto,
     #[error("unknown task")]
     UnknownTask,
     #[error("the task is already done")]
@@ -52,6 +46,4 @@ pub enum FamilyError {
     ProblemNotOpen,
     #[error("one new task per solution")]
     WrongSteps,
-    #[error("a day holds at most {MAX_FOCUS} tasks")]
-    TooMuch,
 }

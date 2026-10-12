@@ -12,7 +12,7 @@ impl Device {
         let group_id = Uuid::now_v7();
         self.run(FamilyCommand::CreatePlaceGroup {
             group_id,
-            name: name.to_owned(),
+            name: name.parse()?,
         })
         .await?;
         Ok(group_id)
@@ -21,7 +21,7 @@ impl Device {
     pub async fn rename_place_group(&mut self, group_id: Uuid, name: &str) -> Result<()> {
         self.run(FamilyCommand::RenamePlaceGroup {
             group_id,
-            name: name.to_owned(),
+            name: name.parse()?,
         })
         .await
     }
@@ -41,7 +41,7 @@ impl Device {
         self.run(FamilyCommand::CreatePlace {
             place_id,
             group_id,
-            name: name.to_owned(),
+            name: name.parse()?,
             location,
         })
         .await?;
@@ -51,7 +51,7 @@ impl Device {
     pub async fn rename_place(&mut self, place_id: Uuid, name: &str) -> Result<()> {
         self.run(FamilyCommand::RenamePlace {
             place_id,
-            name: name.to_owned(),
+            name: name.parse()?,
         })
         .await
     }

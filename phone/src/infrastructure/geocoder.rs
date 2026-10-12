@@ -103,13 +103,9 @@ impl Feature {
         };
         Some(PlaceLocation {
             id: Uuid::now_v7(),
-            name,
+            name: name.parse().ok()?,
             address,
-            point: Some(GeoPoint {
-                latitude,
-                longitude,
-                accuracy_meters: None,
-            }),
+            point: Some(GeoPoint::new(latitude, longitude, None).ok()?),
         })
     }
 }
@@ -131,12 +127,12 @@ mod tests {
             .filter_map(Feature::into_location)
             .collect();
         assert_eq!(locations.len(), 1);
-        assert_eq!(locations[0].name, "Lidl Winnenden");
+        assert_eq!(locations[0].name.as_str(), "Lidl Winnenden");
         assert_eq!(
             locations[0].address.as_deref(),
             Some("Marbacher Straße 12, 71364 Winnenden")
         );
         let point = locations[0].point.unwrap();
-        assert_eq!((point.latitude, point.longitude), (48.8752, 9.3775));
+        assert_eq!((point.latitude(), point.longitude()), (48.8752, 9.3775));
     }
 }

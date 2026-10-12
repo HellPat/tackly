@@ -54,15 +54,6 @@ impl std::fmt::Debug for CommandContext {
     }
 }
 
-pub(super) fn not_empty(text: &str) -> Result<String, FamilyError> {
-    let text = text.trim();
-    if text.is_empty() {
-        Err(FamilyError::Empty)
-    } else {
-        Ok(text.to_owned())
-    }
-}
-
 impl Family {
     /// Checks a command and returns the events it produces, as (subject, event).
     fn decide(

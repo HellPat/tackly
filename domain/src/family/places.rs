@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::{
-    aggregate::not_empty,
     commands::FamilyCommand,
     errors::FamilyError,
     events::{DomainEvent, FamilyEvent, PlaceLocation},
@@ -52,20 +51,10 @@ impl Family {
         let place = |id: Uuid| self.places.get(&id).ok_or(FamilyError::UnknownPlace);
         let one = |subject, event| Ok(vec![(subject, event)]);
         match command {
-            C::CreatePlaceGroup { group_id, name } => one(
-                group_id,
-                E::PlaceGroupCreated {
-                    name: not_empty(&name)?,
-                },
-            ),
+            C::CreatePlaceGroup { group_id, name } => one(group_id, E::PlaceGroupCreated { name }),
             C::RenamePlaceGroup { group_id, name } => {
                 group(group_id)?;
-                one(
-                    group_id,
-                    E::PlaceGroupRenamed {
-                        name: not_empty(&name)?,
-                    },
-                )
+                one(group_id, E::PlaceGroupRenamed { name })
             }
             C::DeletePlaceGroup { group_id } => {
                 group(group_id)?;
@@ -78,27 +67,21 @@ impl Family {
                 place_id,
                 group_id,
                 name,
-                mut location,
+                location,
             } => {
                 group(group_id)?;
-                location.name = not_empty(&location.name)?;
                 one(
                     place_id,
                     E::PlaceCreated {
                         group_id,
-                        name: not_empty(&name)?,
+                        name,
                         location,
                     },
                 )
             }
             C::RenamePlace { place_id, name } => {
                 place(place_id)?;
-                one(
-                    place_id,
-                    E::PlaceRenamed {
-                        name: not_empty(&name)?,
-                    },
-                )
+                one(place_id, E::PlaceRenamed { name })
             }
             C::MovePlace { place_id, group_id } => {
                 place(place_id)?;
@@ -109,12 +92,8 @@ impl Family {
                 place(place_id)?;
                 one(place_id, E::PlaceDeleted)
             }
-            C::AddPlaceLocation {
-                place_id,
-                mut location,
-            } => {
+            C::AddPlaceLocation { place_id, location } => {
                 place(place_id)?;
-                location.name = not_empty(&location.name)?;
                 one(place_id, E::PlaceLocationAdded { location })
             }
             C::RemovePlaceLocation {
@@ -141,12 +120,12 @@ impl Family {
             DomainEvent::PlaceGroupCreated { name } => {
                 self.place_groups.entry(subject).or_insert(PlaceGroup {
                     id: subject,
-                    name: name.clone(),
+                    name: name.to_string(),
                 });
             }
             DomainEvent::PlaceGroupRenamed { name } => {
                 if let Some(group) = self.place_groups.get_mut(&subject) {
-                    group.name = name.clone();
+                    group.name = name.to_string();
                 }
             }
             DomainEvent::PlaceGroupDeleted => {
@@ -163,14 +142,14 @@ impl Family {
                     self.places.entry(subject).or_insert(Place {
                         id: subject,
                         group_id: *group_id,
-                        name: name.clone(),
+                        name: name.to_string(),
                         locations: vec![location.clone()],
                     });
                 }
             }
             DomainEvent::PlaceRenamed { name } => {
                 if let Some(place) = self.places.get_mut(&subject) {
-                    place.name = name.clone();
+                    place.name = name.to_string();
                 }
             }
             DomainEvent::PlaceMoved { group_id } => {

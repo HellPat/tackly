@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::{
-    aggregate::not_empty,
     commands::FamilyCommand,
     errors::FamilyError,
     events::{DomainEvent, FamilyEvent, Picture},
@@ -81,32 +80,11 @@ impl Family {
                 if self.family_id.is_some() {
                     return Err(FamilyError::AlreadyCreated);
                 }
-                one(
-                    family_id,
-                    E::FamilyCreated {
-                        name: not_empty(&name)?,
-                        owner_name: not_empty(&owner_name)?,
-                    },
-                )
+                one(family_id, E::FamilyCreated { name, owner_name })
             }
-            C::Join { name } => one(
-                family()?,
-                E::MemberJoined {
-                    name: not_empty(&name)?,
-                },
-            ),
-            C::Rename { name } => one(
-                family()?,
-                E::MemberRenamed {
-                    name: not_empty(&name)?,
-                },
-            ),
-            C::SetPicture { picture } => {
-                if !picture.photo_is_valid() {
-                    return Err(FamilyError::BadPhoto);
-                }
-                one(family()?, E::MemberPictureChanged { picture })
-            }
+            C::Join { name } => one(family()?, E::MemberJoined { name }),
+            C::Rename { name } => one(family()?, E::MemberRenamed { name }),
+            C::SetPicture { picture } => one(family()?, E::MemberPictureChanged { picture }),
             C::RemoveMember { member_id } => {
                 if !self.is_head(me) {
                     return Err(FamilyError::NotHead);
@@ -134,7 +112,7 @@ impl Family {
                     family()?,
                     E::AgentAdmitted {
                         member_id,
-                        name: not_empty(&name)?,
+                        name,
                         until,
                     },
                 )
@@ -156,12 +134,12 @@ impl Family {
                     return true;
                 }
                 self.family_id = Some(subject);
-                self.name = Some(name.clone());
+                self.name = Some(name.to_string());
                 self.members.insert(
                     by,
                     Member {
                         device_id: by,
-                        name: owner_name.clone(),
+                        name: owner_name.to_string(),
                         owner: true,
                         picture: None,
                         agent_until: None,
@@ -176,7 +154,7 @@ impl Family {
                     picture: None,
                     agent_until: None,
                 });
-                member.name = name.clone();
+                member.name = name.to_string();
             }
             DomainEvent::MemberRemoved { member_id } => {
                 if self.is_head(by) && *member_id != by {
@@ -193,7 +171,7 @@ impl Family {
                         *member_id,
                         Member {
                             device_id: *member_id,
-                            name: name.clone(),
+                            name: name.to_string(),
                             owner: false,
                             picture: None,
                             agent_until: Some(*until),
@@ -203,7 +181,7 @@ impl Family {
             }
             DomainEvent::MemberRenamed { name } => {
                 if let Some(member) = self.members.get_mut(&by) {
-                    member.name = name.clone();
+                    member.name = name.to_string();
                 }
             }
             DomainEvent::MemberPictureChanged { picture } => {

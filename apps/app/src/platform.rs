@@ -82,21 +82,13 @@ async fn web_location() -> Option<GeoPoint> {
         () => dioxus.send(null),\
         { enableHighAccuracy: true, maximumAge: 60000, timeout: 30000 });";
     let fix: Option<[f64; 3]> = dioxus::document::eval(SCRIPT).recv().await.ok()?;
-    fix.map(|[latitude, longitude, accuracy]| GeoPoint {
-        latitude,
-        longitude,
-        accuracy_meters: Some(accuracy),
-    })
+    let [latitude, longitude, accuracy] = fix?;
+    GeoPoint::new(latitude, longitude, Some(accuracy)).ok()
 }
 
 fn fixed_location() -> Option<GeoPoint> {
-    let raw = std::env::var("TACKLY_LOCATION").ok()?;
-    let (lat, lon) = raw.split_once(',')?;
-    Some(GeoPoint {
-        latitude: lat.trim().parse().ok()?,
-        longitude: lon.trim().parse().ok()?,
-        accuracy_meters: Some(10.0),
-    })
+    let fixed: GeoPoint = std::env::var("TACKLY_LOCATION").ok()?.parse().ok()?;
+    GeoPoint::new(fixed.latitude(), fixed.longitude(), Some(10.0)).ok()
 }
 
 /// An invitation link passed on the command line (desktop). A phone gets it

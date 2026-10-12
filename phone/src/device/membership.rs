@@ -2,6 +2,7 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use tackly_domain::Name;
 use uuid::Uuid;
 
 use crate::infrastructure::{secrets::Secrets, server_url::ServerUrl};
@@ -20,7 +21,7 @@ pub struct Membership {
     /// False while the family exists only on this phone (created offline).
     pub registered: bool,
     pub owner: bool,
-    pub name: String,
+    pub name: Name,
     /// An AI agent: reads along, sends nothing.
     #[serde(default)]
     pub agent: bool,

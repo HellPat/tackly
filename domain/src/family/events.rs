@@ -6,6 +6,8 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::values::{Focus, GeoPoint, Name, Photo};
+
 /// One fact recorded by a device. The CQRS aggregate is the family; the
 /// `subject_id` names what the fact is about: the family, a list, a place
 /// group, a place, a task, a problem, or (for a day's plan) the member. The
@@ -25,11 +27,11 @@ pub struct FamilyEvent {
 pub enum DomainEvent {
     // ---- the family and its members (subject: the family; origin: the member)
     #[serde(rename = "family.created")]
-    FamilyCreated { name: String, owner_name: String },
+    FamilyCreated { name: Name, owner_name: Name },
     #[serde(rename = "member.joined")]
-    MemberJoined { name: String },
+    MemberJoined { name: Name },
     #[serde(rename = "member.renamed")]
-    MemberRenamed { name: String },
+    MemberRenamed { name: Name },
     #[serde(rename = "member.picture_changed")]
     MemberPictureChanged { picture: Picture },
     /// The head took a member (or an AI agent) out of the family. Only the
@@ -41,36 +43,36 @@ pub enum DomainEvent {
     #[serde(rename = "agent.admitted")]
     AgentAdmitted {
         member_id: Uuid,
-        name: String,
+        name: Name,
         until: DateTime<Utc>,
     },
 
     // ---- task lists. Tasks without a list are in "Other", which always exists.
     #[serde(rename = "list.created")]
-    ListCreated { name: String },
+    ListCreated { name: Name },
     #[serde(rename = "list.renamed")]
-    ListRenamed { name: String },
+    ListRenamed { name: Name },
     /// Only a list without open tasks can be deleted.
     #[serde(rename = "list.deleted")]
     ListDeleted,
 
     // ---- places, in groups such as "Grocery Store"
     #[serde(rename = "place_group.created")]
-    PlaceGroupCreated { name: String },
+    PlaceGroupCreated { name: Name },
     #[serde(rename = "place_group.renamed")]
-    PlaceGroupRenamed { name: String },
+    PlaceGroupRenamed { name: Name },
     /// Only a group without places can be deleted.
     #[serde(rename = "place_group.deleted")]
     PlaceGroupDeleted,
     #[serde(rename = "place.created")]
     PlaceCreated {
         group_id: Uuid,
-        name: String,
+        name: Name,
         /// Every place starts with one location.
         location: PlaceLocation,
     },
     #[serde(rename = "place.renamed")]
-    PlaceRenamed { name: String },
+    PlaceRenamed { name: Name },
     #[serde(rename = "place.moved")]
     PlaceMoved { group_id: Uuid },
     #[serde(rename = "place.deleted")]
@@ -87,7 +89,7 @@ pub enum DomainEvent {
         /// `None`: the task is in "Other".
         #[serde(default, skip_serializing_if = "Option::is_none")]
         list_id: Option<Uuid>,
-        title: String,
+        title: Name,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         place_ids: Vec<Uuid>,
         /// A step that fixes this problem (made when the problem was noticed).
@@ -128,9 +130,9 @@ pub enum DomainEvent {
 
     // ---- problems: things that go wrong at home, each with its solutions
     #[serde(rename = "problem.created")]
-    ProblemCreated { title: String, icon: String },
+    ProblemCreated { title: Name, icon: String },
     #[serde(rename = "problem.renamed")]
-    ProblemRenamed { title: String },
+    ProblemRenamed { title: Name },
     #[serde(rename = "problem.solution_added")]
     ProblemSolutionAdded { solution: Solution },
     #[serde(rename = "problem.solution_removed")]
@@ -150,7 +152,7 @@ pub enum DomainEvent {
     // ---- plans (subject: the member who plans)
     /// The origin's focus for a day, in order. A later plan for the same day replaces it.
     #[serde(rename = "day.planned")]
-    DayPlanned { day: NaiveDate, task_ids: Vec<Uuid> },
+    DayPlanned { day: NaiveDate, task_ids: Focus },
 
     /// Written by newer app versions; older replays skip it.
     #[serde(other)]
@@ -163,30 +165,8 @@ pub enum DomainEvent {
 pub struct Picture {
     pub icon: String,
     pub tint: u8,
-    /// A small square JPEG as a data URL (`data:image/jpeg;base64,…`),
-    /// made on the phone from the camera or the gallery.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub photo: Option<String>,
-}
-
-/// The largest photo a picture may carry, in bytes of its data URL. A 256 px
-/// square JPEG is far smaller; this keeps a family's history small.
-pub const MAX_PHOTO_BYTES: usize = 150_000;
-const PHOTO_PREFIX: &str = "data:image/jpeg;base64,";
-
-impl Picture {
-    /// The photo is a JPEG data URL of a sensible size (or there is none).
-    pub fn photo_is_valid(&self) -> bool {
-        self.photo.as_ref().is_none_or(|photo| {
-            photo.len() <= MAX_PHOTO_BYTES
-                && photo.strip_prefix(PHOTO_PREFIX).is_some_and(|data| {
-                    !data.is_empty()
-                        && data
-                            .bytes()
-                            .all(|b| b.is_ascii_alphanumeric() || b"+/=".contains(&b))
-                })
-        })
-    }
+    pub photo: Option<Photo>,
 }
 
 /// One physical spot of a place, such as the LIDL in Winnenden. Looked up by
@@ -194,7 +174,7 @@ impl Picture {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PlaceLocation {
     pub id: Uuid,
-    pub name: String,
+    pub name: Name,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub address: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -203,10 +183,10 @@ pub struct PlaceLocation {
 
 impl PlaceLocation {
     /// A location known only by its name (no address, no coordinates).
-    pub fn named(name: impl Into<String>) -> Self {
+    pub fn named(name: Name) -> Self {
         Self {
             id: Uuid::now_v7(),
-            name: name.into(),
+            name,
             address: None,
             point: None,
         }
@@ -217,14 +197,7 @@ impl PlaceLocation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Solution {
     pub id: Uuid,
-    pub title: String,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct GeoPoint {
-    pub latitude: f64,
-    pub longitude: f64,
-    pub accuracy_meters: Option<f64>,
+    pub title: Name,
 }
 
 impl cqrs_es::DomainEvent for FamilyEvent {
@@ -296,7 +269,7 @@ mod tests {
             occurred_at: Utc::now(),
             event: DomainEvent::TaskCreated {
                 list_id: None,
-                title: "Milk".into(),
+                title: "Milk".parse().expect("a name"),
                 place_ids: vec![],
                 problem_id: None,
             },

@@ -3,17 +3,20 @@
 //! network, no crypto, no disk.
 
 pub mod family;
+pub mod values;
 
 pub use family::{
     aggregate::CommandContext,
     commands::FamilyCommand,
     errors::FamilyError,
-    events::{
-        DomainEvent, FamilyEvent, GeoPoint, MAX_PHOTO_BYTES, Picture, PlaceLocation, Solution,
-    },
+    events::{DomainEvent, FamilyEvent, Picture, PlaceLocation, Solution},
     members::Member,
     places::{Place, PlaceGroup},
-    problems::{MAX_FOCUS, Opening, Problem},
+    problems::{Opening, Problem},
     state::Family,
     tasks::{Completion, Progress, Session, Task, TaskList},
+};
+pub use values::{
+    EmptyName, Focus, GeoPoint, GeoPointError, MAX_FOCUS, MAX_PHOTO_BYTES, Name, Photo, PhotoError,
+    TooMuch,
 };

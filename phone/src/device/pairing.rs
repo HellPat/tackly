@@ -12,7 +12,7 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-use tackly_domain::FamilyCommand;
+use tackly_domain::{FamilyCommand, Name};
 use tackly_wire::{ApproveJoin, ClaimInvite, CreateInvite, InviteProof, InviteState, token_hash};
 use uuid::Uuid;
 
@@ -73,7 +73,7 @@ pub(super) struct Entry {
     pub family_id: Uuid,
     pub head: Uuid,
     pub device_token: String,
-    pub name: String,
+    pub name: Name,
     pub agent: bool,
     /// The relay sequence it reads after.
     pub after: i64,
@@ -255,7 +255,7 @@ impl Device {
 
     /// Step 2, polled until the owner approved: `Ok(false)` means not yet.
     pub async fn complete_join(&mut self, request: &JoinRequest, my_name: &str) -> Result<bool> {
-        ensure!(!my_name.trim().is_empty(), "name is required");
+        let my_name: Name = my_name.parse()?;
         let api = Api::new(&request.invite.server)?;
         let claimed = match api
             .claim_invite(
@@ -286,16 +286,13 @@ impl Device {
             family_id,
             head,
             device_token: request.device_token.clone(),
-            name: my_name.trim().to_owned(),
+            name: my_name.clone(),
             agent: false,
             after: claimed.after,
         })
         .await?;
         // Announce ourselves.
-        self.run(FamilyCommand::Join {
-            name: my_name.to_owned(),
-        })
-        .await?;
+        self.run(FamilyCommand::Join { name: my_name }).await?;
         self.flush().await?;
         Ok(true)
     }

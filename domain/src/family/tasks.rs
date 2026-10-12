@@ -4,11 +4,12 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::values::GeoPoint;
+
 use super::{
-    aggregate::not_empty,
     commands::FamilyCommand,
     errors::FamilyError,
-    events::{DomainEvent, FamilyEvent, GeoPoint},
+    events::{DomainEvent, FamilyEvent},
     state::Family,
 };
 
@@ -153,20 +154,10 @@ impl Family {
         let place = |id: Uuid| self.places.get(&id).ok_or(FamilyError::UnknownPlace);
         let one = |subject, event| Ok(vec![(subject, event)]);
         match command {
-            C::CreateList { list_id, name } => one(
-                list_id,
-                E::ListCreated {
-                    name: not_empty(&name)?,
-                },
-            ),
+            C::CreateList { list_id, name } => one(list_id, E::ListCreated { name }),
             C::RenameList { list_id, name } => {
                 list(list_id)?;
-                one(
-                    list_id,
-                    E::ListRenamed {
-                        name: not_empty(&name)?,
-                    },
-                )
+                one(list_id, E::ListRenamed { name })
             }
             C::DeleteList { list_id } => {
                 list(list_id)?;
@@ -191,7 +182,7 @@ impl Family {
                     task_id,
                     E::TaskCreated {
                         list_id,
-                        title: not_empty(&title)?,
+                        title,
                         place_ids,
                         problem_id: None,
                     },
@@ -291,12 +282,12 @@ impl Family {
             DomainEvent::ListCreated { name } => {
                 self.lists.entry(subject).or_insert(TaskList {
                     id: subject,
-                    name: name.clone(),
+                    name: name.to_string(),
                 });
             }
             DomainEvent::ListRenamed { name } => {
                 if let Some(list) = self.lists.get_mut(&subject) {
-                    list.name = name.clone();
+                    list.name = name.to_string();
                 }
             }
             DomainEvent::ListDeleted => {
@@ -324,7 +315,7 @@ impl Family {
                     Task {
                         id: subject,
                         list_id,
-                        title: title.clone(),
+                        title: title.to_string(),
                         created_by: by,
                         created_at: at,
                         place_ids,

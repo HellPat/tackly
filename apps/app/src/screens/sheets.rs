@@ -2,6 +2,7 @@
 //! or group, a new group for a place), who does a task, and the invitation.
 
 use dioxus::prelude::*;
+use tackly_domain::Name;
 use tackly_phone::{InviteProgress, InviteTicket};
 use uuid::Uuid;
 
@@ -67,11 +68,11 @@ pub fn NameSheet(kind: SheetKind) -> Element {
             form {
                 onsubmit: move |event| {
                     event.prevent_default();
-                    let typed = name().trim().to_owned();
+                    let typed = name().parse::<Name>();
                     sheet.set(None);
-                    if typed.is_empty() {
-                        return;
-                    }
+                    // Nothing but spaces: nothing to save.
+                    let Ok(typed) = typed else { return };
+                    let typed = typed.to_string();
                     match kind {
                         SheetKind::NewList => state.create_list(typed),
                         SheetKind::RenameList(id) => state.rename_list(id, typed),

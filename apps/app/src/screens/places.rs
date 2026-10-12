@@ -2,7 +2,7 @@
 //! ("LIDL") sorted by what there is to get, a place's tasks, and Edit place.
 
 use dioxus::prelude::*;
-use tackly_domain::Place;
+use tackly_domain::{Name, Place};
 
 use super::{
     home::{Nav, SheetKind},
@@ -177,7 +177,9 @@ fn rename(state: AppState, place: uuid::Uuid, name: String) {
         .places
         .get(&place)
         .map(|place| place.name.clone());
-    if !name.trim().is_empty() && current.as_deref() != Some(name.trim()) {
-        state.rename_place(place, name);
+    if let Ok(new) = name.parse::<Name>()
+        && current.as_deref() != Some(new.as_str())
+    {
+        state.rename_place(place, new.to_string());
     }
 }

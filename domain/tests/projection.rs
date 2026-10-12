@@ -1,6 +1,8 @@
 //! The projection: given these events (in server order), every phone shows
 //! this family. Replay is lenient: events that no longer fit are ignored.
 
+#![allow(clippy::expect_used)] // a test fails by panicking
+
 mod support;
 
 use chrono::Duration;
@@ -30,7 +32,7 @@ fn a_task_for_a_list_that_is_gone_ends_up_in_other() {
             MILK,
             Happened::TaskCreated {
                 list_id: Some(SHOPPING),
-                title: "Milk".into(),
+                title: named("Milk"),
                 place_ids: vec![],
                 problem_id: None,
             },
@@ -130,7 +132,7 @@ fn where_it_was_finished_arrives_after_the_tick() {
                 MARA,
                 MILK,
                 1,
-                Happened::TaskCompletionLocated { location: HERE },
+                Happened::TaskCompletionLocated { location: here() },
             ),
         ],
     ]));
@@ -140,7 +142,7 @@ fn where_it_was_finished_arrives_after_the_tick() {
             .done
             .as_ref()
             .and_then(|done| done.location),
-        Some(HERE)
+        Some(here())
     );
 }
 
@@ -179,7 +181,7 @@ fn a_deleted_place_disappears_from_its_tasks() {
                 MILK,
                 Happened::TaskCreated {
                     list_id: None,
-                    title: "Milk".into(),
+                    title: named("Milk"),
                     place_ids: vec![LIDL],
                     problem_id: None,
                 },
@@ -208,7 +210,7 @@ fn members_names_and_pictures_follow_their_changes() {
     let family = replay(&given(vec![
         the_smiths(),
         vec![
-            by(MONA, SMITHS, Happened::MemberRenamed { name: "Mo".into() }),
+            by(MONA, SMITHS, Happened::MemberRenamed { name: named("Mo") }),
             by(
                 MONA,
                 SMITHS,
@@ -247,7 +249,7 @@ fn removed_and_admitted_count_only_from_the_head() {
                 SMITHS,
                 Happened::AgentAdmitted {
                     member_id: AGENT,
-                    name: "Fake".into(),
+                    name: named("Fake"),
                     until,
                 },
             ),
@@ -265,7 +267,7 @@ fn removed_and_admitted_count_only_from_the_head() {
                 SMITHS,
                 Happened::AgentAdmitted {
                     member_id: AGENT,
-                    name: "AI agent".into(),
+                    name: named("AI agent"),
                     until,
                 },
             ),
@@ -385,17 +387,17 @@ fn a_plan_is_my_focus_in_my_order_without_what_is_done() {
                 PATRICK,
                 Happened::DayPlanned {
                     day,
-                    task_ids: vec![DISHES, MILK],
+                    task_ids: focus(&[DISHES, MILK]),
                 },
             ),
         ],
     ]));
-    let focus: Vec<&str> = family
+    let planned: Vec<&str> = family
         .focus(PATRICK, day)
         .iter()
         .map(|t| t.title.as_str())
         .collect();
-    assert_eq!(focus, vec!["Dishes", "Milk"]);
+    assert_eq!(planned, vec!["Dishes", "Milk"]);
 
     let done = replay(&given(vec![
         the_smiths(),
@@ -421,7 +423,7 @@ fn a_plan_is_my_focus_in_my_order_without_what_is_done() {
                 PATRICK,
                 Happened::DayPlanned {
                     day,
-                    task_ids: vec![DISHES, MILK],
+                    task_ids: focus(&[DISHES, MILK]),
                 },
             ),
             by(PATRICK, DISHES, Happened::TaskCompleted { location: None }),

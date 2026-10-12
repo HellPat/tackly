@@ -3,7 +3,7 @@
 //! Your own settings are behind your picture, top right.
 
 use dioxus::prelude::*;
-use tackly_domain::{Picture, Task};
+use tackly_domain::{Name, Photo, Picture, Task};
 use uuid::Uuid;
 
 use super::{
@@ -346,8 +346,10 @@ fn save_name(state: AppState, name: String) {
         .peek()
         .member_name(*state.my_id.peek())
         .to_owned();
-    if !name.trim().is_empty() && name.trim() != current {
-        state.rename_me(name);
+    if let Ok(new) = name.parse::<Name>()
+        && new.as_str() != current
+    {
+        state.rename_me(new.to_string());
     }
 }
 
@@ -373,6 +375,9 @@ fn PhotoButton(id: String, label: String, icon: String, camera: bool) -> Element
                     spawn(async move {
                         let photo: Option<String> = document::eval(&shrink_photo_script(&input_id)).recv().await.ok().flatten();
                         let Some(photo) = photo else { return };
+                        let Ok(photo) = photo.parse::<Photo>() else {
+                            return state.say("That photo is not usable");
+                        };
                         let me = *state.my_id.peek();
                         let current = state.family.peek().members.get(&me).and_then(|member| member.picture.clone());
                         let (icon, tint) = current.map_or(("sailing".to_owned(), 0), |picture| (picture.icon, picture.tint));

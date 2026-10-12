@@ -11,7 +11,7 @@ use anyhow::{Context, Result, ensure};
 use hkdf::Hkdf;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use tackly_domain::FamilyEvent;
+use tackly_domain::{FamilyEvent, Name};
 use tackly_wire::EncryptedEvent;
 use uuid::Uuid;
 
@@ -35,7 +35,7 @@ struct Backup {
     family_id: Uuid,
     device_id: Uuid,
     device_token: String,
-    name: String,
+    name: Name,
     /// The MLS signing key (serialized) and the group's public state.
     signer: String,
     group_info: String,

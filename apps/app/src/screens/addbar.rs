@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use dioxus::prelude::*;
-use tackly_domain::PlaceLocation;
+use tackly_domain::{Name, PlaceLocation};
 use uuid::Uuid;
 
 use super::home::{Nav, Tab};
@@ -61,14 +61,15 @@ pub fn AddBar(mode: Mode) -> Element {
 
     // Adds what was typed, or the address that was picked.
     let mut add = move |picked: Option<PlaceLocation>| {
-        let typed = text().trim().to_owned();
-        let name = picked
-            .as_ref()
-            .map_or(typed.clone(), |location| location.name.clone());
-        if name.is_empty() {
-            return;
-        }
+        let typed = text();
+        let name = picked.as_ref().map_or_else(
+            || typed.parse::<Name>(),
+            |location| Ok(location.name.clone()),
+        );
+        // Nothing but spaces: nothing to add.
+        let Ok(name) = name else { return };
         let location = picked.unwrap_or_else(|| PlaceLocation::named(name.clone()));
+        let name = name.to_string();
         match mode {
             Mode::Task { list, place } => {
                 // Added on My Tasks, a task is mine from the start.
@@ -154,7 +155,7 @@ pub fn AddBar(mode: Mode) -> Element {
                         },
                     }
                 }
-                if !text().trim().is_empty() {
+                if text().parse::<Name>().is_ok() {
                     button {
                         aria_label: "Add",
                         onclick: move |_| add(None),

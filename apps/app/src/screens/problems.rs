@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
-use tackly_domain::{Problem, Task};
+use tackly_domain::{Name, Problem, Task};
 use uuid::Uuid;
 
 use super::{
@@ -175,8 +175,10 @@ fn EditProblem(problem: Uuid) -> Element {
             .problems
             .get(&problem)
             .map(|p| p.title.clone());
-        if !title.trim().is_empty() && current.as_deref() != Some(title.trim()) {
-            state.rename_problem(problem, title);
+        if let Ok(new) = title.parse::<Name>()
+            && current.as_deref() != Some(new.as_str())
+        {
+            state.rename_problem(problem, new.to_string());
         }
     };
     rsx! {
@@ -235,7 +237,7 @@ fn EditProblem(problem: Uuid) -> Element {
                     value: "{new_solution}",
                     oninput: move |event| new_solution.set(event.value()),
                     onkeydown: move |event| {
-                        if event.key() == Key::Enter && !new_solution().trim().is_empty() {
+                        if event.key() == Key::Enter && new_solution().parse::<Name>().is_ok() {
                             state.add_solution(problem, new_solution());
                             new_solution.set(String::new());
                         }
@@ -289,7 +291,11 @@ pub fn SomethingWrongSheet() -> Element {
             title: problem.title.clone(),
             template: "",
             icon: problem.icon.clone(),
-            solutions: problem.solutions.iter().map(|s| s.title.clone()).collect(),
+            solutions: problem
+                .solutions
+                .iter()
+                .map(|s| s.title.to_string())
+                .collect(),
         })
         .collect();
     for (title, icon, solutions) in COMMON {

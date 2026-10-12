@@ -118,7 +118,7 @@ impl Device {
             family_id,
             head,
             device_token: access.device_token.clone(),
-            name: AGENT_NAME.to_owned(),
+            name: AGENT_NAME.parse()?,
             agent: true,
             after,
         })
@@ -193,7 +193,7 @@ impl Device {
         // snapshot carries it to the agent (and the flush, to the others).
         self.run(FamilyCommand::AdmitAgent {
             member_id: ask.device_id,
-            name: AGENT_NAME.to_owned(),
+            name: AGENT_NAME.parse()?,
             until: chrono::Utc::now() + duration,
         })
         .await?;

@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result};
 use chrono::NaiveDate;
-use tackly_domain::{FamilyCommand, Solution};
+use tackly_domain::{FamilyCommand, Focus, Solution};
 use uuid::Uuid;
 
 use super::Device;
@@ -21,15 +21,17 @@ impl Device {
         let problem_id = Uuid::now_v7();
         self.run(FamilyCommand::CreateProblem {
             problem_id,
-            title: title.to_owned(),
+            title: title.parse()?,
             icon: icon.to_owned(),
             solutions: solutions
                 .iter()
-                .map(|title| Solution {
-                    id: Uuid::now_v7(),
-                    title: (*title).to_owned(),
+                .map(|title| {
+                    Ok(Solution {
+                        id: Uuid::now_v7(),
+                        title: title.parse()?,
+                    })
                 })
-                .collect(),
+                .collect::<Result<_>>()?,
         })
         .await?;
         Ok(problem_id)
@@ -38,7 +40,7 @@ impl Device {
     pub async fn rename_problem(&mut self, problem_id: Uuid, title: &str) -> Result<()> {
         self.run(FamilyCommand::RenameProblem {
             problem_id,
-            title: title.to_owned(),
+            title: title.parse()?,
         })
         .await
     }
@@ -49,7 +51,7 @@ impl Device {
             problem_id,
             solution: Solution {
                 id: Uuid::now_v7(),
-                title: title.to_owned(),
+                title: title.parse()?,
             },
             task_id: Uuid::now_v7(),
         })
@@ -103,7 +105,7 @@ impl Device {
     pub async fn plan_day(&mut self, day: NaiveDate, task_ids: &[Uuid]) -> Result<()> {
         self.run(FamilyCommand::PlanDay {
             day,
-            task_ids: task_ids.to_vec(),
+            task_ids: Focus::new(task_ids.iter().copied())?,
         })
         .await
     }

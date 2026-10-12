@@ -5,16 +5,12 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::{
-    aggregate::not_empty,
     commands::FamilyCommand,
     errors::FamilyError,
     events::{DomainEvent, FamilyEvent, Solution},
     state::Family,
     tasks::Task,
 };
-
-/// The most tasks one day's plan may hold. The app asks for fewer (3 by default).
-pub const MAX_FOCUS: usize = 10;
 
 /// Something that goes wrong at home, again and again, and how to fix it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -108,35 +104,22 @@ impl Family {
                 icon,
                 solutions,
             } => {
-                let mut events = vec![(
-                    problem_id,
-                    E::ProblemCreated {
-                        title: not_empty(&title)?,
-                        icon,
-                    },
-                )];
-                for mut solution in solutions {
-                    solution.title = not_empty(&solution.title)?;
+                let mut events = vec![(problem_id, E::ProblemCreated { title, icon })];
+                for solution in solutions {
                     events.push((problem_id, E::ProblemSolutionAdded { solution }));
                 }
                 Ok(events)
             }
             C::RenameProblem { problem_id, title } => {
                 self.problem(problem_id)?;
-                one(
-                    problem_id,
-                    E::ProblemRenamed {
-                        title: not_empty(&title)?,
-                    },
-                )
+                one(problem_id, E::ProblemRenamed { title })
             }
             C::AddSolution {
                 problem_id,
-                mut solution,
+                solution,
                 task_id,
             } => {
                 let problem = self.problem(problem_id)?;
-                solution.title = not_empty(&solution.title)?;
                 let mut events = vec![];
                 if let Some(holder) = problem.holder() {
                     events.extend(step(problem_id, &solution, task_id, holder));
@@ -212,17 +195,8 @@ impl Family {
                 one(problem_id, E::ProblemReopened)
             }
             C::PlanDay { day, task_ids } => {
-                let mut planned: Vec<Uuid> = Vec::new();
-                for id in task_ids {
-                    if !planned.contains(&id) {
-                        planned.push(id);
-                    }
-                }
-                if planned.len() > MAX_FOCUS {
-                    return Err(FamilyError::TooMuch);
-                }
                 let mut events = vec![];
-                for id in &planned {
+                for id in task_ids.tasks() {
                     let task = self.my_open_task(*id, me)?;
                     if task.assignee.is_none() {
                         events.push((
@@ -233,13 +207,7 @@ impl Family {
                         ));
                     }
                 }
-                events.push((
-                    me,
-                    E::DayPlanned {
-                        day,
-                        task_ids: planned,
-                    },
-                ));
+                events.push((me, E::DayPlanned { day, task_ids }));
                 Ok(events)
             }
             _ => Ok(Vec::new()),
@@ -257,7 +225,7 @@ impl Family {
             DomainEvent::ProblemCreated { title, icon } => {
                 self.problems.entry(subject).or_insert(Problem {
                     id: subject,
-                    title: title.clone(),
+                    title: title.to_string(),
                     icon: icon.clone(),
                     solutions: Vec::new(),
                     opening: None,
@@ -266,7 +234,7 @@ impl Family {
             }
             DomainEvent::ProblemRenamed { title } => {
                 if let Some(problem) = self.problems.get_mut(&subject) {
-                    problem.title = title.clone();
+                    problem.title = title.to_string();
                 }
             }
             DomainEvent::ProblemSolutionAdded { solution } => {
@@ -324,7 +292,7 @@ impl Family {
                 self.plans
                     .entry(by)
                     .or_default()
-                    .insert(*day, task_ids.clone());
+                    .insert(*day, task_ids.tasks().to_vec());
             }
             _ => return false,
         }

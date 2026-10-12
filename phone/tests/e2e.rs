@@ -11,7 +11,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail, ensure};
-use tackly_domain::{Family, GeoPoint, Picture, PlaceLocation, Progress, Task};
+use tackly_domain::{Family, GeoPoint, Photo, Picture, PlaceLocation, Progress, Task};
 use tackly_phone::{
     Device, InviteProgress, SharedDevice, infrastructure::relay_client::Api, run_live,
 };
@@ -163,11 +163,9 @@ fn is_done(task: &Task) -> bool {
     task.is_done()
 }
 
-const WINNENDEN: GeoPoint = GeoPoint {
-    latitude: 48.8752,
-    longitude: 9.3775,
-    accuracy_meters: Some(12.0),
-};
+fn winnenden() -> Result<GeoPoint> {
+    Ok(GeoPoint::new(48.8752, 9.3775, Some(12.0))?)
+}
 
 /// Patrick creates the family; Mona and Mara join.
 async fn family_of_three(dir: &Path, relay: &Relay) -> Result<(Phone, Phone, Phone)> {
@@ -220,7 +218,7 @@ async fn three_members_share_tasks_and_see_each_other_live() -> Result<()> {
     mona.device
         .lock()
         .await
-        .locate_completion(dishes, WINNENDEN)
+        .locate_completion(dishes, winnenden()?)
         .await?;
     for phone in [&patrick, &mara] {
         eventually("dishes done, and where", || async {
@@ -233,7 +231,7 @@ async fn three_members_share_tasks_and_see_each_other_live() -> Result<()> {
         .await?;
         let state = phone.state().await?;
         let done = state.tasks[&dishes].done.as_ref().context("done")?;
-        assert_eq!((done.by, done.location), (mona_id, Some(WINNENDEN)));
+        assert_eq!((done.by, done.location), (mona_id, Some(winnenden()?)));
         assert_eq!(state.tasks[&dishes].sessions.len(), 1, "her work was timed");
     }
 
@@ -400,7 +398,7 @@ async fn a_photo_as_picture_syncs_and_a_bad_one_is_refused() -> Result<()> {
     let picture = Picture {
         icon: "pets".into(),
         tint: 2,
-        photo: Some(jpeg.into()),
+        photo: Some(jpeg.parse()?),
     };
     mona.device
         .lock()
@@ -411,11 +409,13 @@ async fn a_photo_as_picture_syncs_and_a_bad_one_is_refused() -> Result<()> {
         Ok(patrick.state().await?.members[&mona_id].picture.as_ref() == Some(&picture))
     })
     .await?;
-    let huge = Picture {
-        photo: Some(format!("data:image/jpeg;base64,{}", "A".repeat(200_000))),
-        ..picture
-    };
-    assert!(mona.device.lock().await.set_picture(huge).await.is_err());
+    // A photo that is too big cannot even be made.
+    ensure!(
+        format!("data:image/jpeg;base64,{}", "A".repeat(200_000))
+            .parse::<Photo>()
+            .is_err(),
+        "a huge photo is refused"
+    );
     Ok(())
 }
 
@@ -495,13 +495,21 @@ async fn places_and_their_tasks_sync_to_everyone() -> Result<()> {
         let mut device = patrick.device.lock().await;
         let group = device.create_place_group("Grocery Store").await?;
         let lidl = device
-            .create_place(group, "LIDL", PlaceLocation::named("LIDL Winnenden"))
+            .create_place(
+                group,
+                "LIDL",
+                PlaceLocation::named("LIDL Winnenden".parse()?),
+            )
             .await?;
         device
-            .add_place_location(lidl, PlaceLocation::named("LIDL Backnang"))
+            .add_place_location(lidl, PlaceLocation::named("LIDL Backnang".parse()?))
             .await?;
         let aldi = device
-            .create_place(group, "Aldi", PlaceLocation::named("Aldi Waiblingen"))
+            .create_place(
+                group,
+                "Aldi",
+                PlaceLocation::named("Aldi Waiblingen".parse()?),
+            )
             .await?;
         let milk = device.add_task("Milk", None, &[lidl, aldi]).await?;
         device.add_task("Bread", None, &[lidl]).await?;
@@ -561,7 +569,7 @@ async fn everything_works_without_a_server_and_syncs_later() -> Result<()> {
 
     let task = patrick.add_task("Pack the bags").await?;
     patrick.start(task).await?;
-    patrick.complete(task, Some(WINNENDEN)).await?;
+    patrick.complete(task, Some(winnenden()?)).await?;
     let state = patrick.state().await?;
     assert_eq!(state.name.as_deref(), Some("The Smiths"));
     assert!(state.tasks[&task].is_done());
@@ -590,7 +598,7 @@ async fn everything_works_without_a_server_and_syncs_later() -> Result<()> {
     .await?;
     let state = mona.state().await?;
     let done = state.tasks[&task].done.as_ref().context("done")?;
-    assert_eq!((done.by, done.location), (patrick_id, Some(WINNENDEN)));
+    assert_eq!((done.by, done.location), (patrick_id, Some(winnenden()?)));
     assert_eq!(state.tasks[&task].sessions.len(), 1);
     Ok(())
 }
