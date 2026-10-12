@@ -14,15 +14,15 @@ use axum::{
     http::HeaderMap,
 };
 use tackly_wire::{
-    AgentAccessRequest, AgentClaim, AgentRequestState, ApproveAgent, ClaimAgent, MAX_AGENT_SECONDS,
-    MAX_PENDING_AGENT_REQUESTS, PendingAgentRequest, PendingAgentRequests,
+    AgentAccessRequest, AgentClaim, AgentRequestState, ApproveAgent, Bytes, ClaimAgent,
+    MAX_AGENT_SECONDS, MAX_PENDING_AGENT_REQUESTS, PendingAgentRequest, PendingAgentRequests,
 };
 use uuid::Uuid;
 
 use crate::{
     AppState,
     auth::Device,
-    db::{column, decode, encode, uuid_column},
+    db::{column, uuid_column},
     error::{ApiResult, bad_request, forbidden, gone, internal, not_found, too_many},
 };
 
@@ -46,7 +46,7 @@ pub async fn ask(
     Path(family_id): Path<Uuid>,
     Json(input): Json<AgentAccessRequest>,
 ) -> ApiResult<Asked> {
-    let key_package = decode(&input.key_package, None)?;
+    let key_package = input.key_package.as_slice().to_vec();
     if key_package.is_empty() || key_package.len() > MAX_KEY_PACKAGE_BYTES {
         return Err(bad_request("invalid key package size"));
     }
@@ -108,7 +108,7 @@ pub async fn pending(
             Ok(PendingAgentRequest {
                 request_id: uuid_column(row, "id")?,
                 device_id: uuid_column(row, "device_id")?,
-                key_package: encode(&column::<Vec<u8>>(row, "key_package")?),
+                key_package: Bytes::from(column::<Vec<u8>>(row, "key_package")?),
             })
         })
         .collect::<Result<_, crate::error::ApiError>>()?;
@@ -126,7 +126,7 @@ pub async fn approve(
     if !(1..=MAX_AGENT_SECONDS).contains(&input.agent_seconds) {
         return Err(bad_request("an agent reads for a second to thirty days"));
     }
-    let welcome = decode(&input.welcome, None)?;
+    let welcome = input.welcome.as_slice().to_vec();
     if welcome.is_empty() || welcome.len() > MAX_WELCOME_BYTES {
         return Err(bad_request("invalid welcome size"));
     }
@@ -176,7 +176,7 @@ pub async fn claim(
     Path(request_id): Path<Uuid>,
     Json(input): Json<ClaimAgent>,
 ) -> ApiResult<AgentClaim> {
-    let token_hash = decode(&input.token_hash, Some(32))?;
+    let token_hash = input.token_hash.as_bytes().to_vec();
     let mut tx = state.db.begin().await.map_err(internal)?;
     let row = sqlx::query(
         "SELECT family_id, status, welcome, joined_after, agent_expires_at, expires_at, \
@@ -236,7 +236,7 @@ pub async fn claim(
     Ok(Json(AgentClaim {
         status: AgentRequestState::Approved,
         family_id: Some(family_id),
-        welcome: Some(encode(&column::<Vec<u8>>(&row, "welcome")?)),
+        welcome: Some(Bytes::from(column::<Vec<u8>>(&row, "welcome")?)),
         after: Some(column(&row, "joined_after")?),
     }))
 }

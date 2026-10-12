@@ -8,8 +8,8 @@
 use chrono::{DateTime, TimeZone, Utc};
 use cqrs_es::test::TestFramework;
 use tackly_domain::{
-    CommandContext, DomainEvent, Family, FamilyEvent, Focus, GeoPoint, Name, PlaceLocation,
-    Solution,
+    CommandContext, DomainEvent, Family, FamilyEvent, Focus, GeoPoint, IconName, Name,
+    PlaceLocation, Solution,
 };
 use uuid::Uuid;
 
@@ -38,6 +38,11 @@ pub const EVENT: Uuid = Uuid::from_u128(0xE);
 /// A day's plan (the tests only use sensible ones).
 pub fn focus(tasks: &[Uuid]) -> Focus {
     Focus::new(tasks.iter().copied()).expect("a plan")
+}
+
+/// An icon name (the tests only use good ones).
+pub fn icon(text: &str) -> IconName {
+    text.parse().expect("an icon name")
 }
 
 /// A name or title (the tests only use good ones).
@@ -178,7 +183,7 @@ pub fn out_of_food() -> Vec<FamilyEvent> {
             OUT_OF_FOOD,
             DomainEvent::ProblemCreated {
                 title: named("Out of food"),
-                icon: "kitchen".into(),
+                icon: icon("kitchen"),
             },
         ),
         by(

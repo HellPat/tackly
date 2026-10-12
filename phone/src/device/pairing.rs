@@ -12,12 +12,15 @@ use anyhow::{Context, Result, ensure};
 use std::time::Duration;
 
 use tackly_domain::{FamilyCommand, Name};
-use tackly_wire::{ApproveJoin, ClaimInvite, CreateInvite, InviteProof, InviteState, token_hash};
+use tackly_wire::{
+    ApproveJoin, Bytes, ClaimInvite, CreateInvite, Digest, InviteProof, InviteState,
+};
 use uuid::Uuid;
 
 use super::{Device, InviteLink, Membership};
 use crate::{
-    infrastructure::crypto::{self, derive, random_bytes},
+    infrastructure::crypto::{derive, random_bytes},
+    infrastructure::device_token::DeviceToken,
     infrastructure::group_crypto::confirmation_code,
     infrastructure::relay_client::{Api, HttpError},
     infrastructure::server_url::ServerUrl,
@@ -54,7 +57,7 @@ pub struct JoinRequest {
     invite: InviteLink,
     secret: Vec<u8>,
     /// Chosen when asking, so that polling again after a lost answer is safe.
-    device_token: String,
+    device_token: DeviceToken,
 }
 
 /// Where a new member stands when it is let in.
@@ -62,15 +65,15 @@ pub(super) struct Entry {
     pub server_url: ServerUrl,
     pub family_id: Uuid,
     pub head: Uuid,
-    pub device_token: String,
+    pub device_token: DeviceToken,
     pub name: Name,
     pub agent: bool,
     /// The relay sequence it reads after.
     pub after: i64,
 }
 
-fn invite_verifier(secret: &[u8]) -> String {
-    crypto::encode(&derive("invite-verifier", &[secret]))
+fn invite_verifier(secret: &[u8]) -> Digest {
+    Digest::from(derive("invite-verifier", &[secret]))
 }
 
 impl Device {
@@ -125,13 +128,10 @@ impl Device {
             (InviteState::Pending, Some(device_id)) => {
                 let key_package = status
                     .pending_key_package
-                    .as_deref()
-                    .map(crypto::decode)
-                    .transpose()?
                     .context("the relay sent no key package")?;
                 InviteProgress::Requested {
                     device_id,
-                    confirmation: confirmation_code(&ticket.secret, &key_package),
+                    confirmation: confirmation_code(&ticket.secret, key_package.as_slice()),
                 }
             }
             (InviteState::Approved | InviteState::Used, _) => InviteProgress::Approved,
@@ -156,12 +156,10 @@ impl Device {
             status.pending_device_id == Some(device_id),
             "that phone is no longer asking to join"
         );
-        let key_package = crypto::decode(
-            status
-                .pending_key_package
-                .as_deref()
-                .context("the relay sent no key package")?,
-        )?;
+        let key_package = status
+            .pending_key_package
+            .context("the relay sent no key package")?
+            .into_vec();
         // The joiner must find the whole history in the snapshot.
         self.flush().await?;
         let welcome = self.commit_add(device_id, &key_package).await?;
@@ -171,7 +169,7 @@ impl Device {
             ticket.invite_id,
             &ApproveJoin {
                 device_id,
-                welcome: crypto::encode(&welcome),
+                welcome: Bytes::from(welcome),
             },
         )
         .await?;
@@ -211,7 +209,7 @@ impl Device {
                 &InviteProof {
                     verifier: invite_verifier(&secret),
                     device_id: self.device_id(),
-                    key_package: crypto::encode(&key_package),
+                    key_package: Bytes::from(key_package.as_slice()),
                 },
             )
             .await
@@ -220,7 +218,7 @@ impl Device {
             confirmation: confirmation_code(&secret, &key_package),
             invite,
             secret,
-            device_token: crypto::encode(&random_bytes::<32>()),
+            device_token: DeviceToken::generate(),
         })
     }
 
@@ -234,7 +232,7 @@ impl Device {
                 &ClaimInvite {
                     verifier: invite_verifier(&request.secret),
                     device_id: self.device_id(),
-                    token_hash: token_hash(&request.device_token),
+                    token_hash: request.device_token.hash(),
                 },
             )
             .await
@@ -247,7 +245,7 @@ impl Device {
             claimed.family_id == request.invite.family(),
             "the invitation belongs to another family"
         );
-        let (family_id, head) = self.mls.join(&crypto::decode(&claimed.welcome)?)?;
+        let (family_id, head) = self.mls.join(claimed.welcome.as_slice())?;
         ensure!(
             family_id == claimed.family_id,
             "the welcome is for another family"

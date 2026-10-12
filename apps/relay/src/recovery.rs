@@ -7,35 +7,29 @@ use axum::{
     extract::{Path, State},
     http::HeaderMap,
 };
-use tackly_wire::{MAX_RECOVERY_BYTES, RecoveryBlob};
+use tackly_wire::{Bytes, Digest, MAX_RECOVERY_BYTES, RecoveryBlob};
 use uuid::Uuid;
 
 use crate::{
     AppState,
     auth::Device,
-    db::{column, decode, encode},
+    db::column,
     error::{ApiError, ApiResult, bad_request, internal},
 };
 
-/// A base64url ID of 32 bytes, as the phones derive it.
-fn valid_id(id: &str) -> Result<(), ApiError> {
-    decode(id, Some(32)).map(|_| ())
-}
-
 #[derive(serde::Serialize)]
 pub struct Stored {
-    id: String,
+    id: Digest,
 }
 
 pub async fn put_recovery(
     State(state): State<AppState>,
-    Path((family_id, id)): Path<(Uuid, String)>,
+    Path((family_id, id)): Path<(Uuid, Digest)>,
     headers: HeaderMap,
     Json(input): Json<RecoveryBlob>,
 ) -> ApiResult<Stored> {
     Device::authenticate_owner(&state.db, &headers, family_id).await?;
-    valid_id(&id)?;
-    let blob = decode(&input.blob, None)?;
+    let blob = input.blob.as_slice().to_vec();
     if blob.is_empty() || blob.len() > MAX_RECOVERY_BYTES {
         return Err(bad_request("invalid backup size"));
     }
@@ -45,7 +39,7 @@ pub async fn put_recovery(
          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
          WHERE recovery_blobs.family_id = ?2",
     )
-    .bind(&id)
+    .bind(id.to_string())
     .bind(family_id.to_string())
     .bind(&blob)
     .execute(&state.db)
@@ -59,13 +53,12 @@ pub async fn put_recovery(
 
 pub async fn delete_recovery(
     State(state): State<AppState>,
-    Path((family_id, id)): Path<(Uuid, String)>,
+    Path((family_id, id)): Path<(Uuid, Digest)>,
     headers: HeaderMap,
 ) -> ApiResult<Stored> {
     Device::authenticate_owner(&state.db, &headers, family_id).await?;
-    valid_id(&id)?;
     sqlx::query("DELETE FROM recovery_blobs WHERE id = ? AND family_id = ?")
-        .bind(&id)
+        .bind(id.to_string())
         .bind(family_id.to_string())
         .execute(&state.db)
         .await
@@ -77,11 +70,10 @@ pub async fn delete_recovery(
 /// can open what they get.
 pub async fn get_recovery(
     State(state): State<AppState>,
-    Path(id): Path<String>,
+    Path(id): Path<Digest>,
 ) -> ApiResult<RecoveryBlob> {
-    valid_id(&id)?;
     let row = sqlx::query("SELECT blob FROM recovery_blobs WHERE id = ?")
-        .bind(&id)
+        .bind(id.to_string())
         .fetch_optional(&state.db)
         .await
         .map_err(internal)?
@@ -90,6 +82,6 @@ pub async fn get_recovery(
             "no backup under this ID",
         ))?;
     Ok(Json(RecoveryBlob {
-        blob: encode(&column::<Vec<u8>>(&row, "blob")?),
+        blob: Bytes::from(column::<Vec<u8>>(&row, "blob")?),
     }))
 }

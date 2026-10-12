@@ -488,7 +488,7 @@ fn where_it_was_finished_is_said_once() {
 
 fn photo(data: &str) -> tackly_domain::Picture {
     tackly_domain::Picture {
-        icon: "pets".into(),
+        icon: icon("pets"),
         tint: 1,
         photo: Some(
             format!("data:image/jpeg;base64,{data}")
@@ -523,7 +523,7 @@ fn a_problem_is_created_with_its_solutions() {
         .when(Do::CreateProblem {
             problem_id: OUT_OF_FOOD,
             title: named(" Out of food "),
-            icon: "kitchen".into(),
+            icon: icon("kitchen"),
             solutions: vec![go_shopping(), cook_pasta()],
         })
         .then_expect_events(out_of_food());

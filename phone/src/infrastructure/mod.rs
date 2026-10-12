@@ -3,6 +3,7 @@
 
 pub mod cqrs_store;
 pub mod crypto;
+pub mod device_token;
 pub mod geocoder;
 pub mod group_crypto;
 pub mod local_store;

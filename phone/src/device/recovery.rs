@@ -12,13 +12,14 @@ use hkdf::Hkdf;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use tackly_domain::{FamilyEvent, Name};
-use tackly_wire::EncryptedEvent;
+use tackly_wire::{Bytes, Digest, EncryptedEvent};
 use uuid::Uuid;
 
 use super::recovery_code::RecoveryCode;
 use super::{Device, Membership};
 use crate::infrastructure::{
-    crypto::{self, random_bytes},
+    crypto::{self},
+    device_token::DeviceToken,
     server_url::ServerUrl,
 };
 
@@ -35,7 +36,7 @@ struct Backup {
     server_url: ServerUrl,
     family_id: Uuid,
     device_id: Uuid,
-    device_token: String,
+    device_token: DeviceToken,
     name: Name,
     /// The MLS signing key (serialized) and the group's public state.
     signer: String,
@@ -64,21 +65,22 @@ impl RecoveryKey {
     }
 
     /// Where the relay keeps the backup (tells nothing about the words).
-    pub fn id(&self) -> String {
-        crypto::encode(&self.id)
+    pub fn id(&self) -> Digest {
+        Digest::from(self.id)
     }
 
     fn seal(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
         Ok(serde_json::to_vec(&crypto::seal(
             &self.key,
             plaintext,
-            &self.id(),
+            &self.id().to_string(),
         )?)?)
     }
 
     fn open(&self, blob: &[u8]) -> Result<Vec<u8>> {
         let sealed = serde_json::from_slice(blob).context("the backup is damaged")?;
-        crypto::open(&self.key, &sealed, &self.id()).context("the recovery code does not fit")
+        crypto::open(&self.key, &sealed, &self.id().to_string())
+            .context("the recovery code does not fit")
     }
 }
 
@@ -306,7 +308,7 @@ impl Device {
             .context("move to a fresh signing key")?;
         self.mls.merge_rotation(family_id, me)?;
         // A fresh token: the lost phone cannot talk to the relay any more.
-        let token = crypto::encode(&random_bytes::<32>());
+        let token = DeviceToken::generate();
         api.rotate_token(family_id, &backup.device_token, &token)
             .await
             .context("move to a fresh relay token")?;
@@ -324,7 +326,7 @@ fn message(origin: Uuid, bytes: Vec<u8>) -> EncryptedEvent {
     EncryptedEvent {
         event_id: Uuid::new_v4(),
         origin_device_id: origin,
-        message: crypto::encode(&bytes),
+        message: Bytes::from(bytes),
     }
 }
 

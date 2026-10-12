@@ -6,7 +6,6 @@ use tackly_wire::CreateFamily;
 
 use crate::{
     AppState,
-    db::decode,
     error::{ApiResult, conflict, internal},
 };
 
@@ -23,7 +22,7 @@ pub async fn create_family(
     State(state): State<AppState>,
     Json(input): Json<CreateFamily>,
 ) -> ApiResult<Registered> {
-    let token_hash = decode(&input.token_hash, Some(32))?;
+    let token_hash = input.token_hash.as_bytes().to_vec();
     let mut tx = state.db.begin().await.map_err(internal)?;
     let inserted = sqlx::query("INSERT INTO families (id) VALUES (?) ON CONFLICT DO NOTHING")
         .bind(input.family_id.to_string())

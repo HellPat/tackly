@@ -4,7 +4,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use uuid::Uuid;
 
 use super::events::{Picture, PlaceLocation, Solution};
-use crate::values::{Focus, GeoPoint, Name};
+use crate::values::{Focus, GeoPoint, IconName, Name};
 
 #[derive(Clone, Debug)]
 pub enum FamilyCommand {
@@ -132,7 +132,7 @@ pub enum FamilyCommand {
     CreateProblem {
         problem_id: Uuid,
         title: Name,
-        icon: String,
+        icon: IconName,
         solutions: Vec<Solution>,
     },
     RenameProblem {

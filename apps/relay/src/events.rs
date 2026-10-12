@@ -17,7 +17,7 @@ use futures_util::Stream;
 use openmls::prelude::{ContentType, MlsMessageBodyIn, MlsMessageIn, tls_codec::Deserialize as _};
 use sqlx::SqlitePool;
 use tackly_wire::{
-    AppendEvents, AppendResult, EncryptedEvent, EventsPage, EventsQuery, MAX_APPEND_BATCH,
+    AppendEvents, AppendResult, Bytes, EncryptedEvent, EventsPage, EventsQuery, MAX_APPEND_BATCH,
     MAX_MESSAGE_BYTES, MAX_PAGE, SSE_EVENTS, STALE_EPOCH, SequencedEvent,
 };
 use tokio::sync::broadcast::error::RecvError;
@@ -26,7 +26,7 @@ use uuid::Uuid;
 use crate::{
     AppState,
     auth::Device,
-    db::{column, decode, encode, uuid_column},
+    db::{column, uuid_column},
     error::{ApiError, ApiResult, bad_request, conflict, forbidden, internal},
 };
 
@@ -99,7 +99,7 @@ pub async fn append_events(
         if event.origin_device_id != caller.id {
             return Err(forbidden("a message must come from the sending device"));
         }
-        let message = decode(&event.message, None)?;
+        let message = event.message.as_slice().to_vec();
         if message.is_empty() || message.len() > MAX_MESSAGE_BYTES {
             return Err(bad_request("message exceeds limit"));
         }
@@ -183,7 +183,7 @@ async fn events_after(
                 event: EncryptedEvent {
                     event_id: uuid_column(row, "event_id")?,
                     origin_device_id: uuid_column(row, "origin_device_id")?,
-                    message: encode(&column::<Vec<u8>>(row, "message")?),
+                    message: Bytes::from(column::<Vec<u8>>(row, "message")?),
                 },
             })
         })

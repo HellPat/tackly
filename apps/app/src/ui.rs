@@ -90,7 +90,7 @@ pub fn Avatar(name: String, picture: Option<Picture>, size: Size) -> Element {
         span { class: "shrink-0 rounded-full grid place-items-center overflow-hidden border-white shadow-[0_1px_3px_rgb(41_37_36/.3)] {box_class} {tint}",
             match picture {
                 Some(Picture { photo: Some(photo), .. }) => rsx! { img { class: "size-full object-cover", src: "{photo}", alt: "", "data-testid": "photo" } },
-                Some(picture) => rsx! { Icon { name: picture.icon, class: icon_class } },
+                Some(picture) => rsx! { Icon { name: picture.icon.to_string(), class: icon_class } },
                 None => rsx! { span { class: "font-semibold {text_class}", aria_hidden: "true", "{initial}" } },
             }
         }

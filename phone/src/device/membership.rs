@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tackly_domain::Name;
 use uuid::Uuid;
 
-use crate::infrastructure::{secrets::Secrets, server_url::ServerUrl};
+use crate::infrastructure::{device_token::DeviceToken, secrets::Secrets, server_url::ServerUrl};
 
 const SECRET_NAME: &str = "membership";
 
@@ -17,7 +17,7 @@ pub struct Membership {
     /// removing members) and history snapshots this phone accepts.
     pub head: Uuid,
     /// This phone's secret for the relay, chosen here; the relay keeps its hash.
-    pub device_token: String,
+    pub device_token: DeviceToken,
     /// False while the family exists only on this phone (created offline).
     pub registered: bool,
     pub owner: bool,

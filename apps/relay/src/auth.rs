@@ -5,14 +5,13 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, header::AUTHORIZATION},
 };
-use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
-use tackly_wire::RotateToken;
+use tackly_wire::{RotateToken, token_hash};
 use uuid::Uuid;
 
 use crate::{
     AppState,
-    db::{column, decode, uuid_column},
+    db::{column, uuid_column},
     error::{ApiError, ApiResult, forbidden, internal, unauthorized},
 };
 
@@ -41,7 +40,7 @@ impl Device {
              AND (expires_at IS NULL OR expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
         )
         .bind(family_id.to_string())
-        .bind(Sha256::digest(token.as_bytes()).to_vec())
+        .bind(token_hash(token).as_bytes().to_vec())
         .fetch_optional(db)
         .await
         .map_err(internal)?
@@ -105,7 +104,7 @@ pub async fn rotate_token(
     Json(input): Json<RotateToken>,
 ) -> ApiResult<Revoked> {
     let caller = Device::authenticate(&state.db, &headers, family_id).await?;
-    let token_hash = decode(&input.token_hash, Some(32))?;
+    let token_hash = input.token_hash.as_bytes().to_vec();
     sqlx::query("UPDATE devices SET token_hash = ? WHERE id = ? AND family_id = ?")
         .bind(token_hash)
         .bind(caller.id.to_string())

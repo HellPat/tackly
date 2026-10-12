@@ -270,10 +270,15 @@ pub fn SettingsTab() -> Element {
                     button {
                         key: "{icon}",
                         role: "radio",
-                        aria_checked: "{myself.picture.as_ref().is_some_and(|picture| picture.photo.is_none() && picture.icon == *icon)}",
+                        aria_checked: "{myself.picture.as_ref().is_some_and(|picture| picture.photo.is_none() && picture.icon.as_str() == *icon)}",
                         aria_label: "{icon.replace('_', \" \")}",
-                        class: if myself.picture.as_ref().is_some_and(|picture| picture.photo.is_none() && picture.icon == *icon) { "size-14 rounded-full grid place-items-center ring-2 ring-accent-700 ring-offset-2 ring-offset-[#fffdfb] {TINTS[i % TINTS.len()]}" } else { "size-14 rounded-full grid place-items-center {TINTS[i % TINTS.len()]}" },
-                        onclick: move |_| state.set_picture(Picture { icon: (*icon).to_owned(), tint: (i % TINTS.len()) as u8, photo: None }),
+                        class: if myself.picture.as_ref().is_some_and(|picture| picture.photo.is_none() && picture.icon.as_str() == *icon) { "size-14 rounded-full grid place-items-center ring-2 ring-accent-700 ring-offset-2 ring-offset-[#fffdfb] {TINTS[i % TINTS.len()]}" } else { "size-14 rounded-full grid place-items-center {TINTS[i % TINTS.len()]}" },
+                        onclick: move |_| {
+                            // The icons here are all names of icons.
+                            if let Ok(icon) = icon.parse() {
+                                state.set_picture(Picture { icon, tint: (i % TINTS.len()) as u8, photo: None });
+                            }
+                        },
                         Icon { name: *icon }
                     }
                 }
@@ -382,7 +387,7 @@ fn PhotoButton(id: String, label: String, icon: String, camera: bool) -> Element
                         };
                         let me = *state.my_id.peek();
                         let current = state.family.peek().members.get(&me).and_then(|member| member.picture.clone());
-                        let (icon, tint) = current.map_or(("sailing".to_owned(), 0), |picture| (picture.icon, picture.tint));
+                        let Some((icon, tint)) = current.map(|picture| (picture.icon, picture.tint)).or_else(|| "sailing".parse().ok().map(|icon| (icon, 0))) else { return };
                         state.set_picture(Picture { icon, tint, photo: Some(photo) });
                     });
                 },

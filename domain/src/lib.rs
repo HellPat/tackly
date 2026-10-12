@@ -17,6 +17,6 @@ pub use family::{
     tasks::{Completion, Progress, Session, Task, TaskList},
 };
 pub use values::{
-    EmptyName, Focus, GeoPoint, GeoPointError, MAX_FOCUS, MAX_PHOTO_BYTES, Name, Photo, PhotoError,
-    TooMuch,
+    EmptyName, Focus, GeoPoint, GeoPointError, IconName, MAX_FOCUS, MAX_PHOTO_BYTES, Name,
+    NotAnIconName, Photo, PhotoError, TooMuch,
 };

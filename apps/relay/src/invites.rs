@@ -11,15 +11,15 @@ use axum::{
     http::HeaderMap,
 };
 use tackly_wire::{
-    ApproveJoin, ClaimInvite, ClaimedInvite, CreateInvite, InviteExpiry, InviteProof, InviteState,
-    InviteStatus,
+    ApproveJoin, Bytes, ClaimInvite, ClaimedInvite, CreateInvite, InviteExpiry, InviteProof,
+    InviteState, InviteStatus,
 };
 use uuid::Uuid;
 
 use crate::{
     AppState,
     auth::Device,
-    db::{column, decode, encode, uuid_column},
+    db::{column, uuid_column},
     error::{ApiError, ApiResult, bad_request, gone, internal},
 };
 
@@ -37,7 +37,7 @@ pub async fn create_invite(
     Json(input): Json<CreateInvite>,
 ) -> ApiResult<InviteExpiry> {
     let caller = Device::authenticate_owner(&state.db, &headers, family_id).await?;
-    let verifier = decode(&input.verifier, Some(32))?;
+    let verifier = input.verifier.as_bytes().to_vec();
     let row = sqlx::query(
         "INSERT INTO invitations (id, family_id, verifier_hash, created_by) \
          VALUES (?,?,?,?) RETURNING expires_at",
@@ -60,8 +60,8 @@ pub async fn request_join(
     Path(invite_id): Path<Uuid>,
     Json(input): Json<InviteProof>,
 ) -> ApiResult<InviteStatus> {
-    let verifier = decode(&input.verifier, Some(32))?;
-    let key_package = decode(&input.key_package, None)?;
+    let verifier = input.verifier.as_bytes().to_vec();
+    let key_package = input.key_package.as_slice().to_vec();
     if key_package.is_empty() || key_package.len() > MAX_KEY_PACKAGE_BYTES {
         return Err(bad_request("invalid key package size"));
     }
@@ -115,7 +115,7 @@ pub async fn invite_status(
     };
     let pending_key_package = column::<Option<Vec<u8>>>(&row, "key_package")?
         .as_deref()
-        .map(encode);
+        .map(Bytes::from);
     Ok(Json(InviteStatus {
         status,
         pending_device_id,
@@ -131,7 +131,7 @@ pub async fn approve_join(
     Json(input): Json<ApproveJoin>,
 ) -> ApiResult<InviteStatus> {
     Device::authenticate_owner(&state.db, &headers, family_id).await?;
-    let welcome = decode(&input.welcome, None)?;
+    let welcome = input.welcome.as_slice().to_vec();
     if welcome.is_empty() || welcome.len() > MAX_WELCOME_BYTES {
         return Err(bad_request("invalid welcome size"));
     }
@@ -165,8 +165,8 @@ pub async fn claim_invite(
     Path(invite_id): Path<Uuid>,
     Json(input): Json<ClaimInvite>,
 ) -> ApiResult<ClaimedInvite> {
-    let verifier = decode(&input.verifier, Some(32))?;
-    let token_hash = decode(&input.token_hash, Some(32))?;
+    let verifier = input.verifier.as_bytes().to_vec();
+    let token_hash = input.token_hash.as_bytes().to_vec();
     let mut tx = state.db.begin().await.map_err(internal)?;
     let row = sqlx::query(&format!(
         "SELECT family_id, status, welcome, joined_after \
@@ -208,7 +208,7 @@ pub async fn claim_invite(
     tx.commit().await.map_err(internal)?;
     Ok(Json(ClaimedInvite {
         family_id,
-        welcome: encode(&column::<Vec<u8>>(&row, "welcome")?),
+        welcome: Bytes::from(column::<Vec<u8>>(&row, "welcome")?),
         after: column(&row, "joined_after")?,
     }))
 }

@@ -45,7 +45,7 @@ pub use sync::LiveTarget;
 
 use crate::{
     infrastructure::cqrs_store::{DeviceStore, UploadTrigger},
-    infrastructure::crypto::{self, random_bytes},
+    infrastructure::device_token::DeviceToken,
     infrastructure::group_crypto::Mls,
     infrastructure::local_store::{EventStore, SharedStore},
     infrastructure::relay_client::{Api, HttpError},
@@ -179,7 +179,7 @@ impl Device {
         let (family_name, my_name): (Name, Name) = (family_name.parse()?, my_name.parse()?);
         let api = Api::new(server_url)?;
         let family_id = Uuid::new_v4();
-        let device_token = crypto::encode(&random_bytes::<32>());
+        let device_token = DeviceToken::generate();
         let registered = match api
             .create_family(family_id, self.device_id(), &device_token)
             .await

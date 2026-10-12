@@ -12,13 +12,13 @@
 use anyhow::{Context, Result, ensure};
 use tackly_domain::FamilyCommand;
 use tackly_wire::{
-    AgentAccessRequest, AgentRequestState, ApproveAgent, ClaimAgent, MAX_AGENT_SECONDS, token_hash,
+    AgentAccessRequest, AgentRequestState, ApproveAgent, Bytes, ClaimAgent, MAX_AGENT_SECONDS,
 };
 use uuid::Uuid;
 
 use super::{Device, pairing::Entry};
 use crate::infrastructure::{
-    crypto::{self, random_bytes},
+    device_token::DeviceToken,
     group_crypto::agent_code,
     relay_client::{Api, HttpError},
     server_url::ServerUrl,
@@ -36,7 +36,7 @@ pub struct AgentAccess {
     family_id: Uuid,
     request_id: Uuid,
     /// Chosen here, so that asking again after a lost answer is safe.
-    device_token: String,
+    device_token: DeviceToken,
 }
 
 /// A request the head's phone shows.
@@ -67,7 +67,7 @@ impl Device {
             &AgentAccessRequest {
                 request_id,
                 device_id: self.device_id(),
-                key_package: crypto::encode(&key_package),
+                key_package: Bytes::from(key_package.as_slice()),
             },
         )
         .await
@@ -77,7 +77,7 @@ impl Device {
             server_url: api.base().clone(),
             family_id,
             request_id,
-            device_token: crypto::encode(&random_bytes::<32>()),
+            device_token: DeviceToken::generate(),
         })
     }
 
@@ -90,7 +90,7 @@ impl Device {
                 access.request_id,
                 &ClaimAgent {
                     device_id: self.device_id(),
-                    token_hash: token_hash(&access.device_token),
+                    token_hash: access.device_token.hash(),
                 },
             )
             .await
@@ -108,7 +108,7 @@ impl Device {
             claimed.welcome.context("the relay sent no welcome")?,
             claimed.after.context("the relay sent no start")?,
         );
-        let (family_id, head) = self.mls.join(&crypto::decode(&welcome)?)?;
+        let (family_id, head) = self.mls.join(welcome.as_slice())?;
         ensure!(
             Some(family_id) == claimed.family_id && family_id == access.family_id,
             "the welcome is for another family"
@@ -145,7 +145,7 @@ impl Device {
                 Ok(AgentAsk {
                     request_id: request.request_id,
                     device_id: request.device_id,
-                    code: agent_code(&crypto::decode(&request.key_package)?),
+                    code: agent_code(request.key_package.as_slice()),
                 })
             })
             .collect()
@@ -171,7 +171,7 @@ impl Device {
             .into_iter()
             .find(|request| request.request_id == ask.request_id)
             .context("that request is gone")?;
-        let key_package = crypto::decode(&request.key_package)?;
+        let key_package = request.key_package.as_slice().to_vec();
         ensure!(
             request.device_id == ask.device_id && agent_code(&key_package) == ask.code,
             "the request changed: look at the code again"
@@ -185,7 +185,7 @@ impl Device {
                 ask.request_id,
                 &ApproveAgent {
                     agent_seconds: seconds,
-                    welcome: crypto::encode(&welcome),
+                    welcome: Bytes::from(welcome),
                 },
             )
             .await?;

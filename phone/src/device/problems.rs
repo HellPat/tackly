@@ -22,7 +22,7 @@ impl Device {
         self.run(FamilyCommand::CreateProblem {
             problem_id,
             title: title.parse()?,
-            icon: icon.to_owned(),
+            icon: icon.parse()?,
             solutions: solutions
                 .iter()
                 .map(|title| {

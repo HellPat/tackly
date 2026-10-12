@@ -8,12 +8,12 @@ use std::collections::HashSet;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use tackly_domain::FamilyEvent;
-use tackly_wire::{EncryptedEvent, EventsPage, MAX_APPEND_BATCH, MAX_MESSAGE_BYTES};
+use tackly_wire::{Bytes, EncryptedEvent, EventsPage, MAX_APPEND_BATCH, MAX_MESSAGE_BYTES};
 use uuid::Uuid;
 
 use super::{Device, Membership};
 use crate::{
-    infrastructure::crypto,
+    infrastructure::device_token::DeviceToken,
     infrastructure::group_crypto::Incoming,
     infrastructure::relay_client::{Api, HttpError},
 };
@@ -42,7 +42,7 @@ const SNAPSHOT_CHUNK_BYTES: usize = MAX_MESSAGE_BYTES / 2;
 pub struct LiveTarget {
     pub api: Api,
     pub family_id: Uuid,
-    pub token: String,
+    pub token: DeviceToken,
     /// The last relay sequence this phone has seen.
     pub cursor: i64,
 }
@@ -74,7 +74,7 @@ impl Device {
         Ok(EncryptedEvent {
             event_id,
             origin_device_id: self.device_id(),
-            message: crypto::encode(&message),
+            message: Bytes::from(message),
         })
     }
 
@@ -116,7 +116,7 @@ impl Device {
                 Ok(vec![EncryptedEvent {
                     event_id: Uuid::new_v4(),
                     origin_device_id: device.device_id(),
-                    message: crypto::encode(&commit),
+                    message: Bytes::from(commit),
                 }])
             })
             .await;
@@ -254,9 +254,9 @@ impl Device {
         wire: &EncryptedEvent,
         sequence: i64,
     ) -> Result<()> {
-        let bytes = crypto::decode(&wire.message)?;
+        let bytes = wire.message.as_slice();
         // Only the head changes who is in the family.
-        let (sender, bytes) = match self.mls.decrypt(family_id, &bytes, head)? {
+        let (sender, bytes) = match self.mls.decrypt(family_id, bytes, head)? {
             Incoming::Application { sender, bytes } => (sender, bytes),
             Incoming::Commit {
                 removed_me: true, ..

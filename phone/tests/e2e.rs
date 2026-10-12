@@ -13,7 +13,9 @@ use std::{
 use anyhow::{Context, Result, bail, ensure};
 use tackly_domain::{Family, GeoPoint, Photo, Picture, PlaceLocation, Progress, Task};
 use tackly_phone::{
-    Device, InviteProgress, SharedDevice, infrastructure::relay_client::Api, run_live,
+    Device, InviteProgress, SharedDevice,
+    infrastructure::{device_token::DeviceToken, relay_client::Api},
+    run_live,
 };
 use tackly_testkit::Relay;
 use tokio::{sync::Mutex, task::JoinHandle};
@@ -350,7 +352,7 @@ async fn lists_and_names_sync_to_everyone() -> Result<()> {
         device.rename_me("Mo").await?;
         device
             .set_picture(Picture {
-                icon: "pets".into(),
+                icon: "pets".parse()?,
                 tint: 2,
                 photo: None,
             })
@@ -396,7 +398,7 @@ async fn a_photo_as_picture_syncs_and_a_bad_one_is_refused() -> Result<()> {
     // A real (tiny) JPEG, as the phone makes it from the camera.
     let jpeg = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
     let picture = Picture {
-        icon: "pets".into(),
+        icon: "pets".parse()?,
         tint: 2,
         photo: Some(jpeg.parse()?),
     };
@@ -1134,16 +1136,13 @@ async fn registering_a_family_again_is_safe_only_with_the_same_token() -> Result
     relay.start().await?;
     let api = Api::new(&relay.url())?;
     let (family, device) = (Uuid::now_v7(), Uuid::now_v7());
+    let (one, two) = (DeviceToken::generate(), DeviceToken::generate());
 
-    api.create_family(family, device, "token-one").await?;
-    api.create_family(family, device, "token-one").await?;
+    api.create_family(family, device, &one).await?;
+    api.create_family(family, device, &one).await?;
+    assert!(api.create_family(family, device, &two).await.is_err());
     assert!(
-        api.create_family(family, device, "token-two")
-            .await
-            .is_err()
-    );
-    assert!(
-        api.create_family(family, Uuid::now_v7(), "token-one")
+        api.create_family(family, Uuid::now_v7(), &one)
             .await
             .is_err()
     );

@@ -6,7 +6,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::values::{Focus, GeoPoint, Name, Photo};
+use crate::values::{Focus, GeoPoint, IconName, Name, Photo};
 
 /// One fact recorded by a device. The CQRS aggregate is the family; the
 /// `subject_id` names what the fact is about: the family, a list, a place
@@ -130,7 +130,7 @@ pub enum DomainEvent {
 
     // ---- problems: things that go wrong at home, each with its solutions
     #[serde(rename = "problem.created")]
-    ProblemCreated { title: Name, icon: String },
+    ProblemCreated { title: Name, icon: IconName },
     #[serde(rename = "problem.renamed")]
     ProblemRenamed { title: Name },
     #[serde(rename = "problem.solution_added")]
@@ -163,7 +163,7 @@ pub enum DomainEvent {
 /// tints, or a photo. The photo wins when there is one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Picture {
-    pub icon: String,
+    pub icon: IconName,
     pub tint: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub photo: Option<Photo>,

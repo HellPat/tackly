@@ -2,10 +2,12 @@
 //! Binary values are unpadded base64url strings. Nothing here knows the
 //! family: the relay sees only these.
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+mod binary;
+
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
+
+pub use binary::{BinaryError, Bytes, Digest};
 
 /// SSE event name for a batch of [`SequencedEvent`]s in an [`EventsPage`].
 pub const SSE_EVENTS: &str = "events";
@@ -15,9 +17,9 @@ pub const MAX_APPEND_BATCH: usize = 8;
 pub const MAX_PAGE: i64 = 20;
 
 /// What the relay keeps of a device token: the token itself stays on the phone,
-/// which chooses it. Base64url of the SHA-256 of the token's text.
-pub fn token_hash(token: &str) -> String {
-    URL_SAFE_NO_PAD.encode(Sha256::digest(token.as_bytes()))
+/// which chooses it. The SHA-256 of the token's text.
+pub fn token_hash(token: &str) -> Digest {
+    Digest::sha256(token.as_bytes())
 }
 
 /// Registers a family and its first device. The phone chose the token and
@@ -27,7 +29,7 @@ pub fn token_hash(token: &str) -> String {
 pub struct CreateFamily {
     pub family_id: Uuid,
     pub device_id: Uuid,
-    pub token_hash: String,
+    pub token_hash: Digest,
 }
 
 /// A message to the family's MLS group, as the server stores it: an
@@ -40,8 +42,8 @@ pub struct CreateFamily {
 pub struct EncryptedEvent {
     pub event_id: Uuid,
     pub origin_device_id: Uuid,
-    /// The MLS message (base64url).
-    pub message: String,
+    /// The MLS message.
+    pub message: Bytes,
 }
 
 /// The server's answer to a message encrypted for an epoch that is over: the
@@ -81,7 +83,7 @@ pub struct EventsPage {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CreateInvite {
     pub invite_id: Uuid,
-    pub verifier: String,
+    pub verifier: Digest,
 }
 
 /// The longest an AI agent may be let in for.
@@ -97,7 +99,7 @@ pub struct AgentAccessRequest {
     pub request_id: Uuid,
     pub device_id: Uuid,
     /// The agent's MLS key package (base64url).
-    pub key_package: String,
+    pub key_package: Bytes,
 }
 
 /// A request waiting for the head, as the head's phone reads it.
@@ -105,7 +107,7 @@ pub struct AgentAccessRequest {
 pub struct PendingAgentRequest {
     pub request_id: Uuid,
     pub device_id: Uuid,
-    pub key_package: String,
+    pub key_package: Bytes,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -117,7 +119,7 @@ pub struct PendingAgentRequests {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ApproveAgent {
     pub agent_seconds: i64,
-    pub welcome: String,
+    pub welcome: Bytes,
 }
 
 /// The agent asks how its request is doing; with the token hash it chose, it
@@ -125,7 +127,7 @@ pub struct ApproveAgent {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClaimAgent {
     pub device_id: Uuid,
-    pub token_hash: String,
+    pub token_hash: Digest,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -141,7 +143,7 @@ pub struct AgentClaim {
     #[serde(default)]
     pub family_id: Option<Uuid>,
     #[serde(default)]
-    pub welcome: Option<String>,
+    pub welcome: Option<Bytes>,
     /// The relay sequence the agent reads after (the history is a snapshot).
     #[serde(default)]
     pub after: Option<i64>,
@@ -154,11 +156,11 @@ pub struct InviteExpiry {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InviteProof {
-    pub verifier: String,
+    pub verifier: Digest,
     pub device_id: Uuid,
     /// The joining phone's MLS key package (base64url). Both phones derive
     /// their six digits from it, so a server that swaps it is caught.
-    pub key_package: String,
+    pub key_package: Bytes,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -176,27 +178,27 @@ pub struct InviteStatus {
     pub status: InviteState,
     pub pending_device_id: Option<Uuid>,
     #[serde(default)]
-    pub pending_key_package: Option<String>,
+    pub pending_key_package: Option<Bytes>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ApproveJoin {
     pub device_id: Uuid,
     /// The MLS welcome that lets the phone into the group (base64url).
-    pub welcome: String,
+    pub welcome: Bytes,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClaimInvite {
-    pub verifier: String,
+    pub verifier: Digest,
     pub device_id: Uuid,
-    pub token_hash: String,
+    pub token_hash: Digest,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClaimedInvite {
     pub family_id: Uuid,
-    pub welcome: String,
+    pub welcome: Bytes,
     /// The relay sequence the new member starts reading after (its history
     /// comes as a snapshot from the head).
     pub after: i64,
@@ -208,7 +210,7 @@ pub struct ClaimedInvite {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RecoveryBlob {
     /// base64url
-    pub blob: String,
+    pub blob: Bytes,
 }
 
 /// The largest recovery backup the relay keeps.
@@ -218,7 +220,7 @@ pub const MAX_RECOVERY_BYTES: usize = 16 * 1024 * 1024;
 /// the lost phone's token stops working).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RotateToken {
-    pub token_hash: String,
+    pub token_hash: Digest,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

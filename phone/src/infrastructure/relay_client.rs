@@ -1,14 +1,13 @@
 //! Typed HTTP client for the sync relay.
 
 use anyhow::{Result, bail};
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use reqwest::{Client, RequestBuilder, Response, StatusCode};
 use reqwest_eventsource::EventSource;
 use serde::{Serialize, de::DeserializeOwned};
 use tackly_wire::*;
 use uuid::Uuid;
 
-use super::server_url::ServerUrl;
+use super::{device_token::DeviceToken, server_url::ServerUrl};
 
 #[derive(Clone)]
 pub struct Api {
@@ -79,10 +78,15 @@ impl Api {
         .await
     }
 
-    fn post<B: Serialize>(&self, path: &str, token: Option<&str>, body: &B) -> RequestBuilder {
+    fn post<B: Serialize>(
+        &self,
+        path: &str,
+        token: Option<&DeviceToken>,
+        body: &B,
+    ) -> RequestBuilder {
         let request = self.http.post(self.url(path)).json(body);
         match token {
-            Some(token) => request.bearer_auth(token),
+            Some(token) => request.bearer_auth(token.as_str()),
             None => request,
         }
     }
@@ -96,11 +100,16 @@ impl Api {
     }
 
     /// Registers the family. Repeating it with the same token is harmless.
-    pub async fn create_family(&self, family_id: Uuid, device_id: Uuid, token: &str) -> Result<()> {
+    pub async fn create_family(
+        &self,
+        family_id: Uuid,
+        device_id: Uuid,
+        token: &DeviceToken,
+    ) -> Result<()> {
         let body = CreateFamily {
             family_id,
             device_id,
-            token_hash: token_hash(token),
+            token_hash: token.hash(),
         };
         self.send::<serde_json::Value>(self.post("/v1/families", None, &body))
             .await?;
@@ -110,7 +119,7 @@ impl Api {
     pub async fn append(
         &self,
         family: Uuid,
-        token: &str,
+        token: &DeviceToken,
         events: Vec<EncryptedEvent>,
     ) -> Result<AppendResult> {
         let path = format!("/v1/families/{family}/events");
@@ -118,19 +127,24 @@ impl Api {
             .await
     }
 
-    pub async fn events(&self, family: Uuid, token: &str, after: i64) -> Result<EventsPage> {
+    pub async fn events(
+        &self,
+        family: Uuid,
+        token: &DeviceToken,
+        after: i64,
+    ) -> Result<EventsPage> {
         let request = self
             .http
             .get(self.url(&format!("/v1/families/{family}/events")))
             .query(&[("after", after)])
-            .bearer_auth(token);
+            .bearer_auth(token.as_str());
         self.send(request).await
     }
 
     pub async fn create_invite(
         &self,
         family: Uuid,
-        token: &str,
+        token: &DeviceToken,
         body: &CreateInvite,
     ) -> Result<InviteExpiry> {
         self.send(self.post(&format!("/v1/families/{family}/invites"), Some(token), body))
@@ -140,20 +154,20 @@ impl Api {
     pub async fn invite_status(
         &self,
         family: Uuid,
-        token: &str,
+        token: &DeviceToken,
         invite: Uuid,
     ) -> Result<InviteStatus> {
         let request = self
             .http
             .get(self.url(&format!("/v1/families/{family}/invites/{invite}")))
-            .bearer_auth(token);
+            .bearer_auth(token.as_str());
         self.send(request).await
     }
 
     pub async fn approve_join(
         &self,
         family: Uuid,
-        token: &str,
+        token: &DeviceToken,
         invite: Uuid,
         body: &ApproveJoin,
     ) -> Result<InviteStatus> {
@@ -164,31 +178,41 @@ impl Api {
     pub async fn cancel_invite(
         &self,
         family: Uuid,
-        token: &str,
+        token: &DeviceToken,
         invite: Uuid,
     ) -> Result<InviteStatus> {
         let request = self
             .http
             .delete(self.url(&format!("/v1/families/{family}/invites/{invite}")))
-            .bearer_auth(token);
+            .bearer_auth(token.as_str());
         self.send(request).await
     }
 
     /// The head takes a device's access to the relay away.
-    pub async fn revoke_device(&self, family: Uuid, token: &str, device: Uuid) -> Result<()> {
+    pub async fn revoke_device(
+        &self,
+        family: Uuid,
+        token: &DeviceToken,
+        device: Uuid,
+    ) -> Result<()> {
         let request = self
             .http
             .delete(self.url(&format!("/v1/families/{family}/devices/{device}")))
-            .bearer_auth(token);
+            .bearer_auth(token.as_str());
         self.send::<serde_json::Value>(request).await?;
         Ok(())
     }
 
     /// This device moves to a new token.
-    pub async fn rotate_token(&self, family: Uuid, token: &str, new_token: &str) -> Result<()> {
+    pub async fn rotate_token(
+        &self,
+        family: Uuid,
+        token: &DeviceToken,
+        new_token: &DeviceToken,
+    ) -> Result<()> {
         let path = format!("/v1/families/{family}/token");
         let body = RotateToken {
-            token_hash: token_hash(new_token),
+            token_hash: new_token.hash(),
         };
         self.send::<serde_json::Value>(self.post(&path, Some(token), &body))
             .await?;
@@ -199,35 +223,40 @@ impl Api {
     pub async fn put_recovery(
         &self,
         family: Uuid,
-        token: &str,
-        id: &str,
+        token: &DeviceToken,
+        id: &Digest,
         blob: &[u8],
     ) -> Result<()> {
         let request = self
             .http
             .put(self.url(&format!("/v1/families/{family}/recovery/{id}")))
-            .bearer_auth(token)
+            .bearer_auth(token.as_str())
             .json(&RecoveryBlob {
-                blob: URL_SAFE_NO_PAD.encode(blob),
+                blob: Bytes::from(blob),
             });
         self.send::<serde_json::Value>(request).await?;
         Ok(())
     }
 
-    pub async fn delete_recovery(&self, family: Uuid, token: &str, id: &str) -> Result<()> {
+    pub async fn delete_recovery(
+        &self,
+        family: Uuid,
+        token: &DeviceToken,
+        id: &Digest,
+    ) -> Result<()> {
         let request = self
             .http
             .delete(self.url(&format!("/v1/families/{family}/recovery/{id}")))
-            .bearer_auth(token);
+            .bearer_auth(token.as_str());
         self.send::<serde_json::Value>(request).await?;
         Ok(())
     }
 
     /// The backup, for a phone that knows the recovery code (and so the ID).
-    pub async fn get_recovery(&self, id: &str) -> Result<Vec<u8>> {
+    pub async fn get_recovery(&self, id: &Digest) -> Result<Vec<u8>> {
         let request = self.http.get(self.url(&format!("/v1/recovery/{id}")));
         let blob: RecoveryBlob = self.send(request).await?;
-        Ok(URL_SAFE_NO_PAD.decode(blob.blob)?)
+        Ok(blob.blob.into_vec())
     }
 
     /// An AI agent asks the family for access.
@@ -245,19 +274,19 @@ impl Api {
     pub async fn pending_agent_requests(
         &self,
         family: Uuid,
-        token: &str,
+        token: &DeviceToken,
     ) -> Result<PendingAgentRequests> {
         let request = self
             .http
             .get(self.url(&format!("/v1/families/{family}/agent-requests")))
-            .bearer_auth(token);
+            .bearer_auth(token.as_str());
         self.send(request).await
     }
 
     pub async fn approve_agent_request(
         &self,
         family: Uuid,
-        token: &str,
+        token: &DeviceToken,
         request: Uuid,
         body: &ApproveAgent,
     ) -> Result<()> {
@@ -267,7 +296,12 @@ impl Api {
         Ok(())
     }
 
-    pub async fn deny_agent_request(&self, family: Uuid, token: &str, request: Uuid) -> Result<()> {
+    pub async fn deny_agent_request(
+        &self,
+        family: Uuid,
+        token: &DeviceToken,
+        request: Uuid,
+    ) -> Result<()> {
         let path = format!("/v1/families/{family}/agent-requests/{request}/deny");
         self.send::<serde_json::Value>(self.post(&path, Some(token), &serde_json::json!({})))
             .await?;
@@ -297,12 +331,17 @@ impl Api {
     /// parses the stream and, after a drop, reconnects with backoff and sends
     /// the last event ID it saw. A bad status (for example a revoked token)
     /// ends the stream instead of retrying.
-    pub fn event_source(&self, family: Uuid, token: &str, after: i64) -> Result<EventSource> {
+    pub fn event_source(
+        &self,
+        family: Uuid,
+        token: &DeviceToken,
+        after: i64,
+    ) -> Result<EventSource> {
         let request = self
             .http
             .get(self.url(&format!("/v1/families/{family}/stream")))
             .query(&[("after", after)])
-            .bearer_auth(token);
+            .bearer_auth(token.as_str());
         Ok(EventSource::new(request)?)
     }
 }

@@ -2,14 +2,13 @@
 
 use std::{str::FromStr, time::Duration};
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use sqlx::{
     Decode, Row, Sqlite, SqlitePool, Type,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow},
 };
 use uuid::Uuid;
 
-use crate::error::{ApiError, bad_request, internal};
+use crate::error::{ApiError, internal};
 
 /// Opens (creating if needed) the database with a single writer connection,
 /// which also serializes the allocation of event sequence numbers.
@@ -48,20 +47,4 @@ pub fn uuid_column(row: &SqliteRow, name: &str) -> Result<Uuid, ApiError> {
             "database error",
         )
     })
-}
-
-/// Binary data as base64url, the way it travels in JSON.
-pub fn encode(bytes: &[u8]) -> String {
-    URL_SAFE_NO_PAD.encode(bytes)
-}
-
-/// Decodes a base64url request field, optionally demanding an exact length.
-pub fn decode(input: &str, expected_len: Option<usize>) -> Result<Vec<u8>, ApiError> {
-    let bytes = URL_SAFE_NO_PAD
-        .decode(input)
-        .map_err(|_| bad_request("invalid base64url value"))?;
-    if expected_len.is_some_and(|len| bytes.len() != len) {
-        return Err(bad_request("invalid value length"));
-    }
-    Ok(bytes)
 }

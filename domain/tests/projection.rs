@@ -216,7 +216,7 @@ fn members_names_and_pictures_follow_their_changes() {
                 SMITHS,
                 Happened::MemberPictureChanged {
                     picture: tackly_domain::Picture {
-                        icon: "pets".into(),
+                        icon: icon("pets"),
                         tint: 2,
                         photo: None,
                     },

@@ -226,7 +226,7 @@ impl Family {
                 self.problems.entry(subject).or_insert(Problem {
                     id: subject,
                     title: title.to_string(),
-                    icon: icon.clone(),
+                    icon: icon.to_string(),
                     solutions: Vec::new(),
                     opening: None,
                     open: false,
