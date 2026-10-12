@@ -36,7 +36,7 @@ const KEY_DELAY: Duration = Duration::from_millis(12);
 struct Tackly {
     dir: PathBuf,
     relay: Relay,
-    /// The 24 words each head saved, by name (the newest).
+    /// The recovery code each head saved, by name (the newest).
     recovery_codes: HashMap<String, String>,
     /// The AI agent that asked for access, while it waits.
     agent_login: Option<AgentLogin>,
@@ -207,10 +207,10 @@ impl Tackly {
             .await
     }
 
-    /// Reads the recovery words, says they are saved, and goes on to the app.
+    /// Reads the recovery code, says it is saved, and goes on to the app.
     async fn save_recovery_code(&self, name: &str) -> Outcome<String> {
         let page = self.page(name)?;
-        let words = page.get_by_label("Recovery words").text_content().await?;
+        let words = page.get_by_label("Your code").text_content().await?;
         page.get_by_label("I saved it").check().await?;
         page.get_by_role_exact("button", "Continue").click().await?;
         expect(&page.get_by_test_id("nav")).to_be_visible().await?;
@@ -481,16 +481,19 @@ async fn starts_creating(world: &mut Tackly, name: String, family: String) {
     check(world.start_creating_family(&name, &family).await);
 }
 
-#[then(regex = r"^(\w+) sees a recovery code of 24 words$")]
+#[then(regex = r"^(\w+) sees a recovery code in groups of five$")]
 async fn sees_24_words(world: &mut Tackly, name: String) {
     let words = check(
         check(world.page(&name))
-            .get_by_label("Recovery words")
+            .get_by_label("Your code")
             .text_content()
             .await,
     );
-    if words.split_whitespace().count() != 24 {
-        check(Err::<(), _>(Failure(format!("not 24 words: {words:?}"))));
+    let groups: Vec<&str> = words.trim().split('-').collect();
+    if groups.len() != 7 || groups.iter().any(|group| group.len() != 5) {
+        check(Err::<(), _>(Failure(format!(
+            "not 7 groups of 5: {words:?}"
+        ))));
     }
 }
 

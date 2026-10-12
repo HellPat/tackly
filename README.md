@@ -159,11 +159,14 @@ network. The prototype the screens were built from is `prototype/index.html`.
   relay token ends at the time given; the head's phone takes it out of the
   group when that time has passed, or at once with Revoke. At most five
   requests wait for a family at once, for ten minutes.
-- **Recovery code.** The head's phone makes 24 words (BIP-39); HKDF turns them
+- **Recovery code.** The head's phone makes a code of 160 random bits (from the
+  system's secure random generator), written as `K7QMT-4ZP9X-WDHC2-RJ8V5-BN3GA-6EYFS-T4K2M`
+  (Crockford base32, three characters of it a typo check; shown once, to be kept
+  in a password manager); HKDF turns it
   into a key and an ID. After every change it seals a backup (AES-256-GCM:
   the head's MLS signing key, the group's public state, its relay token and
   the whole history) and leaves it with the server under the ID, which cannot
-  open it. A new phone with the words takes over the head's identity, comes
+  open it. A new phone with the code takes over the head's identity, comes
   back into the group from outside (an MLS external commit, which also
   removes the lost phone's leaf; the others accept it because it is signed
   with the head's key), then moves to a fresh signing key and a fresh relay

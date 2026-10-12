@@ -159,18 +159,27 @@ fn time_left(
     }
 }
 
-/// The recovery words, over everything: the family opens only once the head
-/// says it saved them. (Right after creating the family, and after a new code.)
+/// The recovery code, over everything: the family opens only once the head
+/// says it saved it. (Right after creating the family, and after a new code.)
 #[component]
 pub fn RecoveryGate(code: RecoveryCode) -> Element {
     let state = use_context::<AppState>();
     let mut saved = use_signal(|| false);
     rsx! {
-        div { class: "absolute inset-0 z-[60] overflow-y-auto bg-[#fffdfb]", role: "dialog", aria_modal: "true", aria_label: "Save your recovery code", "data-testid": "recovery-gate",
+        div { class: "absolute inset-0 z-[60] overflow-y-auto bg-[#fffdfb]", role: "dialog", aria_modal: "true", aria_label: "Recovery codes", "data-testid": "recovery-gate",
             div { class: "min-h-full flex flex-col justify-center gap-5 p-6 max-w-[430px] mx-auto",
-                h1 { class: "text-2xl font-semibold text-center", "Save your recovery code" }
-                p { class: "text-stone-700 text-center", "If this phone is lost, these 24 words bring the family back on a new phone. Without them, the family is gone with it." }
-                p { class: "{CARD} px-4 py-3 font-mono text-base leading-8 break-words select-all", aria_label: "Recovery words", "{code}" }
+                h1 { class: "text-2xl font-semibold text-center", "Recovery codes" }
+                p { class: "text-stone-700 text-center", "Save this code in a safe place, such as a password manager. It is the only way back if this phone is lost. Without it, the family is gone with it." }
+                p { class: "{CARD} px-4 py-4 font-mono text-xl leading-9 text-center select-all", aria_label: "Your code", "{code}" }
+                button {
+                    class: "{crate::ui::SECONDARY} self-center",
+                    onclick: {
+                        let text = code.to_string();
+                        move |_| copy_text(state, &text, "Code copied")
+                    },
+                    Icon { name: "content_copy", class: "!text-[18px]" }
+                    "Copy code"
+                }
                 label { class: "flex items-center gap-3 min-h-12",
                     input {
                         r#type: "checkbox",
@@ -304,9 +313,9 @@ pub fn SettingsTab() -> Element {
             }
         }
         if (state.membership)().is_some_and(|membership| membership.owner) {
-            Heading { text: "Recovery code" }
+            Heading { text: "Recovery codes" }
             div { class: "{CARD} px-4 py-4 flex flex-col gap-3",
-                p { class: "text-sm text-stone-700", "A new code replaces the one you have. The old words stop working." }
+                p { class: "text-sm text-stone-700", "A new code replaces the one you have. The old code stops working." }
                 button { class: "{crate::ui::SECONDARY} self-start", onclick: move |_| state.new_recovery_code(),
                     Icon { name: "key", class: "!text-[18px]" }
                     "New recovery code"

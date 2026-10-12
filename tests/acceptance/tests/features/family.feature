@@ -101,7 +101,7 @@ Feature: A family of three shares its tasks
     Given the sync server is running
     And Patrick has opened Tackly
     When Patrick starts creating the family "The Smiths"
-    Then Patrick sees a recovery code of 24 words
+    Then Patrick sees a recovery code in groups of five
     And Patrick cannot continue
     When Patrick ticks "I saved it"
     Then Patrick can continue

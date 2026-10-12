@@ -15,7 +15,7 @@ enum Mode {
     Choose,
     Create,
     Join,
-    /// The head, on a new phone, with the 24 words.
+    /// The head, on a new phone, with the recovery code.
     Restore,
 }
 
@@ -64,9 +64,9 @@ pub fn Onboarding() -> Element {
                             ServerChoice { server, other_server }
                             label { class: "block",
                                 span { class: "text-sm font-semibold text-stone-700", "Recovery code" }
-                                textarea { class: "{FIELD} mt-1.5 !h-32 py-3", value: "{recovery_code}", oninput: move |event| recovery_code.set(event.value()) }
+                                input { class: "{FIELD} mt-1.5 font-mono", placeholder: "XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX", value: "{recovery_code}", oninput: move |event| recovery_code.set(event.value()) }
                             }
-                            p { class: "text-sm text-stone-700", "The 24 words from the lost phone. The family comes back here, with everything." }
+                            p { class: "text-sm text-stone-700", "The recovery code you saved, for example in your password manager. The family comes back here, with everything." }
                             div { class: "flex justify-end gap-2",
                                 button { class: SECONDARY, onclick: move |_| mode.set(Mode::Choose), "Back" }
                                 button { class: PRIMARY, disabled: busy(), onclick: move |_| restore_family(state, server, recovery_code, busy), "Restore" }

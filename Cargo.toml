@@ -19,7 +19,7 @@ tackly-domain = { path = "domain" }
 tackly-wire = { path = "wire" }
 tackly-phone = { path = "phone" }
 aes-gcm = "0.10"
-bip39 = "2"
+base32 = "0.5"
 hkdf = "0.12"
 anyhow = "1"
 base64 = "0.22"

@@ -1,7 +1,7 @@
-//! The head's way back after losing its phone. A recovery code (24 words,
-//! BIP-39) gives a key and an ID (HKDF); the head's phone seals a backup
+//! The head's way back after losing its phone. A recovery code (160 random
+//! bits) gives a key and an ID (HKDF); the head's phone seals a backup
 //! with the key (AES-256-GCM) and leaves it with the relay under the ID,
-//! after every change. A new phone with the words fetches and opens it,
+//! after every change. A new phone with the code fetches and opens it,
 //! takes over the head's identity, signing key and history, comes back into
 //! the MLS group from outside (an external commit, which also removes the
 //! lost phone's leaf), moves to a fresh signing key and a fresh relay token,
@@ -24,7 +24,7 @@ use crate::infrastructure::{
 };
 
 const WORDS: &str = "recovery-words";
-/// Which words the head confirmed to have saved (a hash of them).
+/// Which code the head confirmed to have saved (a hash of it).
 const CONFIRMED: &str = "recovery-confirmed";
 const BACKUP_VERSION: u32 = 1;
 
@@ -46,7 +46,7 @@ struct Backup {
     events: Vec<FamilyEvent>,
 }
 
-/// The key and the ID the recovery words stand for.
+/// The key and the ID a recovery code stands for.
 pub struct RecoveryKey {
     id: [u8; 32],
     key: [u8; 32],
@@ -55,7 +55,8 @@ pub struct RecoveryKey {
 impl RecoveryKey {
     /// The key and the backup's ID the code stands for.
     pub fn new(code: &RecoveryCode) -> Result<Self> {
-        let hkdf = Hkdf::<Sha256>::new(Some(b"tackly-recovery"), &code.seed());
+        // The code is already random and long: no stretching needed.
+        let hkdf = Hkdf::<Sha256>::new(Some(b"tackly-recovery-code-v2"), code.secret());
         let (mut id, mut key) = ([0; 32], [0; 32]);
         hkdf.expand(b"id", &mut id)
             .map_err(|_| anyhow::anyhow!("derive the recovery ID"))?;
@@ -64,7 +65,7 @@ impl RecoveryKey {
         Ok(Self { id, key })
     }
 
-    /// Where the relay keeps the backup (tells nothing about the words).
+    /// Where the relay keeps the backup (tells nothing about the code).
     pub fn id(&self) -> Digest {
         Digest::from(self.id)
     }
@@ -92,17 +93,13 @@ fn confirmation_of(code: &RecoveryCode) -> String {
     ))
 }
 
-/// The code the phone keeps (the backup continues under it).
+/// The code the phone keeps (the backup continues under it). One in an older
+/// format (24 words) reads as none: a new code is made in its place.
 fn kept_code(secrets: &crate::infrastructure::secrets::Secrets) -> Result<Option<RecoveryCode>> {
-    secrets
+    Ok(secrets
         .read(WORDS)?
-        .map(|bytes| {
-            String::from_utf8(bytes)
-                .context("the recovery code")?
-                .parse::<RecoveryCode>()
-                .context("the recovery code")
-        })
-        .transpose()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .and_then(|text| text.parse::<RecoveryCode>().ok()))
 }
 
 impl Device {
@@ -131,11 +128,11 @@ impl Device {
     /// The head's first recovery code, made without asking the relay: it is
     /// backed up as soon as the relay can be reached.
     pub(super) async fn ensure_recovery_code(&mut self) -> Result<()> {
-        if !self.membership.as_ref().is_some_and(|m| m.owner) || self.secrets.read(WORDS)?.is_some()
+        if !self.membership.as_ref().is_some_and(|m| m.owner) || kept_code(&self.secrets)?.is_some()
         {
             return Ok(());
         }
-        let code = RecoveryCode::generate()?;
+        let code = RecoveryCode::generate();
         let key = RecoveryKey::new(&code)?;
         self.secrets.write(WORDS, code.to_string().as_bytes())?;
         self.secrets.delete(CONFIRMED)?;
@@ -145,9 +142,9 @@ impl Device {
         Ok(())
     }
 
-    /// Makes (new) recovery words and backs the family up under them. The
-    /// previous backup, if any, is removed: its words are no good any more.
-    /// The new words must be confirmed again.
+    /// Makes a new recovery code and backs the family up under it. The
+    /// previous backup, if any, is removed: its code is no good any more.
+    /// The new code must be confirmed again.
     pub async fn new_recovery_code(&mut self) -> Result<RecoveryCode> {
         let membership = self.joined()?.clone();
         ensure!(
@@ -155,7 +152,7 @@ impl Device {
             "only the head of the family has a recovery code"
         );
         self.flush().await?;
-        let code = RecoveryCode::generate()?;
+        let code = RecoveryCode::generate();
         let key = RecoveryKey::new(&code)?;
         // The first backup must go through before the old one goes.
         self.upload_backup(&key).await?;
@@ -231,7 +228,7 @@ impl Device {
             .await
     }
 
-    /// A new phone becomes the head again, from the backup the words open.
+    /// A new phone becomes the head again, from the backup the code opens.
     pub async fn restore(&mut self, server_url: &ServerUrl, code: &RecoveryCode) -> Result<()> {
         ensure!(self.membership.is_none(), "already in a family");
         ensure!(
@@ -255,7 +252,7 @@ impl Device {
             let _ = self.logout();
             return Err(error);
         }
-        // Only now the words are ours: backups continue under them. The person
+        // Only now the code is ours: backups continue under it. The person
         // just typed them, so there is nothing to save.
         self.secrets.write(WORDS, code.to_string().as_bytes())?;
         self.secrets
@@ -336,14 +333,14 @@ mod tests {
 
     #[test]
     fn the_same_code_gives_the_same_key_and_another_does_not() {
-        let code = RecoveryCode::generate().expect("a code");
+        let code = RecoveryCode::generate();
         let key = RecoveryKey::new(&code).expect("key");
-        let typed = format!("  {}  ", code.to_string().to_uppercase().replace(' ', "\n"));
+        let typed = format!("  {}  ", code.to_string().to_lowercase().replace('-', " "));
         let again = RecoveryKey::new(&typed.parse().expect("the same code")).expect("key again");
         assert_eq!(key.id(), again.id());
         let sealed = key.seal(b"family").expect("seal");
         assert_eq!(again.open(&sealed).expect("open"), b"family");
-        let other = RecoveryKey::new(&RecoveryCode::generate().expect("a code")).expect("key");
+        let other = RecoveryKey::new(&RecoveryCode::generate()).expect("key");
         assert!(other.open(&sealed).is_err());
     }
 }

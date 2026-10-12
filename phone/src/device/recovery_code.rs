@@ -1,60 +1,99 @@
-//! The recovery code: 24 words (BIP-39) the head writes down. Anyone who has
-//! them can bring the family back on a new phone, so they never show up in
-//! logs (`Debug` hides them).
+//! The recovery code: what the head keeps safe (in a password manager, say) to
+//! bring the family back on a new phone. 160 random bits written as 32
+//! characters, and three more that catch a typo, in seven groups of five:
+//! `K7QMT-4ZP9X-WDHC2-RJ8V5-BN3GA-6EYFS-T4K2M`. The characters are Crockford's
+//! base32 (no I, L, O or U), so a read-aloud or hand-copied code survives
+//! confusions, case and dashes. Anyone who has the code can open the family's
+//! backup, so it never shows up in logs (`Debug` hides it).
 
 use std::{fmt, str::FromStr};
 
+use sha2::{Digest, Sha256};
+
 use crate::infrastructure::crypto::random_bytes;
 
-#[derive(Clone, PartialEq, Eq)]
-pub struct RecoveryCode(bip39::Mnemonic);
+/// 160 bits: more than anyone can try.
+const SECRET_BYTES: usize = 20;
+/// 32 characters carry the secret.
+const SECRET_CHARS: usize = 32;
+/// Three more are a checksum: 15 bits, so a typo is caught 32,767 times in 32,768.
+const CHECK_CHARS: usize = 3;
+const GROUP: usize = 5;
+const ALPHABET: base32::Alphabet = base32::Alphabet::Crockford;
 
-/// What a recovery code must be.
-const WORDS: usize = 24;
+#[derive(Clone, PartialEq, Eq)]
+pub struct RecoveryCode([u8; SECRET_BYTES]);
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum RecoveryCodeError {
-    #[error("a recovery code is {WORDS} words")]
-    WrongLength,
-    #[error("those are not the words of a recovery code")]
-    NotWords,
+    #[error("that is not a recovery code")]
+    NotACode,
+    #[error("that recovery code has a typo: check it against the saved one")]
+    Typo,
 }
 
 impl RecoveryCode {
-    /// A new code, from 32 random bytes.
-    pub fn generate() -> Result<Self, RecoveryCodeError> {
-        bip39::Mnemonic::from_entropy(&random_bytes::<32>())
-            .map(Self)
-            .map_err(|_| RecoveryCodeError::NotWords)
+    pub fn generate() -> Self {
+        Self(random_bytes::<SECRET_BYTES>())
     }
 
     /// What the key and the backup's ID are made from.
-    pub(super) fn seed(&self) -> [u8; 64] {
-        self.0.to_seed("")
+    pub(super) fn secret(&self) -> &[u8; SECRET_BYTES] {
+        &self.0
+    }
+
+    /// The characters that catch a typo, from the secret itself.
+    fn check(secret: &[u8]) -> String {
+        let hash = Sha256::digest([b"tackly-recovery-check".as_slice(), secret].concat());
+        // Two bytes make four characters; the first three are the first 15 bits.
+        base32::encode(ALPHABET, &hash[..2])[..CHECK_CHARS].to_owned()
     }
 }
 
-/// Typed or pasted: any case, any spacing.
+/// Typed, pasted or read aloud: any case, with or without dashes and spaces.
 impl FromStr for RecoveryCode {
     type Err = RecoveryCodeError;
 
     fn from_str(text: &str) -> Result<Self, RecoveryCodeError> {
-        let words = text
-            .split_whitespace()
-            .map(str::to_lowercase)
-            .collect::<Vec<_>>();
-        if words.len() != WORDS {
-            return Err(RecoveryCodeError::WrongLength);
+        let characters: String = text
+            .chars()
+            .filter(|c| !c.is_whitespace() && *c != '-')
+            .flat_map(char::to_uppercase)
+            .collect();
+        if characters.len() != SECRET_CHARS + CHECK_CHARS || !characters.is_ascii() {
+            return Err(RecoveryCodeError::NotACode);
         }
-        bip39::Mnemonic::parse_normalized(&words.join(" "))
-            .map(Self)
-            .map_err(|_| RecoveryCodeError::NotWords)
+        let (data, check) = characters.split_at(SECRET_CHARS);
+        let secret: [u8; SECRET_BYTES] = base32::decode(ALPHABET, data)
+            .and_then(|bytes| bytes.try_into().ok())
+            .ok_or(RecoveryCodeError::NotACode)?;
+        // The checksum is compared as the characters it is written in, with
+        // the same confusions allowed as in the rest.
+        let expected = Self::check(&secret);
+        let written = base32::decode(ALPHABET, &format!("{check}0"))
+            .map(|bytes| base32::encode(ALPHABET, &bytes)[..CHECK_CHARS].to_owned());
+        if written.as_deref() == Some(expected.as_str()) {
+            Ok(Self(secret))
+        } else {
+            Err(RecoveryCodeError::Typo)
+        }
     }
 }
 
 impl fmt::Display for RecoveryCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        let characters = format!(
+            "{}{}",
+            base32::encode(ALPHABET, &self.0),
+            Self::check(&self.0)
+        );
+        for (i, character) in characters.chars().enumerate() {
+            if i > 0 && i % GROUP == 0 {
+                f.write_str("-")?;
+            }
+            write!(f, "{character}")?;
+        }
+        Ok(())
     }
 }
 
@@ -69,42 +108,76 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_code_is_24_words_however_they_are_typed() {
-        let code = RecoveryCode::generate().expect("a code");
-        let words = code.to_string();
-        assert_eq!(words.split(' ').count(), 24);
-        let typed = format!("  {}  ", words.to_uppercase().replace(' ', "\n"));
-        assert_eq!(typed.parse::<RecoveryCode>(), Ok(code));
+    fn a_code_is_seven_groups_of_five() {
+        let shown = RecoveryCode::generate().to_string();
+        assert_eq!(shown.len(), 7 * GROUP + 6);
+        assert!(shown.split('-').all(|group| group.len() == GROUP));
+        assert!(
+            shown
+                .chars()
+                .all(|c| c == '-' || c.is_ascii_uppercase() || c.is_ascii_digit()),
+            "{shown}"
+        );
+    }
+
+    #[test]
+    fn a_code_reads_back_however_it_is_typed() {
+        let code = RecoveryCode::generate();
+        let shown = code.to_string();
+        for typed in [
+            shown.clone(),
+            shown.to_lowercase(),
+            shown.replace('-', ""),
+            shown.replace('-', " "),
+            format!("  {shown}\n"),
+        ] {
+            assert_eq!(typed.parse::<RecoveryCode>(), Ok(code.clone()), "{typed:?}");
+        }
+    }
+
+    #[test]
+    fn look_alike_characters_are_forgiven() {
+        // Crockford: O is 0, I and L are 1.
+        let code = RecoveryCode::generate();
+        let confused = code.to_string().replace('0', "O").replace('1', "l");
+        assert_eq!(confused.parse::<RecoveryCode>(), Ok(code));
+    }
+
+    #[test]
+    fn two_codes_differ() {
+        assert_ne!(RecoveryCode::generate(), RecoveryCode::generate());
+    }
+
+    #[test]
+    fn a_typo_is_caught() {
+        let shown = RecoveryCode::generate().to_string();
+        // Change one character to another one that is allowed.
+        let mut typed: Vec<char> = shown.chars().collect();
+        typed[3] = if typed[3] == '2' { '3' } else { '2' };
+        let typed: String = typed.into_iter().collect();
+        assert_eq!(typed.parse::<RecoveryCode>(), Err(RecoveryCodeError::Typo));
     }
 
     #[test]
     fn other_text_is_not_a_code() {
-        assert_eq!(
-            "just a few words".parse::<RecoveryCode>(),
-            Err(RecoveryCodeError::WrongLength)
-        );
-        let nonsense = vec!["tackly"; 24].join(" ");
-        assert_eq!(
-            nonsense.parse::<RecoveryCode>(),
-            Err(RecoveryCodeError::NotWords)
-        );
-        // 24 real words with a wrong ending do not pass the checksum.
-        let mut words: Vec<String> = RecoveryCode::generate()
-            .expect("a code")
-            .to_string()
-            .split(' ')
-            .map(str::to_owned)
-            .collect();
-        let last = words.len() - 1;
-        words.swap(0, last);
-        let swapped = words.join(" ");
-        // Swapping two words may by chance still be a code; it almost never is.
-        let _ = swapped.parse::<RecoveryCode>();
+        for text in [
+            "",
+            "just a few words",
+            "K7QMT-4ZP9X",
+            "!!!!!-!!!!!-!!!!!-!!!!!-!!!!!-!!!!!-!!!!!",
+        ] {
+            assert_eq!(
+                text.parse::<RecoveryCode>(),
+                Err(RecoveryCodeError::NotACode),
+                "{text:?}"
+            );
+        }
     }
 
     #[test]
-    fn the_words_stay_out_of_logs() {
-        let code = RecoveryCode::generate().expect("a code");
-        assert!(!format!("{code:?}").contains(code.to_string().split(' ').next().unwrap_or("x")));
+    fn the_code_stays_out_of_logs() {
+        let code = RecoveryCode::generate();
+        let first_group = code.to_string()[..GROUP].to_owned();
+        assert!(!format!("{code:?}").contains(&first_group));
     }
 }
