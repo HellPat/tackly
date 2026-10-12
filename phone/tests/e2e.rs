@@ -835,12 +835,14 @@ async fn an_ai_agent_asks_and_reads_the_whole_history_until_its_time_is_over() -
         "only the head sees requests"
     );
 
-    // The head allows it for two seconds.
+    // The head allows it for a moment: two seconds, or twenty against a
+    // deployed relay, where catching up takes longer than two.
+    let moment = if relay.is_deployed() { 20 } else { 2 };
     patrick
         .device
         .lock()
         .await
-        .allow_agent(&ask, chrono::Duration::seconds(2))
+        .allow_agent(&ask, chrono::Duration::seconds(moment))
         .await?;
     while !agent.device.lock().await.complete_access(&access).await? {
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -864,7 +866,7 @@ async fn an_ai_agent_asks_and_reads_the_whole_history_until_its_time_is_over() -
     .await?;
 
     // Its time runs out: the head's phone takes it out; the relay is closed to it.
-    tokio::time::sleep(Duration::from_millis(2_200)).await;
+    tokio::time::sleep(Duration::from_secs(moment as u64) + Duration::from_millis(200)).await;
     patrick.device.lock().await.tick().await?;
     eventually("the agent is gone from the family", || async {
         Ok(!patrick.state().await?.members.contains_key(&agent_id)
