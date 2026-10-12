@@ -19,6 +19,14 @@ impl Drop for Process {
     }
 }
 
+/// On someone's computer the windows stay hidden and out of the way; on the CI
+/// runner (`CI` is set) they are shown, because hidden ones do not load there.
+fn quiet() -> Option<(&'static str, &'static str)> {
+    std::env::var_os("CI")
+        .is_none()
+        .then_some(("TACKLY_QUIET", "1"))
+}
+
 pub struct Member {
     pub page: Page,
     _process: Process,
@@ -49,6 +57,7 @@ impl Member {
                 .env("TACKLY_UI_TEST_PORT", port.to_string())
                 // Upcoming opens only where a scenario sets a planning time.
                 .env("TACKLY_PLAN_AT", "off")
+                .envs(quiet())
                 .stdout(Stdio::from(log.try_clone()?))
                 .stderr(Stdio::from(log))
                 .spawn()?,

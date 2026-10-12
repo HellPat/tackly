@@ -28,17 +28,25 @@ fn launch() {
         .with_title(title)
         .with_inner_size(LogicalSize::new(412.0, 860.0))
         .with_resizable(true);
-    // The acceptance tests open several windows: they are never shown, never
-    // take the keyboard focus, and (on macOS) the app is not even activated, so
-    // the person at the computer can go on working.
+    // The acceptance tests, run on someone's computer (`TACKLY_QUIET`), open
+    // several windows that are never shown, never take the keyboard focus and
+    // (on macOS) do not even activate the app, so the person at the computer
+    // can go on working. On the CI runner nobody works, and windows that are
+    // never shown do not load there, so they are shown.
     #[cfg(feature = "ui-test")]
-    let window = window
-        .with_focused(false)
-        .with_always_on_bottom(true)
-        .with_visible(false);
+    let quiet = std::env::var_os("TACKLY_QUIET").is_some();
+    #[cfg(feature = "ui-test")]
+    let window = if quiet {
+        window
+            .with_focused(false)
+            .with_always_on_bottom(true)
+            .with_visible(false)
+    } else {
+        window
+    };
     let config = Config::new().with_window(window).with_menu(None);
     #[cfg(all(feature = "ui-test", target_os = "macos"))]
-    let config = {
+    let config = if quiet {
         use dioxus::desktop::tao::{
             event_loop::EventLoopBuilder,
             platform::macos::{ActivationPolicy, EventLoopExtMacOS},
@@ -48,6 +56,8 @@ fn launch() {
         events.set_activation_policy(ActivationPolicy::Accessory);
         events.set_activate_ignoring_other_apps(false);
         config.with_event_loop(events)
+    } else {
+        config
     };
     dioxus::LaunchBuilder::desktop()
         .with_cfg(config)
