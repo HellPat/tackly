@@ -125,6 +125,14 @@ network. The prototype the screens were built from is `prototype/index.html`.
   (`GET /v1/families/{id}/stream`) and reconnects from its cursor with backoff.
 - **Finished twice.** Two members finishing the same task while apart is simply
   done; the first finish the relay received counts. Nobody is asked.
+- **Values with rules.** Anything that has rules is parsed once, at the edge,
+  into a value object that cannot be invalid, and nothing downstream checks
+  again: `Name`, `Photo`, `GeoPoint`, `Focus` and `IconName` in
+  `domain/src/values`; `ServerUrl`, `RecoveryCode`, `InviteLink` and
+  `DeviceToken` in `phone`; `Bytes` and `Digest` for binary values on the
+  wire; `TimeOfDay` and `SchemeId` for the app's settings. They have private
+  fields, `FromStr`/`Display`, and tests; events from other phones are checked
+  when they are deserialized, and the ones that hold secrets stay out of `Debug`.
 - **Encrypted.** The family is an MLS group (RFC 9420, via OpenMLS). Every
   event is an MLS message: encrypted to the group's current key, signed by
   the phone that wrote it, numbered per phone. Adding a member is a commit

@@ -68,7 +68,7 @@ async fn approve(device: &Mutex<Device>, invite: &InviteTicket) -> Result<String
         } = progress
         {
             device.lock().await.approve_join(invite, device_id).await?;
-            return Ok(confirmation);
+            return Ok(confirmation.to_string());
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }

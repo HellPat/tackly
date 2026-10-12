@@ -19,6 +19,7 @@ use uuid::Uuid;
 use super::{Device, pairing::Entry};
 use crate::infrastructure::{
     device_token::DeviceToken,
+    digit_code::AgentCode,
     group_crypto::agent_code,
     relay_client::{Api, HttpError},
     server_url::ServerUrl,
@@ -31,7 +32,7 @@ pub const AGENT_NAME: &str = "AI agent";
 #[derive(Clone, Debug)]
 pub struct AgentAccess {
     /// Twelve digits the head compares with its own screen.
-    pub code: String,
+    pub code: AgentCode,
     server_url: ServerUrl,
     family_id: Uuid,
     request_id: Uuid,
@@ -45,7 +46,7 @@ pub struct AgentAsk {
     pub request_id: Uuid,
     pub device_id: Uuid,
     /// Twelve digits, derived from the agent's key package.
-    pub code: String,
+    pub code: AgentCode,
 }
 
 impl Device {

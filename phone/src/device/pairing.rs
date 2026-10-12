@@ -21,9 +21,9 @@ use super::{Device, InviteLink, Membership};
 use crate::{
     infrastructure::crypto::{derive, random_bytes},
     infrastructure::device_token::DeviceToken,
-    infrastructure::group_crypto::confirmation_code,
     infrastructure::relay_client::{Api, HttpError},
     infrastructure::server_url::ServerUrl,
+    infrastructure::{digit_code::ConfirmationCode, group_crypto::confirmation_code},
 };
 
 /// How long a new member waits for the head's history snapshot.
@@ -44,7 +44,7 @@ pub enum InviteProgress {
     /// A phone asked to join. Compare `confirmation` with the one it shows.
     Requested {
         device_id: Uuid,
-        confirmation: String,
+        confirmation: ConfirmationCode,
     },
     Approved,
     Gone,
@@ -53,7 +53,7 @@ pub enum InviteProgress {
 /// The joining phone's half-finished request.
 #[derive(Clone, Debug)]
 pub struct JoinRequest {
-    pub confirmation: String,
+    pub confirmation: ConfirmationCode,
     invite: InviteLink,
     secret: Vec<u8>,
     /// Chosen when asking, so that polling again after a lost answer is safe.

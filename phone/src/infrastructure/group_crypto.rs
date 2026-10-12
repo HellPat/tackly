@@ -15,7 +15,10 @@ use openmls_rust_crypto::{MemoryStorage, RustCrypto};
 use openmls_traits::OpenMlsProvider;
 use uuid::Uuid;
 
-use crate::infrastructure::secrets::Secrets;
+use crate::infrastructure::{
+    digit_code::{AgentCode, ConfirmationCode},
+    secrets::Secrets,
+};
 
 const CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 const STORAGE: &str = "mls-storage";
@@ -548,26 +551,25 @@ fn device_of(credential: &Credential) -> Option<Uuid> {
     Uuid::from_slice(basic.identity()).ok()
 }
 
-/// Six digits both phones derive from the invitation's secret and the joining
-/// phone's key package. The relay knows neither the secret nor how to make
-/// a key package that gives the same digits.
-pub fn confirmation_code(secret: &[u8], key_package: &[u8]) -> String {
-    let hash = crate::infrastructure::crypto::derive("confirmation", &[secret, key_package]);
-    let number = u32::from_be_bytes([hash[0], hash[1], hash[2], hash[3]]) % 1_000_000;
-    format!("{number:06}")
+/// The six digits both phones derive from the invitation's secret and the
+/// joining phone's key package. The relay knows neither the secret nor how to
+/// make a key package that gives the same digits.
+pub fn confirmation_code(secret: &[u8], key_package: &[u8]) -> ConfirmationCode {
+    ConfirmationCode::from_hash(&crate::infrastructure::crypto::derive(
+        "confirmation",
+        &[secret, key_package],
+    ))
 }
 
-/// Twelve digits (in groups of four) that the head's phone and the AI agent
-/// both derive from the agent's key package. There is no shared secret to
-/// bind them to, so they are longer than the six digits of an invitation: a
-/// relay that swaps the key cannot find one that gives the same digits.
-pub fn agent_code(key_package: &[u8]) -> String {
-    let hash = crate::infrastructure::crypto::derive("agent-code", &[key_package]);
-    let number = u64::from_be_bytes([
-        hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7],
-    ]) % 1_000_000_000_000;
-    let digits = format!("{number:012}");
-    format!("{} {} {}", &digits[..4], &digits[4..8], &digits[8..])
+/// The twelve digits the head's phone and the AI agent both derive from the
+/// agent's key package. There is no shared secret to bind them to, so they
+/// are longer than the six of an invitation: a relay that swaps the key
+/// cannot find one that gives the same digits.
+pub fn agent_code(key_package: &[u8]) -> AgentCode {
+    AgentCode::from_hash(&crate::infrastructure::crypto::derive(
+        "agent-code",
+        &[key_package],
+    ))
 }
 
 #[cfg(test)]
@@ -736,17 +738,13 @@ mod tests {
     }
 
     #[test]
-    fn the_agent_code_is_twelve_digits_that_follow_the_key() {
-        let code = agent_code(b"kp");
-        assert_eq!(code.len(), 14);
-        assert_eq!(code.split(' ').count(), 3);
-        assert_eq!(code, agent_code(b"kp"));
-        assert_ne!(code, agent_code(b"other"));
+    fn the_agent_code_follows_the_key_package() {
+        assert_eq!(agent_code(b"kp"), agent_code(b"kp"));
+        assert_ne!(agent_code(b"kp"), agent_code(b"other"));
     }
 
     #[test]
     fn the_digits_change_with_the_key_package() {
-        assert_eq!(confirmation_code(b"s", b"kp").len(), 6);
         assert_eq!(
             confirmation_code(b"s", b"kp"),
             confirmation_code(b"s", b"kp")
@@ -754,6 +752,10 @@ mod tests {
         assert_ne!(
             confirmation_code(b"s", b"kp"),
             confirmation_code(b"s", b"other")
+        );
+        assert_ne!(
+            confirmation_code(b"s", b"kp"),
+            confirmation_code(b"t", b"kp")
         );
     }
 }
