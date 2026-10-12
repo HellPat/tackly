@@ -34,8 +34,11 @@ async fn fetch(request: Request, env: Env, _ctx: worker::Context) -> Result<Resp
         .durable_object("RELAY")?
         .id_from_name("relay")?
         .get_stub_with_location_hint(LOCATION)?;
+    let upgrade = request.headers().get("upgrade")?.is_some();
     let response = relay.fetch_with_request(request).await?;
-    if response.status_code() == 101 {
+    // A WebSocket handshake goes back as it is: rebuilding the response would
+    // drop the socket.
+    if upgrade {
         return Ok(response);
     }
     // Which commit is live (CI waits for its own: scripts/deploy-relay.sh),
