@@ -42,7 +42,10 @@ database; the file and its write-ahead log both need backing up.
 | `GET`/`DELETE /v1/families/{id}/invites/{invite}` | its status; cancel it |
 | `POST /v1/families/{id}/invites/{invite}/approve` | leave the MLS welcome for the new phone |
 | `POST /v1/invites/{invite}/request` | a new phone asks to join |
-| `POST /v1/invites/{invite}/claim` | the new phone collects the welcome and joins (an agent's token ends at the time given) |
+| `POST /v1/invites/{invite}/claim` | the new phone collects the welcome and joins |
+| `POST`/`GET /v1/families/{id}/agent-requests` | an AI agent asks for access (no token; at most five wait); the head lists what waits |
+| `POST /v1/families/{id}/agent-requests/{request}/approve`, `…/deny` | the head allows the agent for a time and leaves the welcome, or denies it |
+| `POST /v1/agent-requests/{request}/claim` | the agent collects its access; its token ends at the time given |
 | `DELETE /v1/families/{id}/devices/{device}` | the head takes a device out: its token stops working |
 | `POST /v1/families/{id}/token` | a device moves to a new token (after coming back from a backup) |
 | `PUT`/`DELETE /v1/families/{id}/recovery/{rid}` | the head leaves its sealed recovery backup; removes it |

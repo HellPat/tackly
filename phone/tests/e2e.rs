@@ -109,7 +109,7 @@ async fn pair(owner: &Phone, joiner: &mut Phone, joiner_name: &str) -> Result<()
         .device
         .lock()
         .await
-        .request_join(&ticket.link, false)
+        .request_join(&ticket.link)
         .await?;
     let (device_id, confirmation) = loop {
         let progress = owner.device.lock().await.invite_progress(&ticket).await?;
@@ -668,13 +668,9 @@ async fn a_relay_that_swaps_the_joiners_key_is_caught_by_the_digits() -> Result<
         .device
         .lock()
         .await
-        .request_join(&for_mona.link, false)
+        .request_join(&for_mona.link)
         .await?;
-    eve.device
-        .lock()
-        .await
-        .request_join(&for_eve.link, false)
-        .await?;
+    eve.device.lock().await.request_join(&for_eve.link).await?;
 
     // The relay's doing: Eve's key package under Mona's invitation.
     let db = rusqlite::Connection::open(dir.join("relay.db"))?;
@@ -753,8 +749,19 @@ async fn the_head_removes_a_member_who_then_gets_nothing_new() -> Result<()> {
     Ok(())
 }
 
+/// The family's ID, as the Family screen shows it to the head.
+async fn family_id_of(phone: &Phone) -> Result<Uuid> {
+    Ok(phone
+        .device
+        .lock()
+        .await
+        .membership()
+        .context("not in a family")?
+        .family_id)
+}
+
 #[tokio::test]
-async fn an_ai_agent_reads_the_whole_history_until_its_time_is_over() -> Result<()> {
+async fn an_ai_agent_asks_and_reads_the_whole_history_until_its_time_is_over() -> Result<()> {
     let dir = scratch_dir("agent")?;
     let mut relay = Relay::reserve(&dir)?;
     relay.start().await?;
@@ -770,57 +777,41 @@ async fn an_ai_agent_reads_the_whole_history_until_its_time_is_over() -> Result<
     })
     .await?;
 
-    // The head lets an agent in for two seconds; both sides show the digits.
-    let ticket = patrick
-        .device
-        .lock()
-        .await
-        .create_agent_invite(chrono::Duration::seconds(2))
-        .await?;
-    let mut phone = Phone::new("phone", &dir)?;
-    ensure!(
-        phone
-            .device
-            .lock()
-            .await
-            .request_join(&ticket.link, false)
-            .await
-            .is_err(),
-        "a phone does not take an agent's invitation"
-    );
+    // The agent asks for access, knowing only the relay and the family's ID.
     let mut agent = Phone::new("agent", &dir)?;
-    let request = agent
+    let family = family_id_of(&patrick).await?;
+    let access = agent
         .device
         .lock()
         .await
-        .request_join(&ticket.link, true)
+        .ask_for_access(&relay.url(), family)
         .await?;
+    ensure!(
+        !agent.device.lock().await.complete_access(&access).await?,
+        "not yet: the head has not decided"
+    );
     let agent_id = agent.id().await;
-    let device_id = loop {
-        let progress = patrick.device.lock().await.invite_progress(&ticket).await?;
-        if let InviteProgress::Requested {
-            device_id,
-            confirmation,
-        } = progress
-        {
-            ensure!(confirmation == request.confirmation, "same digits");
-            break device_id;
+    let ask = loop {
+        let asks = patrick.device.lock().await.agent_asks().await?;
+        if let Some(ask) = asks.into_iter().next() {
+            break ask;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     };
+    ensure!(ask.code == access.code, "both sides show the same code");
+    ensure!(
+        mona.device.lock().await.agent_asks().await?.is_empty(),
+        "only the head sees requests"
+    );
+
+    // The head allows it for two seconds.
     patrick
         .device
         .lock()
         .await
-        .approve_join(&ticket, device_id)
+        .allow_agent(&ask, chrono::Duration::seconds(2))
         .await?;
-    while !agent
-        .device
-        .lock()
-        .await
-        .complete_join(&request, "whatever")
-        .await?
-    {
+    while !agent.device.lock().await.complete_access(&access).await? {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 
@@ -853,7 +844,124 @@ async fn an_ai_agent_reads_the_whole_history_until_its_time_is_over() -> Result<
         agent.device.lock().await.pull().await.is_err(),
         "the relay turns the agent away"
     );
-    let _ = &mut phone;
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_denied_agent_is_turned_away() -> Result<()> {
+    let dir = scratch_dir("agent-denied")?;
+    let mut relay = Relay::reserve(&dir)?;
+    relay.start().await?;
+    let (patrick, _mona, _mara) = family_of_three(&dir, &relay).await?;
+    let agent = Phone::new("agent", &dir)?;
+    let family = family_id_of(&patrick).await?;
+    let access = agent
+        .device
+        .lock()
+        .await
+        .ask_for_access(&relay.url(), family)
+        .await?;
+    let asks = patrick.device.lock().await.agent_asks().await?;
+    let ask = asks.into_iter().next().context("the request is there")?;
+    patrick.device.lock().await.deny_agent(&ask).await?;
+    ensure!(
+        agent
+            .device
+            .lock()
+            .await
+            .complete_access(&access)
+            .await
+            .is_err(),
+        "denied"
+    );
+    ensure!(
+        patrick.device.lock().await.agent_asks().await?.is_empty(),
+        "nothing waits any more"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_relay_that_swaps_the_agents_key_is_caught_by_the_code() -> Result<()> {
+    let dir = scratch_dir("agent-swap")?;
+    let mut relay = Relay::reserve(&dir)?;
+    relay.start().await?;
+    let (patrick, _mona, _mara) = family_of_three(&dir, &relay).await?;
+    let family = family_id_of(&patrick).await?;
+    let (agent, eve) = (Phone::new("agent", &dir)?, Phone::new("eve", &dir)?);
+    let access = agent
+        .device
+        .lock()
+        .await
+        .ask_for_access(&relay.url(), family)
+        .await?;
+    let _ = eve
+        .device
+        .lock()
+        .await
+        .ask_for_access(&relay.url(), family)
+        .await?;
+
+    // The relay's doing: Eve's key package under the agent's request.
+    let db = rusqlite::Connection::open(dir.join("relay.db"))?;
+    let (agent_id, eve_id) = (agent.id().await.to_string(), eve.id().await.to_string());
+    db.execute(
+        "UPDATE agent_requests SET key_package = (SELECT key_package FROM agent_requests WHERE device_id = ?1) WHERE device_id = ?2",
+        [eve_id, agent_id.clone()],
+    )?;
+    let asks = patrick.device.lock().await.agent_asks().await?;
+    let for_agent = asks
+        .iter()
+        .find(|ask| ask.device_id.to_string() == agent_id)
+        .context("the agent's request")?;
+    ensure!(
+        for_agent.code != access.code,
+        "the code must give the swap away"
+    );
+    // And the phone refuses to add a key under another device's name.
+    ensure!(
+        patrick
+            .device
+            .lock()
+            .await
+            .allow_agent(for_agent, chrono::Duration::minutes(1))
+            .await
+            .is_err(),
+        "a key that is not the agent's is refused"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn only_a_few_agent_requests_wait_for_a_family() -> Result<()> {
+    let dir = scratch_dir("agent-limit")?;
+    let mut relay = Relay::reserve(&dir)?;
+    relay.start().await?;
+    let (patrick, _mona, _mara) = family_of_three(&dir, &relay).await?;
+    let family = family_id_of(&patrick).await?;
+    let mut refused = 0;
+    for i in 0..7 {
+        let agent = Phone::new(&format!("agent{i}"), &dir)?;
+        let asked = agent
+            .device
+            .lock()
+            .await
+            .ask_for_access(&relay.url(), family)
+            .await;
+        refused += usize::from(asked.is_err());
+    }
+    ensure!(refused == 2, "five wait, the rest are refused");
+    // A family that does not exist cannot be asked.
+    let lost = Phone::new("lost", &dir)?;
+    ensure!(
+        lost.device
+            .lock()
+            .await
+            .ask_for_access(&relay.url(), Uuid::new_v4())
+            .await
+            .is_err(),
+        "no such family"
+    );
     Ok(())
 }
 

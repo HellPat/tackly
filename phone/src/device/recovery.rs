@@ -16,7 +16,10 @@ use tackly_wire::EncryptedEvent;
 use uuid::Uuid;
 
 use super::{Device, Membership};
-use crate::infrastructure::crypto::{self, random_bytes};
+use crate::infrastructure::{
+    crypto::{self, random_bytes},
+    server_url::ServerUrl,
+};
 
 const WORDS: &str = "recovery-words";
 /// Which words the head confirmed to have saved (a hash of them).
@@ -28,7 +31,7 @@ const BACKUP_VERSION: u32 = 1;
 #[derive(Serialize, Deserialize)]
 struct Backup {
     version: u32,
-    server_url: String,
+    server_url: ServerUrl,
     family_id: Uuid,
     device_id: Uuid,
     device_token: String,
@@ -227,7 +230,7 @@ impl Device {
     }
 
     /// A new phone becomes the head again, from the backup the words open.
-    pub async fn restore(&mut self, server_url: &str, words: &str) -> Result<()> {
+    pub async fn restore(&mut self, server_url: &ServerUrl, words: &str) -> Result<()> {
         ensure!(self.membership.is_none(), "already in a family");
         ensure!(
             self.events.lock().is_empty()?,
@@ -286,7 +289,7 @@ impl Device {
             .await
             .context("come back into the family's group")?;
         self.save_membership(Membership {
-            server_url: api.base().to_owned(),
+            server_url: api.base().clone(),
             family_id,
             head: me,
             device_token: backup.device_token.clone(),

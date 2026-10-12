@@ -41,6 +41,14 @@ pub const fn forbidden(message: &'static str) -> ApiError {
     ApiError::new(StatusCode::FORBIDDEN, message)
 }
 
+pub const fn not_found(message: &'static str) -> ApiError {
+    ApiError::new(StatusCode::NOT_FOUND, message)
+}
+
+pub const fn too_many(message: &'static str) -> ApiError {
+    ApiError::new(StatusCode::TOO_MANY_REQUESTS, message)
+}
+
 pub const fn conflict(message: &'static str) -> ApiError {
     ApiError::new(StatusCode::CONFLICT, message)
 }

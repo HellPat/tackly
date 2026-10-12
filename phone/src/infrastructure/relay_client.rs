@@ -8,10 +8,12 @@ use serde::{Serialize, de::DeserializeOwned};
 use tackly_wire::*;
 use uuid::Uuid;
 
+use super::server_url::ServerUrl;
+
 #[derive(Clone)]
 pub struct Api {
     http: Client,
-    base: String,
+    base: ServerUrl,
 }
 
 #[derive(Debug)]
@@ -50,20 +52,16 @@ async fn parse<T: DeserializeOwned>(response: Response) -> Result<T> {
 }
 
 impl Api {
-    pub fn new(base: &str) -> Result<Self> {
-        let base = base.trim().trim_end_matches('/').to_owned();
-        if !(base.starts_with("http://") || base.starts_with("https://")) {
-            bail!("server address must start with http:// or https://");
-        }
+    pub fn new(base: &ServerUrl) -> Result<Self> {
         Ok(Self {
             http: Client::builder()
                 .connect_timeout(std::time::Duration::from_secs(5))
                 .build()?,
-            base,
+            base: base.clone(),
         })
     }
 
-    pub fn base(&self) -> &str {
+    pub fn base(&self) -> &ServerUrl {
         &self.base
     }
 
@@ -230,6 +228,59 @@ impl Api {
         let request = self.http.get(self.url(&format!("/v1/recovery/{id}")));
         let blob: RecoveryBlob = self.send(request).await?;
         Ok(URL_SAFE_NO_PAD.decode(blob.blob)?)
+    }
+
+    /// An AI agent asks the family for access.
+    pub async fn ask_agent_access(&self, family: Uuid, body: &AgentAccessRequest) -> Result<()> {
+        self.send::<serde_json::Value>(self.post(
+            &format!("/v1/families/{family}/agent-requests"),
+            None,
+            body,
+        ))
+        .await?;
+        Ok(())
+    }
+
+    /// What waits for the head.
+    pub async fn pending_agent_requests(
+        &self,
+        family: Uuid,
+        token: &str,
+    ) -> Result<PendingAgentRequests> {
+        let request = self
+            .http
+            .get(self.url(&format!("/v1/families/{family}/agent-requests")))
+            .bearer_auth(token);
+        self.send(request).await
+    }
+
+    pub async fn approve_agent_request(
+        &self,
+        family: Uuid,
+        token: &str,
+        request: Uuid,
+        body: &ApproveAgent,
+    ) -> Result<()> {
+        let path = format!("/v1/families/{family}/agent-requests/{request}/approve");
+        self.send::<serde_json::Value>(self.post(&path, Some(token), body))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn deny_agent_request(&self, family: Uuid, token: &str, request: Uuid) -> Result<()> {
+        let path = format!("/v1/families/{family}/agent-requests/{request}/deny");
+        self.send::<serde_json::Value>(self.post(&path, Some(token), &serde_json::json!({})))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn claim_agent_request(
+        &self,
+        request: Uuid,
+        body: &ClaimAgent,
+    ) -> Result<AgentClaim> {
+        self.send(self.post(&format!("/v1/agent-requests/{request}/claim"), None, body))
+            .await
     }
 
     pub async fn request_join(&self, invite: Uuid, body: &InviteProof) -> Result<InviteStatus> {

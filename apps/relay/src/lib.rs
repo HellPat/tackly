@@ -4,9 +4,11 @@
 //! - [`families`]: registering a family
 //! - [`events`]: the encrypted event log
 //! - [`invites`]: letting a new phone join
+//! - [`agents`]: an AI agent asks for access, the head allows it
 //! - [`recovery`]: the head's sealed backup
 //! - [`auth`]: who is calling, taking a device out, moving to a new token
 
+mod agents;
 mod auth;
 mod db;
 mod error;
@@ -50,6 +52,19 @@ pub fn router(pool: SqlitePool) -> Router {
             "/v1/families/{family_id}/devices/{device_id}",
             axum::routing::delete(auth::revoke_device),
         )
+        .route(
+            "/v1/families/{family_id}/agent-requests",
+            get(agents::pending).post(agents::ask),
+        )
+        .route(
+            "/v1/families/{family_id}/agent-requests/{request_id}/approve",
+            post(agents::approve),
+        )
+        .route(
+            "/v1/families/{family_id}/agent-requests/{request_id}/deny",
+            post(agents::deny),
+        )
+        .route("/v1/agent-requests/{request_id}/claim", post(agents::claim))
         .route("/v1/families/{family_id}/token", post(auth::rotate_token))
         .route(
             "/v1/families/{family_id}/recovery/{id}",

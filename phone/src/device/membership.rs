@@ -4,13 +4,13 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::infrastructure::secrets::Secrets;
+use crate::infrastructure::{secrets::Secrets, server_url::ServerUrl};
 
 const SECRET_NAME: &str = "membership";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Membership {
-    pub server_url: String,
+    pub server_url: ServerUrl,
     pub family_id: Uuid,
     /// The head of the family: the only one whose commits (adding and
     /// removing members) and history snapshots this phone accepts.

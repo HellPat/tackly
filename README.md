@@ -138,13 +138,19 @@ network. The prototype the screens were built from is `prototype/index.html`.
   stolen member phone cannot throw anyone out). Removing someone is a commit
   to a key that phone never gets, plus `member.removed` in the log; the server
   drops its token. The removed phone keeps what it had and sees nothing new.
-- **AI agents read along, for a while.** The head makes an invitation for an
-  agent with how long it may read; `tackly-agent join <link>` prints the six
-  digits, the head confirms, and the agent is a member with the whole
-  history (`tackly-agent state|events|follow`). It cannot write: the server
+- **AI agents read along, for a while.** The agent runs
+  `tackly-agent login --server <relay> --family <family ID>` (the Family screen
+  shows both and can copy the command). It prints a code of twelve digits and
+  waits. The head's phone shows the request with the same code; the head
+  compares them and allows access for 30 minutes, 2 hours or a day, or denies
+  it. The code is a hash of the agent's key, so a relay that swapped the key
+  would show another one. This is the OAuth device flow (RFC 8628) with MLS
+  doing the encryption. The agent is a member with the whole history
+  (`tackly-agent state|events|follow|logout`). It cannot write: the relay
   refuses its token for writes, and the phones ignore anything it sends. Its
-  server token ends at the time given; the head's phone takes it out of the
-  group when that time has passed, or at once with Revoke.
+  relay token ends at the time given; the head's phone takes it out of the
+  group when that time has passed, or at once with Revoke. At most five
+  requests wait for a family at once, for ten minutes.
 - **Recovery code.** The head's phone makes 24 words (BIP-39); HKDF turns them
   into a key and an ID. After every change it seals a backup (AES-256-GCM:
   the head's MLS signing key, the group's public state, its relay token and

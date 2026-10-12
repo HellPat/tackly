@@ -6929,6 +6929,7 @@ dependencies = [
  "tackly-domain",
  "tackly-phone",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

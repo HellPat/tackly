@@ -38,6 +38,8 @@ struct Tackly {
     relay: Relay,
     /// The 24 words each head saved, by name (the newest).
     recovery_codes: HashMap<String, String>,
+    /// The AI agent that asked for access, while it waits.
+    agent_login: Option<AgentLogin>,
     geocoder: FakeGeocoder,
     members: HashMap<String, Member>,
 }
@@ -81,6 +83,15 @@ fn toast(page: &Page, text: &str) -> Locator {
 }
 
 /// How an invitation reaches the other phone.
+/// The running `tackly-agent login`: the process, what it prints, its code.
+struct AgentLogin {
+    child: tokio::process::Child,
+    /// Kept open: the agent prints more when it is in.
+    #[allow(dead_code)]
+    lines: tokio::io::Lines<tokio::io::BufReader<tokio::process::ChildStdout>>,
+    code: String,
+}
+
 #[derive(Clone, Copy)]
 enum Via {
     Link,
@@ -97,6 +108,7 @@ impl Tackly {
             dir,
             members: HashMap::new(),
             recovery_codes: HashMap::new(),
+            agent_login: None,
         })
     }
 
@@ -113,7 +125,7 @@ impl Tackly {
             name,
             binary,
             &self.dir,
-            &self.relay.url(),
+            self.relay.url().as_str(),
             location(name),
             &self.geocoder.url(),
         )
@@ -305,41 +317,35 @@ impl Tackly {
         Ok(command)
     }
 
-    /// The head makes an invitation for an AI agent, the agent (the real
-    /// `tackly-agent`) asks to join with it and prints its digits, the head
-    /// compares them and lets it in.
-    async fn admit_agent(&self, head: &str, access: &str) -> Outcome<()> {
+    /// The AI agent (the real `tackly-agent`) asks the head's family for
+    /// access, with the server and the family ID the head's Family screen
+    /// shows. It prints its code and waits.
+    async fn agent_asks(&mut self, head: &str) -> Outcome<()> {
         use tokio::io::AsyncBufReadExt;
-        let page = self.page(head)?;
         self.go(head, "Family").await?;
-        page.get_by_role_exact("button", "AI agent").click().await?;
-        page.get_by_role_exact("radio", access).click().await?;
-        page.get_by_role_exact("button", "Create invitation")
-            .click()
-            .await?;
-        let link = page.get_by_label("Invitation QR code").decode_qr().await?;
-        let mut agent = self.agent_command()?.arg("join").arg(&link).spawn()?;
-        let stdout = agent.stdout.take().ok_or("no stdout")?;
+        let page = self.page(head)?;
+        let server = page.get_by_label("Server").text_content().await?;
+        let family = page.get_by_label("Family ID").text_content().await?;
+        let mut child = self
+            .agent_command()?
+            .args(["login", "--server", &server, "--family", &family])
+            .spawn()?;
+        let stdout = child.stdout.take().ok_or("no stdout")?;
         let mut lines = tokio::io::BufReader::new(stdout).lines();
         let first = lines.next_line().await?.unwrap_or_default();
-        let digits = first
-            .strip_prefix("Confirmation code: ")
+        let code = first
+            .strip_prefix("Code: ")
             .ok_or_else(|| Failure(format!("the agent said {first:?}")))?
             .to_owned();
-        expect(&page.get_by_label("Confirmation code"))
-            .to_have_text(&digits)
-            .await?;
-        page.get_by_role_exact("button", "Yes, let it in")
-            .click()
-            .await?;
-        expect(&toast(&page, "The agent is in"))
-            .to_be_visible()
-            .await?;
-        let status = agent.wait().await?;
-        if !status.success() {
-            return Err("the agent did not get in".into());
-        }
+        self.agent_login = Some(AgentLogin { child, lines, code });
         self.go(head, "Tasks").await
+    }
+
+    /// The agent's process, once the head decided: did it get in?
+    async fn agent_outcome(&mut self) -> Outcome<bool> {
+        let login = self.agent_login.take().ok_or("the agent never asked")?;
+        let mut child = login.child;
+        Ok(child.wait().await?.success())
     }
 
     /// A new phone becomes the head, with the words.
@@ -928,9 +934,55 @@ async fn removes_member(world: &mut Tackly, head: String, member: String) {
     check(world.go(&head, "Tasks").await);
 }
 
-#[when(regex = r#"^(\w+) lets an AI agent in for "([^"]+)"$"#)]
-async fn admits_agent(world: &mut Tackly, head: String, access: String) {
-    check(world.admit_agent(&head, &access).await);
+#[when(regex = r#"^an AI agent asks (\w+)'s family for access$"#)]
+async fn agent_asks(world: &mut Tackly, head: String) {
+    check(world.agent_asks(&head).await);
+}
+
+#[then(regex = r"^(\w+) sees the agent's code$")]
+async fn sees_agent_code(world: &mut Tackly, head: String) {
+    let code = check(
+        world
+            .agent_login
+            .as_ref()
+            .map(|login| login.code.clone())
+            .ok_or(Failure::from("the agent never asked")),
+    );
+    // The request opens by itself on the head's phone.
+    check(
+        expect(&check(world.page(&head)).get_by_label("Access code"))
+            .to_have_text(&code)
+            .await,
+    );
+}
+
+#[when(regex = r#"^(\w+) allows the agent for "([^"]+)"$"#)]
+async fn allows_agent(world: &mut Tackly, head: String, access: String) {
+    let page = check(world.page(&head));
+    check(page.get_by_role_exact("radio", &access).click().await);
+    check(page.get_by_role_exact("button", "Allow").click().await);
+    check(
+        expect(&toast(&page, "The agent is in"))
+            .to_be_visible()
+            .await,
+    );
+}
+
+#[when(regex = r"^(\w+) denies the agent$")]
+async fn denies_agent(world: &mut Tackly, head: String) {
+    let page = check(world.page(&head));
+    check(page.get_by_role_exact("button", "Deny").click().await);
+}
+
+#[then(regex = r"^the AI agent is (in|turned away)$")]
+async fn agent_outcome(world: &mut Tackly, which: String) {
+    let got_in = check(world.agent_outcome().await);
+    if got_in != (which == "in") {
+        check(Err::<(), _>(Failure(format!(
+            "the agent should be {which}, but it {}",
+            if got_in { "got in" } else { "did not" }
+        ))));
+    }
 }
 
 #[then(regex = r#"^the AI agent sees the task "([^"]+)"$"#)]

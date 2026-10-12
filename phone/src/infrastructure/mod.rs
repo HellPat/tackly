@@ -9,3 +9,4 @@ pub mod local_store;
 pub mod qr;
 pub mod relay_client;
 pub mod secrets;
+pub mod server_url;

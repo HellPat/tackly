@@ -557,6 +557,19 @@ pub fn confirmation_code(secret: &[u8], key_package: &[u8]) -> String {
     format!("{number:06}")
 }
 
+/// Twelve digits (in groups of four) that the head's phone and the AI agent
+/// both derive from the agent's key package. There is no shared secret to
+/// bind them to, so they are longer than the six digits of an invitation: a
+/// relay that swaps the key cannot find one that gives the same digits.
+pub fn agent_code(key_package: &[u8]) -> String {
+    let hash = crate::infrastructure::crypto::derive("agent-code", &[key_package]);
+    let number = u64::from_be_bytes([
+        hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7],
+    ]) % 1_000_000_000_000;
+    let digits = format!("{number:012}");
+    format!("{} {} {}", &digits[..4], &digits[4..8], &digits[8..])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -720,6 +733,15 @@ mod tests {
         let again = Mls::open(&secrets, id).expect("open again");
         assert!(again.has_group(family));
         assert_eq!(again.members(family).expect("members"), vec![id]);
+    }
+
+    #[test]
+    fn the_agent_code_is_twelve_digits_that_follow_the_key() {
+        let code = agent_code(b"kp");
+        assert_eq!(code.len(), 14);
+        assert_eq!(code.split(' ').count(), 3);
+        assert_eq!(code, agent_code(b"kp"));
+        assert_ne!(code, agent_code(b"other"));
     }
 
     #[test]

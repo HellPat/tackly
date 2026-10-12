@@ -82,13 +82,70 @@ pub struct EventsPage {
 pub struct CreateInvite {
     pub invite_id: Uuid,
     pub verifier: String,
-    /// Set for an AI agent: it may read for this long, then its token ends.
-    #[serde(default)]
-    pub agent_seconds: Option<i64>,
 }
 
 /// The longest an AI agent may be let in for.
 pub const MAX_AGENT_SECONDS: i64 = 30 * 24 * 60 * 60;
+/// How many requests for an AI agent's access wait for a family at once.
+pub const MAX_PENDING_AGENT_REQUESTS: i64 = 5;
+
+/// An AI agent asks a family for access. It knows the relay and the family's
+/// ID, nothing secret; the family's head decides after comparing the code
+/// both show (derived from `key_package`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AgentAccessRequest {
+    pub request_id: Uuid,
+    pub device_id: Uuid,
+    /// The agent's MLS key package (base64url).
+    pub key_package: String,
+}
+
+/// A request waiting for the head, as the head's phone reads it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PendingAgentRequest {
+    pub request_id: Uuid,
+    pub device_id: Uuid,
+    pub key_package: String,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct PendingAgentRequests {
+    pub requests: Vec<PendingAgentRequest>,
+}
+
+/// The head lets the agent in for `agent_seconds`, and leaves its MLS welcome.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ApproveAgent {
+    pub agent_seconds: i64,
+    pub welcome: String,
+}
+
+/// The agent asks how its request is doing; with the token hash it chose, it
+/// gets its access once the head allowed it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ClaimAgent {
+    pub device_id: Uuid,
+    pub token_hash: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentRequestState {
+    Pending,
+    Approved,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AgentClaim {
+    pub status: AgentRequestState,
+    #[serde(default)]
+    pub family_id: Option<Uuid>,
+    #[serde(default)]
+    pub welcome: Option<String>,
+    /// The relay sequence the agent reads after (the history is a snapshot).
+    #[serde(default)]
+    pub after: Option<i64>,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InviteExpiry {

@@ -6,12 +6,14 @@
 //! - [`places`]: groups of places, places, and which task belongs where
 //! - [`problems`]: problems with their solutions, and each person's plan for a day
 //! - [`pairing`]: inviting someone, and joining
+//! - [`agent_access`]: an AI agent asks for access, the head allows it
 //! - [`recovery`]: the head's recovery code and the way back after a lost phone
 //! - [`sync`]: uploading local events and downloading the others'
 //!
 //! The family is an MLS group ([`crate::infrastructure::group_crypto`]): every event goes to the relay
 //! as a message only the group's members can read.
 
+mod agent_access;
 mod membership;
 mod pairing;
 mod places;
@@ -31,8 +33,9 @@ use tackly_domain::{CommandContext, Family, FamilyCommand};
 use tokio::sync::Notify;
 use uuid::Uuid;
 
+pub use agent_access::{AGENT_NAME, AgentAccess, AgentAsk};
 pub use membership::Membership;
-pub use pairing::{AGENT_NAME, InviteProgress, InviteTicket, JoinRequest};
+pub use pairing::{InviteProgress, InviteTicket, JoinRequest};
 pub use recovery::RecoveryKey;
 pub use sync::LiveTarget;
 
@@ -43,6 +46,7 @@ use crate::{
     infrastructure::local_store::{EventStore, SharedStore},
     infrastructure::relay_client::{Api, HttpError},
     infrastructure::secrets::Secrets,
+    infrastructure::server_url::ServerUrl,
 };
 
 type Cqrs = CqrsFramework<Family, DeviceStore>;
@@ -163,7 +167,7 @@ impl Device {
     /// next sync. A relay that refuses does.
     pub async fn create_family(
         &mut self,
-        server_url: &str,
+        server_url: &ServerUrl,
         family_name: &str,
         my_name: &str,
     ) -> Result<()> {
@@ -185,7 +189,7 @@ impl Device {
         };
         self.mls.create_group(family_id)?;
         self.save_membership(Membership {
-            server_url: api.base().to_owned(),
+            server_url: api.base().clone(),
             family_id,
             head: self.device_id(),
             device_token,

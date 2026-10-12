@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
     device
         .lock()
         .await
-        .create_family(&relay, "The Smiths", "Patrick")
+        .create_family(&relay.parse()?, "The Smiths", "Patrick")
         .await?;
     tokio::spawn(run_live(device.clone(), || {}));
 

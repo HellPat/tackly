@@ -13,7 +13,7 @@ use super::{
     family::{FamilyTab, SettingsTab},
     places::PlacesTab,
     problems::{AssignProblemSheet, ProblemsTab, RaiseSheet, SomethingWrongSheet},
-    sheets::{AgentSheet, AssignSheet, InviteSheet, NameSheet},
+    sheets::{AgentAskSheet, AssignSheet, InviteSheet, NameSheet},
     tasks::TasksTab,
     today::{Celebration, TodayTab},
     upcoming::{Upcoming, should_plan},
@@ -22,7 +22,7 @@ use crate::{
     settings::Filter,
     state::AppState,
     theme,
-    ui::{Avatar, FILLED, Icon, PRIMARY, SECONDARY, Size, Toasts},
+    ui::{Avatar, FILLED, Icon, PRIMARY, Size, Toasts},
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -117,8 +117,8 @@ pub enum SheetKind {
     NewGroupFor(Uuid),
     Assign(Uuid),
     Invite,
-    /// Let an AI agent read along for a while.
-    Agent,
+    /// An AI agent asks for access (by its request's ID).
+    AgentAsk(Uuid),
     /// What's wrong? Known problems are suggested.
     SomethingWrong,
     /// Raise this problem (by ID, or a suggested one by its title) for someone.
@@ -210,6 +210,22 @@ pub fn Home() -> Element {
         .filter(|problem| problem.holder() == Some(me))
         .count();
     let planning = should_plan(state);
+    // A new request from an AI agent opens by itself, once; later it waits on
+    // the Family screen.
+    let mut announced = use_signal(Vec::<Uuid>::new);
+    use_effect(move || {
+        let asks = (state.agent_asks)();
+        if sheet.peek().is_some() {
+            return;
+        }
+        if let Some(ask) = asks
+            .iter()
+            .find(|ask| !announced.peek().contains(&ask.request_id))
+        {
+            announced.write().push(ask.request_id);
+            sheet.set(Some(SheetKind::AgentAsk(ask.request_id)));
+        }
+    });
 
     rsx! {
         div { class: "relative h-full flex flex-col overflow-hidden text-stone-800 {scheme.sky}", style: "{scheme.accent_vars()}",
@@ -287,12 +303,8 @@ pub fn Home() -> Element {
                 AddBar { key: "{mode:?}", mode }
             }
             if show_invite {
-                section { class: "relative z-10 shrink-0 px-3 pb-3 pt-2 flex gap-2", aria_label: "Invite",
-                    button { class: "{SECONDARY} !h-12 text-base", onclick: move |_| sheet.set(Some(SheetKind::Agent)),
-                        Icon { name: "smart_toy" }
-                        "AI agent"
-                    }
-                    button { class: "{PRIMARY} flex-1 !h-12 text-base", onclick: move |_| sheet.set(Some(SheetKind::Invite)),
+                section { class: "relative z-10 shrink-0 px-3 pb-3 pt-2", aria_label: "Invite",
+                    button { class: "{PRIMARY} w-full !h-12 text-base", onclick: move |_| sheet.set(Some(SheetKind::Invite)),
                         Icon { name: "person_add" }
                         "Invite member"
                     }
@@ -331,7 +343,7 @@ pub fn Home() -> Element {
                 Some(kind @ (SheetKind::RenameList(_) | SheetKind::RenameGroup(_) | SheetKind::NewGroupFor(_))) => rsx! { NameSheet { kind } },
                 Some(SheetKind::Assign(task)) => rsx! { AssignSheet { task } },
                 Some(SheetKind::Invite) => rsx! { InviteSheet {} },
-                Some(SheetKind::Agent) => rsx! { AgentSheet {} },
+                Some(SheetKind::AgentAsk(request)) => rsx! { AgentAskSheet { request } },
                 Some(SheetKind::SomethingWrong) => rsx! { SomethingWrongSheet {} },
                 Some(SheetKind::Raise(problem, title)) => rsx! { RaiseSheet { problem, title } },
                 Some(SheetKind::AssignProblem(problem)) => rsx! { AssignProblemSheet { problem } },

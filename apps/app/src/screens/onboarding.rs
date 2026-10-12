@@ -1,7 +1,7 @@
 //! The first screen: create a family, or join one with an invitation.
 
 use dioxus::prelude::*;
-use tackly_phone::JoinRequest;
+use tackly_phone::{JoinRequest, infrastructure::server_url::ServerUrl};
 
 use crate::{
     platform,
@@ -39,6 +39,8 @@ pub fn Onboarding() -> Element {
     let my_name = use_signal(String::new);
     let invitation = use_signal(|| launch_link.unwrap_or_default());
     let mut recovery_code = use_signal(String::new);
+    // The default relay is used; the person can ask to type another one.
+    let other_server = use_signal(|| false);
     // Set while this phone waits for the head of the family to let it in.
     let mut join_request = use_signal(|| None::<JoinRequest>);
     let busy = use_signal(|| false);
@@ -59,7 +61,7 @@ pub fn Onboarding() -> Element {
                             button { class: "text-sm text-stone-700 underline underline-offset-4 self-center", onclick: move |_| mode.set(Mode::Restore), "Restore from a recovery code" }
                         },
                         Mode::Restore => rsx! {
-                            TextField { label: "Server", value: server }
+                            ServerChoice { server, other_server }
                             label { class: "block",
                                 span { class: "text-sm font-semibold text-stone-700", "Recovery code" }
                                 textarea { class: "{FIELD} mt-1.5 !h-32 py-3", value: "{recovery_code}", oninput: move |event| recovery_code.set(event.value()) }
@@ -73,7 +75,7 @@ pub fn Onboarding() -> Element {
                         Mode::Create => rsx! {
                             TextField { label: "Your name", value: my_name }
                             TextField { label: "Family name", value: family_name }
-                            TextField { label: "Server", value: server }
+                            ServerChoice { server, other_server }
                             p { class: "text-sm text-stone-700", "No server right now? Tasks work anyway and sync when it is reachable." }
                             div { class: "flex justify-end gap-2",
                                 button { class: SECONDARY, onclick: move |_| mode.set(Mode::Choose), "Back" }
@@ -105,6 +107,18 @@ pub fn Onboarding() -> Element {
     }
 }
 
+/// Which relay: the default is used, with a small way to type another one.
+#[component]
+fn ServerChoice(server: Signal<String>, mut other_server: Signal<bool>) -> Element {
+    rsx! {
+        if other_server() {
+            TextField { label: "Server", value: server }
+        } else {
+            button { class: "text-sm text-stone-700 underline underline-offset-4 self-start", onclick: move |_| other_server.set(true), "Use another server" }
+        }
+    }
+}
+
 /// A labelled one-line text input bound to a signal.
 #[component]
 fn TextField(label: String, mut value: Signal<String>) -> Element {
@@ -123,12 +137,16 @@ async fn create_family(
     my_name: Signal<String>,
     mut busy: Signal<bool>,
 ) {
+    let server_url = match server().parse::<ServerUrl>() {
+        Ok(server_url) => server_url,
+        Err(error) => return state.say(error.to_string()),
+    };
     busy.set(true);
     let created = state
         .device()
         .lock()
         .await
-        .create_family(&server(), &family_name(), &my_name())
+        .create_family(&server_url, &family_name(), &my_name())
         .await;
     if let Err(error) = created {
         state.say(format!("{error:#}"));
@@ -144,12 +162,16 @@ async fn restore_family(
     recovery_code: Signal<String>,
     mut busy: Signal<bool>,
 ) {
+    let server_url = match server().parse::<ServerUrl>() {
+        Ok(server_url) => server_url,
+        Err(error) => return state.say(error.to_string()),
+    };
     busy.set(true);
     let restored = state
         .device()
         .lock()
         .await
-        .restore(&server(), &recovery_code())
+        .restore(&server_url, &recovery_code())
         .await;
     if let Err(error) = restored {
         state.say(format!("{error:#}"));
@@ -172,7 +194,7 @@ async fn join_family(
         .device()
         .lock()
         .await
-        .request_join(&invitation(), false)
+        .request_join(&invitation())
         .await;
     busy.set(false);
     let request = match asked {

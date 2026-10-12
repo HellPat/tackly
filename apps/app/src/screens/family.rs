@@ -7,7 +7,8 @@ use tackly_domain::{Picture, Task};
 use uuid::Uuid;
 
 use super::{
-    home::{Nav, Tab},
+    home::{Nav, SheetKind, Tab},
+    sheets::copy_text,
     tasks::TaskCard,
 };
 use crate::{
@@ -26,10 +27,37 @@ pub fn FamilyTab() -> Element {
     if let Some(person) = here.person {
         return rsx! { Person { person } };
     }
-    let is_head = (state.membership)().is_some_and(|membership| membership.owner);
+    let membership = (state.membership)();
+    let is_head = membership
+        .as_ref()
+        .is_some_and(|membership| membership.owner);
     let now = (state.now)();
     let agents: Vec<_> = family.agents().cloned().collect();
+    let asks = (state.agent_asks)();
+    let mut sheet = use_context::<Signal<Option<SheetKind>>>();
+    // What an AI agent needs to ask this family for access.
+    let login = membership.as_ref().map(|membership| {
+        format!(
+            "tackly-agent login --server {} --family {}",
+            membership.server_url, membership.family_id
+        )
+    });
     rsx! {
+        if is_head && !asks.is_empty() {
+            Heading { text: "Access requests" }
+            ul { class: "{CARD} overflow-hidden mb-2", "data-testid": "agent-asks",
+                for ask in asks {
+                    li { key: "{ask.request_id}", class: "flex items-center gap-4 px-4 min-h-16",
+                        span { class: "size-10 rounded-full grid place-items-center bg-accent-100 text-accent-900", Icon { name: "smart_toy" } }
+                        span { class: "flex-1 text-base", "An AI agent asks for access" }
+                        button { class: crate::ui::SECONDARY, onclick: {
+                            let request = ask.request_id;
+                            move |_| sheet.set(Some(SheetKind::AgentAsk(request)))
+                        }, "Review" }
+                    }
+                }
+            }
+        }
         ul { class: "{CARD} overflow-hidden mt-1",
             li {
                 button {
@@ -63,9 +91,31 @@ pub fn FamilyTab() -> Element {
                 }
             }
         }
-        if !agents.is_empty() {
+        if is_head {
             Heading { text: "AI agents" }
-            ul { class: "{CARD} overflow-hidden", "data-testid": "agents",
+            div { class: "{CARD} px-4 py-4 flex flex-col gap-3",
+                p { class: "text-sm text-stone-700", "An AI agent asks for access with this command. You see its request here and allow it for a time." }
+                if let Some(membership) = membership.as_ref() {
+                    dl { class: "text-sm grid grid-cols-[auto_1fr] gap-x-3 gap-y-1",
+                        dt { class: "text-stone-600", "Server" }
+                        dd { class: "font-mono break-all", aria_label: "Server", "{membership.server_url}" }
+                        dt { class: "text-stone-600", "Family ID" }
+                        dd { class: "font-mono break-all", aria_label: "Family ID", "{membership.family_id}" }
+                    }
+                }
+                if let Some(command) = login {
+                    button { class: "{crate::ui::SECONDARY} self-start", onclick: move |_| copy_text(state, &command, "Command copied"),
+                        Icon { name: "content_copy", class: "!text-[18px]" }
+                        "Copy login command"
+                    }
+                }
+            }
+        }
+        if !agents.is_empty() {
+            if !is_head {
+                Heading { text: "AI agents" }
+            }
+            ul { class: "{CARD} overflow-hidden mt-2", "data-testid": "agents",
                 for agent in agents {
                     li { key: "{agent.device_id}", class: "flex items-center gap-4 px-4 min-h-16 text-stone-600",
                         span { class: "size-10 rounded-full grid place-items-center bg-stone-200", Icon { name: "smart_toy" } }

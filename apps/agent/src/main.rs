@@ -1,14 +1,16 @@
-//! `tackly-agent`: an AI agent's way into a family. The head of the family
-//! makes an invitation for an agent (with how long it may read), the agent
-//! joins with it, and from then on it reads: the family as it stands, the
-//! whole event log, or every new event as it comes. It cannot write, and
-//! when its time is over the head's phone takes it out.
+//! `tackly-agent`: an AI agent's way into a family. The agent logs in: it asks
+//! the family for access and prints a code; the head of the family sees the
+//! request on their phone, compares the code and allows access for a time.
+//! From then on the agent reads: the family as it stands, the whole event
+//! log, or every new event as it comes. It cannot write, and when its time is
+//! over the head's phone takes it out.
 
 use std::{collections::HashSet, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use tackly_phone::{AGENT_NAME, Device, SharedDevice, run_live};
+use tackly_phone::{Device, SharedDevice, infrastructure::server_url::ServerUrl, run_live};
+use uuid::Uuid;
 
 #[derive(Parser)]
 #[command(name = "tackly-agent", version, about)]
@@ -22,9 +24,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Ask to join with an invitation link the head made for an AI agent.
-    /// Prints the six digits for the head to compare, then waits to be let in.
-    Join { link: String },
+    /// Ask a family for access. Prints a code for the head to compare with the
+    /// request on their phone, then waits until the head decides.
+    Login {
+        /// The relay's address, as the family's Family screen shows it.
+        #[arg(long, env = "TACKLY_SERVER")]
+        server: ServerUrl,
+        /// The family's ID, as the Family screen shows it.
+        #[arg(long, env = "TACKLY_FAMILY")]
+        family: Uuid,
+    },
     /// The family as it stands, as JSON.
     State,
     /// The event log, one JSON event per line.
@@ -32,11 +41,11 @@ enum Command {
     /// Every new event as it arrives, one JSON line each, until stopped.
     Follow,
     /// Forget the family and this agent's keys.
-    Leave,
+    Logout,
 }
 
-/// How often a waiting agent asks whether it was let in.
-const JOIN_POLL: Duration = Duration::from_secs(1);
+/// How often a waiting agent asks whether the head decided.
+const LOGIN_POLL: Duration = Duration::from_secs(1);
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -47,12 +56,12 @@ async fn main() -> Result<()> {
     };
     let mut device = Device::open(&dir)?;
     match cli.command {
-        Command::Join { link } => {
-            let request = device.request_join(&link, true).await?;
-            println!("Confirmation code: {}", request.confirmation);
-            println!("Waiting for the head of the family to compare it and let the agent in…");
-            while !device.complete_join(&request, AGENT_NAME).await? {
-                tokio::time::sleep(JOIN_POLL).await;
+        Command::Login { server, family } => {
+            let access = device.ask_for_access(&server, family).await?;
+            println!("Code: {}", access.code);
+            println!("Waiting for the head of the family to compare it and allow access…");
+            while !device.complete_access(&access).await? {
+                tokio::time::sleep(LOGIN_POLL).await;
             }
             let family = device.state()?;
             println!(
@@ -72,9 +81,9 @@ async fn main() -> Result<()> {
             }
         }
         Command::Follow => follow(device).await?,
-        Command::Leave => {
+        Command::Logout => {
             device.logout()?;
-            println!("Left.");
+            println!("Logged out.");
         }
     }
     Ok(())

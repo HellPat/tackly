@@ -21,6 +21,7 @@ use crate::{
     infrastructure::crypto::{self, derive, random_bytes},
     infrastructure::group_crypto::confirmation_code,
     infrastructure::relay_client::{Api, HttpError},
+    infrastructure::server_url::ServerUrl,
 };
 
 /// How long a new member waits for the head's history snapshot.
@@ -33,8 +34,6 @@ pub struct InviteTicket {
     pub invite_id: Uuid,
     pub link: String,
     secret: Vec<u8>,
-    /// For an AI agent: how long it may read.
-    pub agent: Option<chrono::Duration>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,17 +61,23 @@ pub struct JoinRequest {
 /// What the invitation link carries.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct InviteLink {
-    server: String,
+    server: ServerUrl,
     family: Uuid,
     invite: Uuid,
     secret: String,
-    /// The invitation is for an AI agent, not a phone.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    agent: bool,
 }
 
-/// What an AI agent is called in the family.
-pub const AGENT_NAME: &str = "AI agent";
+/// Where a new member stands when it is let in.
+pub(super) struct Entry {
+    pub server_url: ServerUrl,
+    pub family_id: Uuid,
+    pub head: Uuid,
+    pub device_token: String,
+    pub name: String,
+    pub agent: bool,
+    /// The relay sequence it reads after.
+    pub after: i64,
+}
 
 /// An invitation is the link `tackly://join?c=<payload>`.
 const LINK_PREFIX: &str = "tackly://join?c=";
@@ -96,22 +101,6 @@ impl Device {
 
     /// An invitation for a phone.
     pub async fn create_invite(&mut self) -> Result<InviteTicket> {
-        self.invite(None).await
-    }
-
-    /// An invitation for an AI agent, which may read along for `duration`.
-    pub async fn create_agent_invite(
-        &mut self,
-        duration: chrono::Duration,
-    ) -> Result<InviteTicket> {
-        ensure!(
-            duration > chrono::Duration::zero(),
-            "an agent needs some time"
-        );
-        self.invite(Some(duration)).await
-    }
-
-    async fn invite(&mut self, agent: Option<chrono::Duration>) -> Result<InviteTicket> {
         // The joiner must find the whole history on the relay.
         self.flush().await?;
         let membership = self.joined()?.clone();
@@ -125,7 +114,6 @@ impl Device {
                 &CreateInvite {
                     invite_id,
                     verifier: invite_verifier(&secret),
-                    agent_seconds: agent.map(|duration| duration.num_seconds().max(1)),
                 },
             )
             .await?;
@@ -134,7 +122,6 @@ impl Device {
             family: membership.family_id,
             invite: invite_id,
             secret: crypto::encode(&secret),
-            agent: agent.is_some(),
         };
         Ok(InviteTicket {
             invite_id,
@@ -143,7 +130,6 @@ impl Device {
                 crypto::encode(&serde_json::to_vec(&payload)?)
             ),
             secret,
-            agent,
         })
     }
 
@@ -216,23 +202,17 @@ impl Device {
             },
         )
         .await?;
-        if let Some(duration) = ticket.agent {
-            // The family's record says who the agent is and until when; the
-            // snapshot carries it to the agent (and the flush, to the others).
-            self.run(FamilyCommand::AdmitAgent {
-                member_id: device_id,
-                name: AGENT_NAME.to_owned(),
-                until: chrono::Utc::now() + duration,
-            })
-            .await?;
-        }
         self.send_snapshot().await?;
         self.flush().await
     }
 
     /// Adds a member: the commit goes to the relay (again, after catching up,
     /// if the group moved on meanwhile); the welcome comes back for the member.
-    async fn commit_add(&mut self, device_id: Uuid, key_package: &[u8]) -> Result<Vec<u8>> {
+    pub(super) async fn commit_add(
+        &mut self,
+        device_id: Uuid,
+        key_package: &[u8],
+    ) -> Result<Vec<u8>> {
         let family_id = self.joined()?.family_id;
         let mut welcome = Vec::new();
         self.commit(|device| {
@@ -246,21 +226,12 @@ impl Device {
 
     // ---- the joining phone's side ---------------------------------------------------
 
-    /// Step 1: ask the owner to let this phone (or, `as_agent`, this AI
-    /// agent) in. The invitation must be meant for that kind of member.
-    pub async fn request_join(&mut self, link: &str, as_agent: bool) -> Result<JoinRequest> {
+    /// Step 1: ask the owner to let this phone in.
+    pub async fn request_join(&mut self, link: &str) -> Result<JoinRequest> {
         ensure!(self.membership.is_none(), "already in a family");
         let encoded = invitation_payload(link).context("not a Tackly invitation link")?;
         let invite: InviteLink = serde_json::from_slice(&crypto::decode(&encoded)?)
             .context("the invitation link is damaged")?;
-        ensure!(
-            invite.agent == as_agent,
-            if invite.agent {
-                "this invitation is for an AI agent"
-            } else {
-                "this invitation is for a phone"
-            }
-        );
         let secret = crypto::decode(&invite.secret)?;
         let key_package = self.mls.key_package()?;
         Api::new(&invite.server)?
@@ -310,28 +281,47 @@ impl Device {
             family_id == claimed.family_id,
             "the welcome is for another family"
         );
-        let agent = request.invite.agent;
-        self.save_membership(Membership {
-            server_url: api.base().to_owned(),
+        self.enter_family(Entry {
+            server_url: api.base().clone(),
             family_id,
             head,
             device_token: request.device_token.clone(),
+            name: my_name.trim().to_owned(),
+            agent: false,
+            after: claimed.after,
+        })
+        .await?;
+        // Announce ourselves.
+        self.run(FamilyCommand::Join {
+            name: my_name.to_owned(),
+        })
+        .await?;
+        self.flush().await?;
+        Ok(true)
+    }
+
+    /// The last step of getting in, for a phone and for an AI agent: this
+    /// device is a member now; the history comes from the head as a snapshot,
+    /// right after the welcome, so wait for it.
+    pub(super) async fn enter_family(&mut self, entry: Entry) -> Result<()> {
+        self.save_membership(Membership {
+            server_url: entry.server_url,
+            family_id: entry.family_id,
+            head: entry.head,
+            device_token: entry.device_token,
             registered: true,
             owner: false,
-            name: my_name.trim().to_owned(),
-            agent,
+            name: entry.name,
+            agent: entry.agent,
             removed: false,
             restoring: false,
         })?;
-        // The history comes from the head as a snapshot, right after the
-        // welcome; wait for it, then announce ourselves (an agent says
-        // nothing: the head announced it).
-        self.events.lock().advance_cursor(claimed.after)?;
+        self.events.lock().advance_cursor(entry.after)?;
         let deadline = std::time::Instant::now() + SNAPSHOT_WAIT;
         loop {
             self.pull().await?;
             if self.state()?.family_id.is_some() {
-                break;
+                return Ok(());
             }
             ensure!(
                 std::time::Instant::now() < deadline,
@@ -339,15 +329,6 @@ impl Device {
             );
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
-        if agent {
-            return Ok(true);
-        }
-        self.run(FamilyCommand::Join {
-            name: my_name.to_owned(),
-        })
-        .await?;
-        self.flush().await?;
-        Ok(true)
     }
 }
 

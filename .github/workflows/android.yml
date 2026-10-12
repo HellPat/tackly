@@ -49,6 +49,10 @@ jobs:
           fi
       - name: Build the APK
         working-directory: apps/app
+        env:
+          # The relay a new family goes to unless the person picks another:
+          # set the repository variable TACKLY_SERVER_URL (Settings, Variables).
+          TACKLY_DEFAULT_SERVER: ${{ vars.TACKLY_SERVER_URL }}
         run: |
           export NDK_HOME="$ANDROID_NDK_HOME"
           echo "NDK: $NDK_HOME"

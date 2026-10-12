@@ -4,6 +4,7 @@
 use std::{net::SocketAddr, path::Path};
 
 use anyhow::{Context, Result};
+use tackly_phone::infrastructure::server_url::ServerUrl;
 use tokio::runtime::Runtime;
 
 pub struct Relay {
@@ -26,8 +27,8 @@ impl Relay {
         })
     }
 
-    pub fn url(&self) -> String {
-        format!("http://{}", self.addr)
+    pub fn url(&self) -> ServerUrl {
+        ServerUrl::http(self.addr)
     }
 
     pub fn is_running(&self) -> bool {

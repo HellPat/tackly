@@ -73,16 +73,29 @@ Feature: A family of three shares its tasks
     And Mara sees the task "Before"
     And Mara does not see "After"
 
-  Scenario: Patrick lets an AI agent read for 30 minutes, then revokes it
+  Scenario: An AI agent asks for access, Patrick allows it for 30 minutes, then revokes it
     Given the sync server is running
     And Patrick, Mona and Mara have opened Tackly
     And Patrick has created the family "The Smiths" with Mona and Mara
     And Patrick has added the task "Water the plants"
-    When Patrick lets an AI agent in for "30 minutes"
-    Then the AI agent sees the task "Water the plants"
+    When an AI agent asks Patrick's family for access
+    Then Patrick sees the agent's code
+    When Patrick allows the agent for "30 minutes"
+    Then the AI agent is in
+    And the AI agent sees the task "Water the plants"
     And Patrick, Mona and Mara see the AI agent with "30 min left"
     When Patrick revokes the AI agent
     Then Patrick, Mona and Mara see no AI agent
+
+  Scenario: Patrick denies an AI agent
+    Given the sync server is running
+    And Patrick, Mona and Mara have opened Tackly
+    And Patrick has created the family "The Smiths" with Mona and Mara
+    When an AI agent asks Patrick's family for access
+    Then Patrick sees the agent's code
+    When Patrick denies the agent
+    Then the AI agent is turned away
+    And Patrick, Mona and Mara see no AI agent
 
   Scenario: The family opens only after the recovery code is saved
     Given the sync server is running

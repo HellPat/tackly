@@ -11,7 +11,7 @@ use anyhow::Result;
 use chrono::{DateTime, Local, NaiveDate, Utc};
 use dioxus::{core::spawn_forever, prelude::*};
 use tackly_domain::{Family, Picture, PlaceLocation};
-use tackly_phone::{Device, Geocoder, InviteTicket, Membership, SharedDevice, run_live};
+use tackly_phone::{AgentAsk, Device, Geocoder, InviteTicket, Membership, SharedDevice, run_live};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -24,6 +24,8 @@ use crate::{
 const TOAST_MS: i64 = 4_000;
 /// How often the toast timers and the clock tick.
 const TICK_MS: u64 = 100;
+/// The head's phone looks for AI agents asking for access this often.
+const ASK_SECONDS: u64 = 3;
 /// The screens re-read the device at least this often.
 const REFRESH_SECONDS: u64 = 20;
 
@@ -98,6 +100,8 @@ pub struct AppState {
     /// Recovery words the head has not confirmed to have saved: shown over
     /// everything until it does.
     pub recovery_words: Signal<Option<String>>,
+    /// AI agents asking this phone's person (the head) for access.
+    pub agent_asks: Signal<Vec<AgentAsk>>,
 }
 
 impl AppState {
@@ -122,6 +126,7 @@ impl AppState {
             plan_snoozed_until: Signal::new(None),
             celebrate: Signal::new(None),
             recovery_words: Signal::new(recovery_words),
+            agent_asks: Signal::new(Vec::new()),
         })
     }
 
@@ -599,6 +604,33 @@ impl AppState {
         self.act(move |device| async move { device.lock().await.confirm_recovery_code() });
     }
 
+    /// The head lets an AI agent in for a while.
+    pub fn allow_agent(self, ask: AgentAsk, minutes: i64) {
+        let request = ask.request_id;
+        self.act_then(move |device| async move {
+            device
+                .lock()
+                .await
+                .allow_agent(&ask, chrono::Duration::minutes(minutes))
+                .await?;
+            Ok(("The agent is in".to_owned(), None))
+        });
+        self.forget_ask(request);
+    }
+
+    /// The head turns an AI agent's request down.
+    pub fn deny_agent(self, ask: AgentAsk) {
+        let request = ask.request_id;
+        self.act(move |device| async move { device.lock().await.deny_agent(&ask).await });
+        self.forget_ask(request);
+    }
+
+    /// Stops showing a request that was answered.
+    fn forget_ask(self, request: Uuid) {
+        let mut asks = self.agent_asks;
+        asks.write().retain(|ask| ask.request_id != request);
+    }
+
     pub fn leave_family(self) {
         self.act(move |device| async move { device.lock().await.logout() });
     }
@@ -634,6 +666,19 @@ impl AppState {
                 let _ = changed.send(());
             })
             .await;
+        });
+        // The head's phone looks for AI agents asking for access.
+        spawn(async move {
+            let mut asks = self.agent_asks;
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(ASK_SECONDS)).await;
+                let found = self.device().lock().await.agent_asks().await;
+                if let Ok(found) = found
+                    && *asks.peek() != found
+                {
+                    asks.set(found);
+                }
+            }
         });
         spawn(async move {
             let periodic = std::time::Duration::from_secs(REFRESH_SECONDS);
