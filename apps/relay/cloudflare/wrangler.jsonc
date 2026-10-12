@@ -1,6 +1,6 @@
 // The relay on Cloudflare Containers. Workers Builds deploys it from this
-// directory when CI calls the deploy hook after the tests pass (see
-// .github/workflows/ci.yml); pushes alone do not deploy.
+// directory with `npm run deploy` when CI calls the deploy hook after the tests
+// pass (see .github/workflows/ci.yml); pushes alone do not deploy.
 //
 // Secrets (wrangler secret put): R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, an R2
 // API token limited to the bucket below.

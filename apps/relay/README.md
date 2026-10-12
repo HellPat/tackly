@@ -35,9 +35,9 @@ backing up.
 `cloudflare/` runs this binary as a Cloudflare Container behind a small
 Worker, under Litestream, which restores the database from R2 on start and
 replicates every change to R2 within a second. CI deploys it from `main` after
-the tests pass: `scripts/deploy-relay.sh` calls the Workers Builds deploy hook,
-waits for the build's check run and fails the pipeline if the build or
-`/health` fails. The image is a plain Dockerfile, so it runs on any other host
+the tests pass: `scripts/deploy-relay.sh` calls the Workers Builds deploy hook
+and fails the pipeline unless `/health` answers from the new commit within ten
+minutes (the Worker names it in `x-tackly-commit`). The image is a plain Dockerfile, so it runs on any other host
 given the R2 variables in `cloudflare/entrypoint.sh`.
 
 A crash can lose the last second of accepted events, and the phones do not yet

@@ -23,6 +23,10 @@ export class Relay extends Container {
 
 export default {
   async fetch(request, env) {
-    return env.RELAY.getByName("relay").fetch(request);
+    const response = await env.RELAY.getByName("relay").fetch(request);
+    // Which commit is live: CI waits for its own (scripts/deploy-relay.sh).
+    const answer = new Response(response.body, response);
+    answer.headers.set("x-tackly-commit", env.TACKLY_COMMIT ?? "unknown");
+    return answer;
   },
 };
