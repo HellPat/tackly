@@ -269,10 +269,14 @@ window.pw = (() => {
       const image = new Image();
       image.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(new XMLSerializer().serializeToString(svg));
       await image.decode();
-      const size = 640;
+      // A whole number of pixels per drawn pixel, and no smoothing: a camera
+      // sees sharp modules, and blur at odd scales makes dense codes unreadable.
+      const natural = image.naturalWidth || 240;
+      const size = natural * Math.max(1, Math.round(640 / natural));
       const canvas = document.createElement("canvas");
       canvas.width = canvas.height = size;
       const g = canvas.getContext("2d");
+      g.imageSmoothingEnabled = false;
       g.fillStyle = "#fff";
       g.fillRect(0, 0, size, size);
       g.drawImage(image, 0, 0, size, size);
