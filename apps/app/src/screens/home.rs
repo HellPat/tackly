@@ -133,7 +133,7 @@ pub fn Home() -> Element {
     let mut sheet = use_context_provider(|| Signal::new(None::<SheetKind>));
     let family = (state.family)();
     let here = nav();
-    let scheme = theme::scheme(&(state.settings)().scheme);
+    let scheme = theme::scheme((state.settings)().scheme);
     // Right after creating or joining a family, so finishing a task never
     // stops for a permission dialog.
     use_hook(crate::platform::ask_for_location);
@@ -333,8 +333,8 @@ pub fn Home() -> Element {
             if let Some(kitten) = (state.celebrate)() {
                 Celebration { kitten }
             }
-            if let Some(words) = (state.recovery_words)() {
-                super::family::RecoveryGate { words }
+            if let Some(code) = (state.recovery_code)() {
+                super::family::RecoveryGate { code }
             }
             // On top of everything: an Undo must be reachable from Upcoming, too.
             Toasts {}

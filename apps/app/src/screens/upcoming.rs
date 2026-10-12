@@ -71,7 +71,7 @@ pub fn Upcoming() -> Element {
         }
     });
     let draft = upcoming();
-    let scheme = theme::scheme(&(state.settings)().scheme);
+    let scheme = theme::scheme((state.settings)().scheme);
     let on_gesture = use_callback(move |gesture: Gesture| match gesture {
         Gesture::Drop {
             r#ref,

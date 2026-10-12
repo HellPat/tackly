@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
         let answer = match command["cmd"].as_str() {
             Some("invite") => {
                 let invite = device.lock().await.create_invite().await?;
-                let link = invite.link.clone();
+                let link = invite.link.to_string();
                 ticket = Some(invite);
                 json!({ "link": link })
             }

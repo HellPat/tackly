@@ -97,7 +97,7 @@ fn fixed_location() -> Option<GeoPoint> {
 pub fn launch_link() -> Option<String> {
     std::env::args()
         .nth(1)
-        .filter(|arg| arg.starts_with("tackly://"))
+        .filter(|arg| arg.parse::<tackly_phone::InviteLink>().is_ok())
 }
 
 /// On Android the app is a library inside the Java process: there is no

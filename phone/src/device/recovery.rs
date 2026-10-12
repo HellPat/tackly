@@ -15,6 +15,7 @@ use tackly_domain::{FamilyEvent, Name};
 use tackly_wire::EncryptedEvent;
 use uuid::Uuid;
 
+use super::recovery_code::RecoveryCode;
 use super::{Device, Membership};
 use crate::infrastructure::{
     crypto::{self, random_bytes},
@@ -51,20 +52,9 @@ pub struct RecoveryKey {
 }
 
 impl RecoveryKey {
-    /// Fresh words (24, from 32 random bytes) and their key.
-    pub fn generate() -> Result<(String, Self)> {
-        let mnemonic = bip39::Mnemonic::from_entropy(&random_bytes::<32>())
-            .context("make the recovery words")?;
-        let words = mnemonic.to_string();
-        Ok((words.clone(), Self::from_words(&words)?))
-    }
-
-    pub fn from_words(words: &str) -> Result<Self> {
-        let mnemonic = bip39::Mnemonic::parse_normalized(&normalize(words))
-            .map_err(|_| anyhow::anyhow!("that is not a recovery code of 24 words"))?;
-        ensure!(mnemonic.word_count() == 24, "a recovery code has 24 words");
-        let seed = mnemonic.to_seed("");
-        let hkdf = Hkdf::<Sha256>::new(Some(b"tackly-recovery"), &seed);
+    /// The key and the backup's ID the code stands for.
+    pub fn new(code: &RecoveryCode) -> Result<Self> {
+        let hkdf = Hkdf::<Sha256>::new(Some(b"tackly-recovery"), &code.seed());
         let (mut id, mut key) = ([0; 32], [0; 32]);
         hkdf.expand(b"id", &mut id)
             .map_err(|_| anyhow::anyhow!("derive the recovery ID"))?;
@@ -92,42 +82,48 @@ impl RecoveryKey {
     }
 }
 
-fn confirmation_of(words: &str) -> String {
-    crypto::encode(&crypto::derive("recovery-confirmed", &[words.as_bytes()]))
+/// What the phone keeps to know the head confirmed the code: a hash of it.
+fn confirmation_of(code: &RecoveryCode) -> String {
+    crypto::encode(&crypto::derive(
+        "recovery-confirmed",
+        &[code.to_string().as_bytes()],
+    ))
 }
 
-/// Lower case, single spaces: what a person typed or pasted.
-fn normalize(words: &str) -> String {
-    words
-        .split_whitespace()
-        .map(str::to_lowercase)
-        .collect::<Vec<_>>()
-        .join(" ")
+/// The code the phone keeps (the backup continues under it).
+fn kept_code(secrets: &crate::infrastructure::secrets::Secrets) -> Result<Option<RecoveryCode>> {
+    secrets
+        .read(WORDS)?
+        .map(|bytes| {
+            String::from_utf8(bytes)
+                .context("the recovery code")?
+                .parse::<RecoveryCode>()
+                .context("the recovery code")
+        })
+        .transpose()
 }
 
 impl Device {
-    /// The recovery words the head has not confirmed to have saved yet (the
-    /// app shows them until they are). `None` for everyone else.
-    pub fn pending_recovery_words(&self) -> Result<Option<String>> {
+    /// The recovery code the head has not confirmed to have saved yet (the
+    /// app shows it until it is). `None` for everyone else.
+    pub fn pending_recovery_code(&self) -> Result<Option<RecoveryCode>> {
         if !self.membership.as_ref().is_some_and(|m| m.owner) {
             return Ok(None);
         }
-        let Some(words) = self.secrets.read(WORDS)? else {
+        let Some(code) = kept_code(&self.secrets)? else {
             return Ok(None);
         };
-        let words = String::from_utf8(words).context("the recovery words")?;
         let confirmed = self.secrets.read(CONFIRMED)?;
-        Ok((confirmed.as_deref() != Some(confirmation_of(&words).as_bytes())).then_some(words))
+        Ok((confirmed.as_deref() != Some(confirmation_of(&code).as_bytes())).then_some(code))
     }
 
-    /// The head says it saved the words.
+    /// The head says it saved the code.
     pub fn confirm_recovery_code(&mut self) -> Result<()> {
-        let Some(words) = self.secrets.read(WORDS)? else {
+        let Some(code) = kept_code(&self.secrets)? else {
             return Ok(());
         };
-        let words = String::from_utf8(words).context("the recovery words")?;
         self.secrets
-            .write(CONFIRMED, confirmation_of(&words).as_bytes())
+            .write(CONFIRMED, confirmation_of(&code).as_bytes())
     }
 
     /// The head's first recovery code, made without asking the relay: it is
@@ -137,8 +133,9 @@ impl Device {
         {
             return Ok(());
         }
-        let (words, key) = RecoveryKey::generate()?;
-        self.secrets.write(WORDS, words.as_bytes())?;
+        let code = RecoveryCode::generate()?;
+        let key = RecoveryKey::new(&code)?;
+        self.secrets.write(WORDS, code.to_string().as_bytes())?;
         self.secrets.delete(CONFIRMED)?;
         self.backed_up = None;
         // Best effort: `flush` tries again whenever the backup is out of date.
@@ -149,28 +146,31 @@ impl Device {
     /// Makes (new) recovery words and backs the family up under them. The
     /// previous backup, if any, is removed: its words are no good any more.
     /// The new words must be confirmed again.
-    pub async fn new_recovery_code(&mut self) -> Result<String> {
+    pub async fn new_recovery_code(&mut self) -> Result<RecoveryCode> {
         let membership = self.joined()?.clone();
         ensure!(
             membership.owner,
             "only the head of the family has a recovery code"
         );
         self.flush().await?;
-        let (words, key) = RecoveryKey::generate()?;
+        let code = RecoveryCode::generate()?;
+        let key = RecoveryKey::new(&code)?;
         // The first backup must go through before the old one goes.
         self.upload_backup(&key).await?;
-        if let Some(old) = self.secrets.read(WORDS)?
-            && let Ok(old) = RecoveryKey::from_words(&String::from_utf8_lossy(&old))
-        {
+        if let Some(old) = kept_code(&self.secrets)? {
             let _ = self
                 .api()?
-                .delete_recovery(membership.family_id, &membership.device_token, &old.id())
+                .delete_recovery(
+                    membership.family_id,
+                    &membership.device_token,
+                    &RecoveryKey::new(&old)?.id(),
+                )
                 .await;
         }
-        self.secrets.write(WORDS, words.as_bytes())?;
+        self.secrets.write(WORDS, code.to_string().as_bytes())?;
         self.secrets.delete(CONFIRMED)?;
         self.backed_up = Some(self.backup_mark()?);
-        Ok(words)
+        Ok(code)
     }
 
     /// What the backup covers: the number of events and the group's epoch.
@@ -185,7 +185,7 @@ impl Device {
     /// Backs the family up when it changed since the last time (the head's
     /// phone, after every flush).
     pub(super) async fn backup(&mut self) -> Result<()> {
-        let Some(words) = self.secrets.read(WORDS)? else {
+        let Some(code) = kept_code(&self.secrets)? else {
             return Ok(());
         };
         if !self.joined()?.owner {
@@ -195,7 +195,7 @@ impl Device {
         if self.backed_up == Some(mark) {
             return Ok(());
         }
-        let key = RecoveryKey::from_words(&String::from_utf8_lossy(&words))?;
+        let key = RecoveryKey::new(&code)?;
         self.upload_backup(&key).await?;
         self.backed_up = Some(mark);
         Ok(())
@@ -230,14 +230,14 @@ impl Device {
     }
 
     /// A new phone becomes the head again, from the backup the words open.
-    pub async fn restore(&mut self, server_url: &ServerUrl, words: &str) -> Result<()> {
+    pub async fn restore(&mut self, server_url: &ServerUrl, code: &RecoveryCode) -> Result<()> {
         ensure!(self.membership.is_none(), "already in a family");
         ensure!(
             self.events.lock().is_empty()?,
             "this phone already has a history"
         );
         let api = crate::infrastructure::relay_client::Api::new(server_url)?;
-        let key = RecoveryKey::from_words(words)?;
+        let key = RecoveryKey::new(code)?;
         let blob = api
             .get_recovery(&key.id())
             .await
@@ -255,10 +255,9 @@ impl Device {
         }
         // Only now the words are ours: backups continue under them. The person
         // just typed them, so there is nothing to save.
-        let words = normalize(words);
-        self.secrets.write(WORDS, words.as_bytes())?;
+        self.secrets.write(WORDS, code.to_string().as_bytes())?;
         self.secrets
-            .write(CONFIRMED, confirmation_of(&words).as_bytes())?;
+            .write(CONFIRMED, confirmation_of(code).as_bytes())?;
         self.backup().await?;
         Ok(())
     }
@@ -334,16 +333,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_words_give_the_same_key_however_they_are_typed() {
-        let (words, key) = RecoveryKey::generate().expect("generate");
-        assert_eq!(words.split(' ').count(), 24);
-        let typed = format!("  {}  ", words.to_uppercase().replace(' ', "\n"));
-        let again = RecoveryKey::from_words(&typed).expect("parse");
+    fn the_same_code_gives_the_same_key_and_another_does_not() {
+        let code = RecoveryCode::generate().expect("a code");
+        let key = RecoveryKey::new(&code).expect("key");
+        let typed = format!("  {}  ", code.to_string().to_uppercase().replace(' ', "\n"));
+        let again = RecoveryKey::new(&typed.parse().expect("the same code")).expect("key again");
         assert_eq!(key.id(), again.id());
         let sealed = key.seal(b"family").expect("seal");
         assert_eq!(again.open(&sealed).expect("open"), b"family");
-        let (_, other) = RecoveryKey::generate().expect("generate");
+        let other = RecoveryKey::new(&RecoveryCode::generate().expect("a code")).expect("key");
         assert!(other.open(&sealed).is_err());
-        assert!(RecoveryKey::from_words("just a few words").is_err());
     }
 }

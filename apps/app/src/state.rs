@@ -11,13 +11,16 @@ use anyhow::Result;
 use chrono::{DateTime, Local, NaiveDate, Utc};
 use dioxus::{core::spawn_forever, prelude::*};
 use tackly_domain::{Family, Picture, PlaceLocation};
-use tackly_phone::{AgentAsk, Device, Geocoder, InviteTicket, Membership, SharedDevice, run_live};
+use tackly_phone::{
+    AgentAsk, Device, Geocoder, InviteTicket, Membership, RecoveryCode, SharedDevice, run_live,
+};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::{
     platform,
-    settings::{Filter, Settings},
+    settings::{Filter, Settings, TimeOfDay},
+    theme::SchemeId,
 };
 
 /// How long a toast stays (it waits while the stack is touched).
@@ -97,9 +100,9 @@ pub struct AppState {
     pub plan_snoozed_until: Signal<Option<DateTime<Local>>>,
     /// All of today's priorities are done: which kitten celebrates.
     pub celebrate: Signal<Option<usize>>,
-    /// Recovery words the head has not confirmed to have saved: shown over
+    /// The recovery code the head has not confirmed to have saved: shown over
     /// everything until it does.
-    pub recovery_words: Signal<Option<String>>,
+    pub recovery_code: Signal<Option<RecoveryCode>>,
     /// AI agents asking this phone's person (the head) for access.
     pub agent_asks: Signal<Vec<AgentAsk>>,
 }
@@ -108,7 +111,7 @@ impl AppState {
     /// Opens this phone's data. Call once, inside a component.
     pub fn open() -> Result<Self> {
         let device = Device::open(platform::data_dir())?;
-        let recovery_words = device.pending_recovery_words().ok().flatten();
+        let recovery_code = device.pending_recovery_code().ok().flatten();
         Ok(Self {
             family: Signal::new(device.state()?),
             membership: Signal::new(device.membership().cloned()),
@@ -125,7 +128,7 @@ impl AppState {
             upcoming: Signal::new(Upcoming::default()),
             plan_snoozed_until: Signal::new(None),
             celebrate: Signal::new(None),
-            recovery_words: Signal::new(recovery_words),
+            recovery_code: Signal::new(recovery_code),
             agent_asks: Signal::new(Vec::new()),
         })
     }
@@ -136,21 +139,21 @@ impl AppState {
 
     /// Reads the device into the signals. Cheap enough to call after any change.
     pub async fn refresh(self) {
-        let (family, membership, online, my_id, recovery_words) = {
+        let (family, membership, online, my_id, recovery_code) = {
             let device = self.device().lock_owned().await;
             (
                 device.state(),
                 device.membership().cloned(),
                 device.online_flag().load(Ordering::Relaxed),
                 device.device_id(),
-                device.pending_recovery_words().ok().flatten(),
+                device.pending_recovery_code().ok().flatten(),
             )
         };
         let (mut family_signal, mut membership_signal) = (self.family, self.membership);
         let (mut my_id_signal, mut online_signal) = (self.my_id, self.online);
-        let mut recovery_signal = self.recovery_words;
-        if *recovery_signal.peek() != recovery_words {
-            recovery_signal.set(recovery_words);
+        let mut recovery_signal = self.recovery_code;
+        if *recovery_signal.peek() != recovery_code {
+            recovery_signal.set(recovery_code);
         }
         if let Ok(family) = family
             && *family_signal.peek() != family
@@ -448,7 +451,7 @@ impl AppState {
         });
     }
 
-    pub fn set_plan_at(self, time: Option<String>) {
+    pub fn set_plan_at(self, time: Option<TimeOfDay>) {
         let mut settings = self.settings;
         settings.write().plan_at = time;
         settings.peek().save();
@@ -588,7 +591,7 @@ impl AppState {
         });
     }
 
-    /// New recovery words; they show over everything until saved.
+    /// A new recovery code; it shows over everything until saved.
     pub fn new_recovery_code(self) {
         spawn_forever(async move {
             let made = self.device().lock().await.new_recovery_code().await;
@@ -599,7 +602,7 @@ impl AppState {
         });
     }
 
-    /// The head says it saved the recovery words.
+    /// The head says it saved the recovery code.
     pub fn confirm_recovery_code(self) {
         self.act(move |device| async move { device.lock().await.confirm_recovery_code() });
     }
@@ -643,9 +646,9 @@ impl AppState {
         settings.peek().save();
     }
 
-    pub fn set_scheme(self, scheme: &str) {
+    pub fn set_scheme(self, scheme: SchemeId) {
         let mut settings = self.settings;
-        settings.write().scheme = scheme.to_owned();
+        settings.write().scheme = scheme;
         settings.peek().save();
     }
 

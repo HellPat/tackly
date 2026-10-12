@@ -1,7 +1,7 @@
 //! The first screen: create a family, or join one with an invitation.
 
 use dioxus::prelude::*;
-use tackly_phone::{JoinRequest, infrastructure::server_url::ServerUrl};
+use tackly_phone::{InviteLink, JoinRequest, RecoveryCode, infrastructure::server_url::ServerUrl};
 
 use crate::{
     platform,
@@ -44,7 +44,7 @@ pub fn Onboarding() -> Element {
     // Set while this phone waits for the head of the family to let it in.
     let mut join_request = use_signal(|| None::<JoinRequest>);
     let busy = use_signal(|| false);
-    let scheme = theme::scheme(&(state.settings)().scheme);
+    let scheme = theme::scheme((state.settings)().scheme);
 
     rsx! {
         div { class: "relative h-full overflow-y-auto text-stone-800 {scheme.sky}", style: "{scheme.accent_vars()}",
@@ -167,11 +167,15 @@ async fn restore_family(
         Err(error) => return state.say(error.to_string()),
     };
     busy.set(true);
+    let code = match recovery_code().parse::<RecoveryCode>() {
+        Ok(code) => code,
+        Err(error) => return state.say(error.to_string()),
+    };
     let restored = state
         .device()
         .lock()
         .await
-        .restore(&server_url, &recovery_code())
+        .restore(&server_url, &code)
         .await;
     if let Err(error) = restored {
         state.say(format!("{error:#}"));
@@ -189,13 +193,12 @@ async fn join_family(
     mut join_request: Signal<Option<JoinRequest>>,
     mut busy: Signal<bool>,
 ) {
+    let link = match invitation().parse::<InviteLink>() {
+        Ok(link) => link,
+        Err(error) => return state.say(error.to_string()),
+    };
     busy.set(true);
-    let asked = state
-        .device()
-        .lock()
-        .await
-        .request_join(&invitation())
-        .await;
+    let asked = state.device().lock().await.request_join(&link).await;
     busy.set(false);
     let request = match asked {
         Ok(request) => request,

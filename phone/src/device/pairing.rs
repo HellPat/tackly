@@ -9,14 +9,13 @@
 //! sends it the history as a snapshot.
 
 use anyhow::{Context, Result, ensure};
-use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use tackly_domain::{FamilyCommand, Name};
 use tackly_wire::{ApproveJoin, ClaimInvite, CreateInvite, InviteProof, InviteState, token_hash};
 use uuid::Uuid;
 
-use super::{Device, Membership};
+use super::{Device, InviteLink, Membership};
 use crate::{
     infrastructure::crypto::{self, derive, random_bytes},
     infrastructure::group_crypto::confirmation_code,
@@ -32,7 +31,7 @@ const SNAPSHOT_WAIT: Duration = Duration::from_secs(60);
 #[derive(Clone, Debug)]
 pub struct InviteTicket {
     pub invite_id: Uuid,
-    pub link: String,
+    pub link: InviteLink,
     secret: Vec<u8>,
 }
 
@@ -58,15 +57,6 @@ pub struct JoinRequest {
     device_token: String,
 }
 
-/// What the invitation link carries.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct InviteLink {
-    server: ServerUrl,
-    family: Uuid,
-    invite: Uuid,
-    secret: String,
-}
-
 /// Where a new member stands when it is let in.
 pub(super) struct Entry {
     pub server_url: ServerUrl,
@@ -77,19 +67,6 @@ pub(super) struct Entry {
     pub agent: bool,
     /// The relay sequence it reads after.
     pub after: i64,
-}
-
-/// An invitation is the link `tackly://join?c=<payload>`.
-const LINK_PREFIX: &str = "tackly://join?c=";
-
-/// The payload of an invitation link. A bare payload is accepted too, and so
-/// is a link that a messenger wrapped or padded with whitespace.
-fn invitation_payload(text: &str) -> Option<String> {
-    let compact: String = text.split_whitespace().collect();
-    let payload = compact.strip_prefix(LINK_PREFIX).unwrap_or(&compact);
-    // Drop anything a messenger may have appended after the payload.
-    let payload = payload.split(['&', '#']).next()?;
-    (!payload.is_empty()).then(|| payload.to_owned())
 }
 
 fn invite_verifier(secret: &[u8]) -> String {
@@ -117,17 +94,13 @@ impl Device {
                 },
             )
             .await?;
-        let payload = InviteLink {
-            server: membership.server_url,
-            family: membership.family_id,
-            invite: invite_id,
-            secret: crypto::encode(&secret),
-        };
         Ok(InviteTicket {
             invite_id,
-            link: format!(
-                "{LINK_PREFIX}{}",
-                crypto::encode(&serde_json::to_vec(&payload)?)
+            link: InviteLink::new(
+                membership.server_url,
+                membership.family_id,
+                invite_id,
+                secret.clone(),
             ),
             secret,
         })
@@ -227,16 +200,14 @@ impl Device {
     // ---- the joining phone's side ---------------------------------------------------
 
     /// Step 1: ask the owner to let this phone in.
-    pub async fn request_join(&mut self, link: &str) -> Result<JoinRequest> {
+    pub async fn request_join(&mut self, link: &InviteLink) -> Result<JoinRequest> {
         ensure!(self.membership.is_none(), "already in a family");
-        let encoded = invitation_payload(link).context("not a Tackly invitation link")?;
-        let invite: InviteLink = serde_json::from_slice(&crypto::decode(&encoded)?)
-            .context("the invitation link is damaged")?;
-        let secret = crypto::decode(&invite.secret)?;
+        let invite = link.clone();
+        let secret = invite.secret().to_vec();
         let key_package = self.mls.key_package()?;
-        Api::new(&invite.server)?
+        Api::new(invite.server())?
             .request_join(
-                invite.invite,
+                invite.invite(),
                 &InviteProof {
                     verifier: invite_verifier(&secret),
                     device_id: self.device_id(),
@@ -256,10 +227,10 @@ impl Device {
     /// Step 2, polled until the owner approved: `Ok(false)` means not yet.
     pub async fn complete_join(&mut self, request: &JoinRequest, my_name: &str) -> Result<bool> {
         let my_name: Name = my_name.parse()?;
-        let api = Api::new(&request.invite.server)?;
+        let api = Api::new(request.invite.server())?;
         let claimed = match api
             .claim_invite(
-                request.invite.invite,
+                request.invite.invite(),
                 &ClaimInvite {
                     verifier: invite_verifier(&request.secret),
                     device_id: self.device_id(),
@@ -273,7 +244,7 @@ impl Device {
             Err(error) => return Err(error),
         };
         ensure!(
-            claimed.family_id == request.invite.family,
+            claimed.family_id == request.invite.family(),
             "the invitation belongs to another family"
         );
         let (family_id, head) = self.mls.join(&crypto::decode(&claimed.welcome)?)?;
@@ -326,29 +297,5 @@ impl Device {
             );
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn invitation_links_are_read_leniently() {
-        let payload = "eyJzZXJ2ZXIiOiJodHRwOi8veCJ9";
-        for text in [
-            format!("tackly://join?c={payload}"),
-            format!("  tackly://join?c={payload}\n"),
-            "tackly://join?c=eyJzZXJ2\n  ZXIiOiJodHRwOi8veCJ9".to_owned(),
-            payload.to_owned(),
-            format!("tackly://join?c={payload}&utm=x"),
-        ] {
-            assert_eq!(
-                invitation_payload(&text).as_deref(),
-                Some(payload),
-                "{text:?}"
-            );
-        }
-        assert_eq!(invitation_payload("  "), None);
     }
 }

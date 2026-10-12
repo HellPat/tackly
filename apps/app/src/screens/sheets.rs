@@ -192,10 +192,10 @@ pub fn InviteSheet() -> Element {
                     },
                     (Some(shown), _) => rsx! {
                         div { class: "bg-white p-3 rounded-2xl [&_svg]:size-72", role: "img", aria_label: "Invitation QR code",
-                            dangerous_inner_html: tackly_phone::infrastructure::qr::qr_svg(&shown.link),
+                            dangerous_inner_html: tackly_phone::infrastructure::qr::qr_svg(&shown.link.to_string()),
                         }
                         p { class: "text-sm text-stone-600", "Scan with the other phone, or send the link. Works once, for 5 minutes." }
-                        button { class: PRIMARY, onclick: move |_| copy_link(state, &shown.link),
+                        button { class: PRIMARY, onclick: move |_| copy_link(state, &shown.link.to_string()),
                             crate::ui::Icon { name: "content_copy", class: "!text-[18px]" }
                             "Copy link"
                         }

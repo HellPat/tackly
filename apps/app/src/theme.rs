@@ -5,6 +5,8 @@
 
 use std::fmt::Write;
 
+use serde::{Deserialize, Serialize};
+
 /// Shades 50, 100, 200, 700, 800, 900 of a Tailwind color.
 type Palette = [&'static str; 6];
 
@@ -39,9 +41,64 @@ const LIME: Palette = [
     "#f7fee7", "#ecfccb", "#d9f99d", "#4d7c0f", "#3f6212", "#365314",
 ];
 
+/// Which color scheme: only the ids of schemes the app has exist, so a
+/// preference that names another one cannot be read back.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SchemeId(&'static str);
+
+impl Serialize for SchemeId {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for SchemeId {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer)?
+            .parse()
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct UnknownScheme;
+
+impl std::fmt::Display for UnknownScheme {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("there is no such color scheme")
+    }
+}
+
+impl std::error::Error for UnknownScheme {}
+
+impl std::str::FromStr for SchemeId {
+    type Err = UnknownScheme;
+
+    fn from_str(id: &str) -> Result<Self, UnknownScheme> {
+        SCHEMES
+            .iter()
+            .find(|scheme| scheme.id.0 == id)
+            .map(|scheme| scheme.id)
+            .ok_or(UnknownScheme)
+    }
+}
+
+impl std::fmt::Display for SchemeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl Default for SchemeId {
+    /// The first scheme.
+    fn default() -> Self {
+        SCHEMES[0].id
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Scheme {
-    pub id: &'static str,
+    pub id: SchemeId,
     pub name: &'static str,
     /// Tailwind classes for the page background.
     pub sky: &'static str,
@@ -62,112 +119,112 @@ enum Scene {
 
 pub const SCHEMES: [Scheme; 16] = [
     Scheme {
-        id: "ocean",
+        id: SchemeId("ocean"),
         name: "Ocean",
         sky: "bg-linear-to-b from-sky-200 to-cyan-100",
         accent: ROSE,
         scene: Scene::Waves(["#7dd3fc", "#38bdf8", "#0ea5e9"]),
     },
     Scheme {
-        id: "sunset",
+        id: SchemeId("sunset"),
         name: "Sunset",
         sky: "bg-linear-to-b from-orange-200 to-rose-200",
         accent: SKY,
         scene: Scene::Slopes(["#fdba74", "#fb923c", "#f97316"]),
     },
     Scheme {
-        id: "lavender",
+        id: SchemeId("lavender"),
         name: "Lavender",
         sky: "bg-linear-to-b from-violet-200 to-indigo-100",
         accent: LIME,
         scene: Scene::Peaks(["#c4b5fd", "#a78bfa", "#8b5cf6"]),
     },
     Scheme {
-        id: "pinewood",
+        id: SchemeId("pinewood"),
         name: "Pinewood",
         sky: "bg-linear-to-b from-emerald-200 to-teal-100",
         accent: PINK,
         scene: Scene::Woods(["#6ee7b7", "#34d399", "#10b981"]),
     },
     Scheme {
-        id: "spring",
+        id: SchemeId("spring"),
         name: "Spring",
         sky: "bg-linear-to-b from-lime-200 to-emerald-100",
         accent: VIOLET,
         scene: Scene::Slopes(["#bef264", "#a3e635", "#84cc16"]),
     },
     Scheme {
-        id: "lagoon",
+        id: SchemeId("lagoon"),
         name: "Lagoon",
         sky: "bg-linear-to-b from-teal-200 to-cyan-100",
         accent: FUCHSIA,
         scene: Scene::Waves(["#5eead4", "#2dd4bf", "#14b8a6"]),
     },
     Scheme {
-        id: "glacier",
+        id: SchemeId("glacier"),
         name: "Glacier",
         sky: "bg-linear-to-b from-sky-200 to-indigo-100",
         accent: AMBER,
         scene: Scene::Peaks(["#bae6fd", "#7dd3fc", "#38bdf8"]),
     },
     Scheme {
-        id: "heather",
+        id: SchemeId("heather"),
         name: "Heather",
         sky: "bg-linear-to-b from-fuchsia-200 to-pink-100",
         accent: GREEN,
         scene: Scene::Slopes(["#f0abfc", "#e879f9", "#d946ef"]),
     },
     Scheme {
-        id: "fjord",
+        id: SchemeId("fjord"),
         name: "Fjord",
         sky: "bg-linear-to-b from-indigo-200 to-sky-100",
         accent: AMBER,
         scene: Scene::Fjord(["#a5b4fc", "#818cf8", "#7dd3fc"]),
     },
     Scheme {
-        id: "jungle",
+        id: SchemeId("jungle"),
         name: "Jungle",
         sky: "bg-linear-to-b from-lime-200 to-green-100",
         accent: FUCHSIA,
         scene: Scene::Woods(["#86efac", "#4ade80", "#22c55e"]),
     },
     Scheme {
-        id: "canyon",
+        id: SchemeId("canyon"),
         name: "Canyon",
         sky: "bg-linear-to-b from-amber-200 to-orange-100",
         accent: INDIGO,
         scene: Scene::Peaks(["#fcd34d", "#fbbf24", "#f59e0b"]),
     },
     Scheme {
-        id: "rose",
+        id: SchemeId("rose"),
         name: "Rose",
         sky: "bg-linear-to-b from-rose-200 to-pink-100",
         accent: TEAL,
         scene: Scene::Slopes(["#fda4af", "#fb7185", "#f43f5e"]),
     },
     Scheme {
-        id: "seafoam",
+        id: SchemeId("seafoam"),
         name: "Seafoam",
         sky: "bg-linear-to-b from-emerald-200 to-cyan-100",
         accent: ROSE,
         scene: Scene::Waves(["#6ee7b7", "#34d399", "#10b981"]),
     },
     Scheme {
-        id: "clouds",
+        id: SchemeId("clouds"),
         name: "Clouds",
         sky: "bg-linear-to-b from-sky-100 to-sky-50",
         accent: PINK,
         scene: Scene::Clouds,
     },
     Scheme {
-        id: "blueclouds",
+        id: SchemeId("blueclouds"),
         name: "Blue clouds",
         sky: "bg-linear-to-b from-sky-300 to-sky-100",
         accent: AMBER,
         scene: Scene::Clouds,
     },
     Scheme {
-        id: "slate",
+        id: SchemeId("slate"),
         name: "Slate",
         sky: "bg-linear-to-b from-slate-200 to-slate-100",
         accent: FUCHSIA,
@@ -175,7 +232,7 @@ pub const SCHEMES: [Scheme; 16] = [
     },
 ];
 
-pub fn scheme(id: &str) -> Scheme {
+pub fn scheme(id: SchemeId) -> Scheme {
     SCHEMES
         .iter()
         .copied()
@@ -300,6 +357,12 @@ mod tests {
                 scheme.id
             );
         }
-        assert_eq!(scheme("nope").id, "ocean");
+        // Only schemes that exist can be named.
+        assert!("nope".parse::<SchemeId>().is_err());
+        assert_eq!(SchemeId::default().to_string(), "ocean");
+        assert_eq!(
+            "lagoon".parse::<SchemeId>().map(|id| scheme(id).name).ok(),
+            Some("Lagoon")
+        );
     }
 }

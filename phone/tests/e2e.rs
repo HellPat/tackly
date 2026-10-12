@@ -985,11 +985,11 @@ async fn a_new_family_comes_with_a_recovery_code_the_head_must_confirm() -> Resu
         .device
         .lock()
         .await
-        .pending_recovery_words()?
+        .pending_recovery_code()?
         .context("the family comes with a recovery code")?;
-    ensure!(first.split(' ').count() == 24, "24 words");
+    ensure!(first.to_string().split(' ').count() == 24, "24 words");
     ensure!(
-        mona.device.lock().await.pending_recovery_words()?.is_none(),
+        mona.device.lock().await.pending_recovery_code()?.is_none(),
         "only the head has a code"
     );
     patrick.device.lock().await.confirm_recovery_code()?;
@@ -998,7 +998,7 @@ async fn a_new_family_comes_with_a_recovery_code_the_head_must_confirm() -> Resu
             .device
             .lock()
             .await
-            .pending_recovery_words()?
+            .pending_recovery_code()?
             .is_none(),
         "saved"
     );
@@ -1007,13 +1007,7 @@ async fn a_new_family_comes_with_a_recovery_code_the_head_must_confirm() -> Resu
     let second = patrick.device.lock().await.new_recovery_code().await?;
     ensure!(second != first, "a different code");
     ensure!(
-        patrick
-            .device
-            .lock()
-            .await
-            .pending_recovery_words()?
-            .as_deref()
-            == Some(second.as_str()),
+        patrick.device.lock().await.pending_recovery_code()? == Some(second.clone()),
         "the new code waits to be saved"
     );
     let stranger = Phone::new("stranger", &dir)?;
@@ -1036,8 +1030,8 @@ async fn the_head_comes_back_on_a_new_phone_with_the_recovery_code() -> Result<(
     let mut relay = Relay::reserve(&dir)?;
     relay.start().await?;
     let (mut patrick, mona, mara) = family_of_three(&dir, &relay).await?;
-    let words = patrick.device.lock().await.new_recovery_code().await?;
-    ensure!(words.split(' ').count() == 24, "24 words");
+    let code = patrick.device.lock().await.new_recovery_code().await?;
+    ensure!(code.to_string().split(' ').count() == 24, "24 words");
     patrick.add_task("Milk").await?;
     eventually("Mona sees Milk", || async {
         mona.sees("Milk", |_| true).await
@@ -1065,19 +1059,21 @@ async fn the_head_comes_back_on_a_new_phone_with_the_recovery_code() -> Result<(
     // A new phone with the words is the head again, with the whole history,
     // including what happened after the backup (the others send it).
     let mut back = Phone::new("patrick-again", &dir)?;
+    // Other words are a code of their own, but open nothing.
+    let other = tackly_phone::RecoveryCode::generate()?;
     ensure!(
         back.device
             .lock()
             .await
-            .restore(&relay.url(), "wrong words here")
+            .restore(&relay.url(), &other)
             .await
             .is_err(),
-        "wrong words open nothing"
+        "other words open nothing"
     );
     back.device
         .lock()
         .await
-        .restore(&relay.url(), &words)
+        .restore(&relay.url(), &code)
         .await?;
     back.go_live();
     ensure!(back.id().await == lost_id, "the same head");

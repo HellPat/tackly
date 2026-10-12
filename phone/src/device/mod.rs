@@ -14,11 +14,13 @@
 //! as a message only the group's members can read.
 
 mod agent_access;
+mod invite_link;
 mod membership;
 mod pairing;
 mod places;
 mod problems;
 mod recovery;
+mod recovery_code;
 mod sync;
 mod tasks;
 
@@ -34,9 +36,11 @@ use tokio::sync::Notify;
 use uuid::Uuid;
 
 pub use agent_access::{AGENT_NAME, AgentAccess, AgentAsk};
+pub use invite_link::{InviteLink, InviteLinkError};
 pub use membership::Membership;
 pub use pairing::{InviteProgress, InviteTicket, JoinRequest};
 pub use recovery::RecoveryKey;
+pub use recovery_code::{RecoveryCode, RecoveryCodeError};
 pub use sync::LiveTarget;
 
 use crate::{

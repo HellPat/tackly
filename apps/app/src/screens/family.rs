@@ -4,6 +4,7 @@
 
 use dioxus::prelude::*;
 use tackly_domain::{Name, Photo, Picture, Task};
+use tackly_phone::RecoveryCode;
 use uuid::Uuid;
 
 use super::{
@@ -161,7 +162,7 @@ fn time_left(
 /// The recovery words, over everything: the family opens only once the head
 /// says it saved them. (Right after creating the family, and after a new code.)
 #[component]
-pub fn RecoveryGate(words: String) -> Element {
+pub fn RecoveryGate(code: RecoveryCode) -> Element {
     let state = use_context::<AppState>();
     let mut saved = use_signal(|| false);
     rsx! {
@@ -169,7 +170,7 @@ pub fn RecoveryGate(words: String) -> Element {
             div { class: "min-h-full flex flex-col justify-center gap-5 p-6 max-w-[430px] mx-auto",
                 h1 { class: "text-2xl font-semibold text-center", "Save your recovery code" }
                 p { class: "text-stone-700 text-center", "If this phone is lost, these 24 words bring the family back on a new phone. Without them, the family is gone with it." }
-                p { class: "{CARD} px-4 py-3 font-mono text-base leading-8 break-words select-all", aria_label: "Recovery words", "{words}" }
+                p { class: "{CARD} px-4 py-3 font-mono text-base leading-8 break-words select-all", aria_label: "Recovery words", "{code}" }
                 label { class: "flex items-center gap-3 min-h-12",
                     input {
                         r#type: "checkbox",
@@ -239,7 +240,10 @@ pub fn SettingsTab() -> Element {
         return rsx! {};
     };
     let current = (state.settings)().scheme;
-    let plan_at = (state.settings)().plan_at.unwrap_or_default();
+    let plan_at = (state.settings)()
+        .plan_at
+        .map(|time| time.to_string())
+        .unwrap_or_default();
     let mut leaving = use_signal(|| false);
     let mut typed = use_signal(|| myself.name.clone());
     rsx! {
@@ -290,10 +294,8 @@ pub fn SettingsTab() -> Element {
                 class: "h-11 px-3 rounded-md border border-stone-300 bg-[#fffdfb] text-base",
                 aria_label: "Planning time",
                 value: "{plan_at}",
-                onchange: move |event| {
-                    let time = event.value();
-                    state.set_plan_at((!time.is_empty()).then_some(time));
-                },
+                // Empty (or not a time): never.
+                onchange: move |event| state.set_plan_at(event.value().parse().ok()),
             }
         }
         if (state.membership)().is_some_and(|membership| membership.owner) {

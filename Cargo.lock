@@ -6991,6 +6991,7 @@ dependencies = [
  "tackly-testkit",
  "tackly-wire",
  "tempfile",
+ "thiserror 2.0.21",
  "tokio",
  "uuid",
 ]
