@@ -39,7 +39,7 @@ jobs:
       - run: scripts/deploy-relay.sh
         env:
           DEPLOY_HOOK_URL: ${{ secrets.CLOUDFLARE_DEPLOY_HOOK }}
-          RELAY_URL: https://tackly.hellpat-playground.workers.dev
+          RELAY_URL: https://relay.tackly.hellpat.com
 
   app-macos:
     runs-on: macos-latest

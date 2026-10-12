@@ -9,8 +9,9 @@
   "name": "tackly",
   "main": "worker.js",
   "compatibility_date": "2026-10-01",
-  "workers_dev": true,
+  "workers_dev": false,
   "preview_urls": false,
+  "routes": [{ "pattern": "relay.tackly.hellpat.com", "custom_domain": true }],
   "observability": { "enabled": true },
   "vars": {
     "R2_ACCOUNT_ID": "a4a292902e0d49030166b927dc11b3e8",
