@@ -57,6 +57,8 @@ jobs:
           export NDK_HOME="$ANDROID_NDK_HOME"
           echo "NDK: $NDK_HOME"
           dx build --android --package tackly-app --no-default-features --features mobile --target aarch64-linux-android
+      - name: Put Tackly's icon in
+        run: scripts/android-icon.sh "$(dirname "$(find target/dx -name build.gradle.kts -path '*/android/app/*' -not -path '*/app/app/*' | head -n 1)")"
       - name: Collect it
         run: |
           apk="$(find target/dx -name app-debug.apk | head -n 1)"

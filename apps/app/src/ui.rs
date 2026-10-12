@@ -116,6 +116,36 @@ pub fn Sheet(close: EventHandler<()>, label: String, children: Element) -> Eleme
     }
 }
 
+/// The Tackly logo: today's three things as a tick, each one ticked. The same
+/// picture as the app icon (`apps/app/icons/icon.svg`), drawn as a vector.
+#[component]
+pub fn Logo(#[props(default = 96)] size: u32) -> Element {
+    rsx! {
+        svg {
+            class: "rounded-[22.5%] overflow-hidden shadow-sm",
+            width: "{size}",
+            height: "{size}",
+            view_box: "0 0 100 100",
+            role: "img",
+            "aria-label": "Tackly",
+            defs {
+                linearGradient { id: "logo-background", x1: "0", y1: "0", x2: "1", y2: "1",
+                    stop { offset: "0", stop_color: "#f472b6" }
+                    stop { offset: "1", stop_color: "#be185d" }
+                }
+            }
+            rect { width: "100", height: "100", fill: "url(#logo-background)" }
+            path { d: "M27 53 L44 69 L73 36", fill: "none", stroke: "#ffffff", stroke_width: "6", stroke_linecap: "round", stroke_linejoin: "round", opacity: "0.4" }
+            circle { cx: "27", cy: "53", r: "9", fill: "#ffffff" }
+            path { d: "M23.4 53.3 L26.1 56 L31.2 50", fill: "none", stroke: "#be185d", stroke_width: "2.8", stroke_linecap: "round", stroke_linejoin: "round" }
+            circle { cx: "44", cy: "69", r: "11", fill: "#ffffff" }
+            path { d: "M39.6 69.4 L42.9 72.7 L49.1 65.3", fill: "none", stroke: "#be185d", stroke_width: "3.4", stroke_linecap: "round", stroke_linejoin: "round" }
+            circle { cx: "73", cy: "36", r: "15", fill: "#ffffff" }
+            path { d: "M67 36.5 L71.5 41 L80 31", fill: "none", stroke: "#be185d", stroke_width: "4.6", stroke_linecap: "round", stroke_linejoin: "round" }
+        }
+    }
+}
+
 #[component]
 pub fn Heading(text: String) -> Element {
     rsx! { h2 { class: "px-2 pt-6 pb-2 text-sm font-semibold text-stone-600", "{text}" } }

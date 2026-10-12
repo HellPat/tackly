@@ -45,6 +45,11 @@ fn launch() {
         window
     };
     let config = Config::new().with_window(window).with_menu(None);
+    // The window's icon: the same as the app icon.
+    let config = match dioxus::desktop::icon_from_memory(include_bytes!("../icons/icon-256.png")) {
+        Ok(icon) => config.with_icon(icon),
+        Err(_) => config,
+    };
     #[cfg(all(feature = "ui-test", target_os = "macos"))]
     let config = if quiet {
         use dioxus::desktop::tao::{

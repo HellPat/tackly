@@ -7,7 +7,7 @@ use crate::{
     platform,
     state::AppState,
     theme,
-    ui::{FIELD, PRIMARY, SECONDARY, Toasts},
+    ui::{FIELD, Logo, PRIMARY, SECONDARY, Toasts},
 };
 
 #[derive(Clone, Copy, PartialEq)]
@@ -50,11 +50,15 @@ pub fn Onboarding() -> Element {
         div { class: "relative h-full overflow-y-auto text-stone-800 {scheme.sky}", style: "{scheme.accent_vars()}",
             div { class: "absolute inset-x-0 bottom-0 h-[42%] pointer-events-none", aria_hidden: "true", dangerous_inner_html: "{scheme.scene_svg()}" }
             div { class: "relative z-10 min-h-full flex flex-col justify-center gap-4 p-6",
-                h1 { class: "text-4xl font-semibold tracking-tight text-center", "Tackly" }
+                // The logo and the name, nothing else: a few words about the app
+                // would not be read here.
+                div { class: "flex flex-col items-center gap-3",
+                    Logo { size: if mode() == Mode::Choose { 112 } else { 64 } }
+                    h1 { class: "text-4xl font-semibold tracking-tight text-center", "Tackly" }
+                }
                 div { class: "bg-[#fffdfb] rounded-2xl shadow-sm p-5 flex flex-col gap-4",
                     match mode() {
                         Mode::Choose => rsx! {
-                            p { class: "text-center text-stone-700", "ADHD optimized task management. Shared with your family, works offline." }
                             // Stacked buttons: the main action at the bottom, under the thumb.
                             button { class: "{SECONDARY} !h-12", onclick: move |_| mode.set(Mode::Join), "Join with an invitation" }
                             button { class: "{PRIMARY} !h-12", onclick: move |_| mode.set(Mode::Create), "Create a family" }

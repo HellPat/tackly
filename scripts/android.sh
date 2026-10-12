@@ -14,6 +14,8 @@ apk="$root/target/dx/tackly/debug/android/app/app/build/outputs/apk/debug/app-de
 
 build() {
   (cd "$root/apps/app" && dx build --android --package tackly-app --no-default-features --features mobile)
+  # dx writes its own template's icon: put Tackly's in and build the APK again.
+  "$root/scripts/android-icon.sh" "$root/target/dx/tackly/debug/android/app" >/dev/null
 }
 
 device_is_ready() {
