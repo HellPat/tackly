@@ -7,7 +7,7 @@ pub mod values;
 
 pub use family::{
     aggregate::CommandContext,
-    commands::FamilyCommand,
+    commands::{FamilyCommand, MemberCommand, PlaceCommand, ProblemCommand, TaskCommand},
     errors::FamilyError,
     events::{DomainEvent, FamilyEvent, Picture, PlaceLocation, Solution},
     members::Member,

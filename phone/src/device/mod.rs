@@ -31,7 +31,7 @@ use std::{
 
 use anyhow::{Context, Result, ensure};
 use cqrs_es::CqrsFramework;
-use tackly_domain::{CommandContext, Family, FamilyCommand, Name};
+use tackly_domain::{CommandContext, Family, FamilyCommand, MemberCommand, Name};
 use tokio::sync::Notify;
 use uuid::Uuid;
 
@@ -155,11 +155,13 @@ impl Device {
     }
 
     /// Runs a command against the family aggregate.
-    async fn run(&self, command: FamilyCommand) -> Result<()> {
+    async fn run(&self, command: impl Into<FamilyCommand>) -> Result<()> {
         let membership = self.joined()?;
         ensure!(!membership.agent, "an AI agent only reads");
         let family_id = membership.family_id;
-        self.cqrs.execute(&family_id.to_string(), command).await?;
+        self.cqrs
+            .execute(&family_id.to_string(), command.into())
+            .await?;
         Ok(())
     }
 
@@ -200,7 +202,7 @@ impl Device {
             removed: false,
             restoring: false,
         })?;
-        self.run(FamilyCommand::CreateFamily {
+        self.run(MemberCommand::CreateFamily {
             family_id,
             name: family_name,
             owner_name: my_name,
@@ -231,7 +233,7 @@ impl Device {
         self.api()?
             .revoke_device(membership.family_id, &membership.device_token, member_id)
             .await?;
-        self.run(FamilyCommand::RemoveMember { member_id }).await?;
+        self.run(MemberCommand::RemoveMember { member_id }).await?;
         self.flush().await
     }
 

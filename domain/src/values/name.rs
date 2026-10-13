@@ -52,12 +52,6 @@ impl fmt::Display for Name {
     }
 }
 
-impl AsRef<str> for Name {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -68,6 +62,8 @@ mod tests {
             " Milk ".parse::<Name>().map(String::from).as_deref(),
             Ok("Milk")
         );
+        let name: Name = " Milk ".parse().expect("a name");
+        assert_eq!((name.as_str(), name.to_string().as_str()), ("Milk", "Milk"));
     }
 
     #[test]

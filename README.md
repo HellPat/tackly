@@ -89,6 +89,8 @@ This builds everything, starts the relay and opens **three app windows**
 | `just test-deployed` | the end-to-end suite against the deployed relay |
 | `just acceptance` | the Cucumber suite in real windows |
 | `just lint` | clippy on everything |
+| `just coverage` | the domain's line and function coverage (must be 100%) |
+| `just mutants` | mutation testing of the domain (every mutant must be caught) |
 | `just css` | compile the styles (Tailwind) after changing class names; CI checks they are up to date |
 | `just android-build` | debug APK (Android SDK and NDK needed; the Nix shell has the rest) |
 | `just android` | build, install and start it on the emulator or device, booting the first AVD if none runs |

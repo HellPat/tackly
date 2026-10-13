@@ -201,58 +201,14 @@ pub struct Solution {
 }
 
 impl cqrs_es::DomainEvent for FamilyEvent {
+    /// The event's name as it is stored: its `type` tag.
     fn event_type(&self) -> String {
-        self.event.type_name().to_owned()
+        let tagged = serde_json::to_value(&self.event).unwrap_or_default();
+        tagged["type"].as_str().unwrap_or_default().to_owned()
     }
 
     fn event_version(&self) -> String {
         "1".into()
-    }
-}
-
-impl DomainEvent {
-    pub fn type_name(&self) -> &'static str {
-        match self {
-            Self::FamilyCreated { .. } => "family.created",
-            Self::MemberJoined { .. } => "member.joined",
-            Self::MemberRenamed { .. } => "member.renamed",
-            Self::MemberPictureChanged { .. } => "member.picture_changed",
-            Self::MemberRemoved { .. } => "member.removed",
-            Self::AgentAdmitted { .. } => "agent.admitted",
-            Self::ListCreated { .. } => "list.created",
-            Self::ListRenamed { .. } => "list.renamed",
-            Self::ListDeleted => "list.deleted",
-            Self::PlaceGroupCreated { .. } => "place_group.created",
-            Self::PlaceGroupRenamed { .. } => "place_group.renamed",
-            Self::PlaceGroupDeleted => "place_group.deleted",
-            Self::PlaceCreated { .. } => "place.created",
-            Self::PlaceRenamed { .. } => "place.renamed",
-            Self::PlaceMoved { .. } => "place.moved",
-            Self::PlaceDeleted => "place.deleted",
-            Self::PlaceLocationAdded { .. } => "place.location_added",
-            Self::PlaceLocationRemoved { .. } => "place.location_removed",
-            Self::TaskCreated { .. } => "task.created",
-            Self::TaskDeleted => "task.deleted",
-            Self::TaskPlaceAdded { .. } => "task.place_added",
-            Self::TaskPlaceRemoved { .. } => "task.place_removed",
-            Self::TaskAssigned { .. } => "task.assigned",
-            Self::TaskStarted => "task.started",
-            Self::TaskPaused => "task.paused",
-            Self::TaskCompleted { .. } => "task.completed",
-            Self::TaskCompletionLocated { .. } => "task.completion_located",
-            Self::TaskCompletionUndone => "task.completion_undone",
-            Self::TaskReopened => "task.reopened",
-            Self::ProblemCreated { .. } => "problem.created",
-            Self::ProblemRenamed { .. } => "problem.renamed",
-            Self::ProblemSolutionAdded { .. } => "problem.solution_added",
-            Self::ProblemSolutionRemoved { .. } => "problem.solution_removed",
-            Self::ProblemNoticed { .. } => "problem.noticed",
-            Self::ProblemAssigned { .. } => "problem.assigned",
-            Self::ProblemResolved => "problem.resolved",
-            Self::ProblemReopened => "problem.reopened",
-            Self::DayPlanned { .. } => "day.planned",
-            Self::Unknown => "unknown",
-        }
     }
 }
 
@@ -293,5 +249,31 @@ mod tests {
         });
         let event: FamilyEvent = serde_json::from_value(json).unwrap();
         assert_eq!(event.event, DomainEvent::Unknown);
+    }
+
+    #[test]
+    fn an_event_is_stored_under_its_type_tag_in_version_one() {
+        use cqrs_es::DomainEvent as _;
+        let envelope = FamilyEvent {
+            id: Uuid::now_v7(),
+            subject_id: Uuid::now_v7(),
+            origin_device_id: Uuid::now_v7(),
+            occurred_at: Utc::now(),
+            event: DomainEvent::TaskStarted,
+        };
+        assert_eq!(envelope.event_type(), "task.started");
+        assert_eq!(envelope.event_version(), "1");
+    }
+
+    #[test]
+    fn a_location_known_by_its_name_has_nothing_else() {
+        let name: Name = "LIDL Winnenden".parse().expect("a name");
+        let (one, other) = (
+            PlaceLocation::named(name.clone()),
+            PlaceLocation::named(name.clone()),
+        );
+        assert_eq!(one.name, name);
+        assert_eq!((one.address, one.point), (None, None));
+        assert_ne!(one.id, other.id, "each location is its own");
     }
 }

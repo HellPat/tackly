@@ -68,4 +68,14 @@ mod tests {
         assert!(Focus::new(ids(MAX_FOCUS as u128)).is_ok());
         assert_eq!(Focus::new(ids(MAX_FOCUS as u128 + 1)), Err(TooMuch));
     }
+
+    #[test]
+    fn a_plan_is_written_and_read_back_as_its_tasks() {
+        let plan = Focus::new(ids(2)).expect("a plan");
+        let json = serde_json::to_value(&plan).expect("written");
+        assert_eq!(json, serde_json::json!(ids(2)));
+        assert_eq!(serde_json::from_value::<Focus>(json).ok(), Some(plan));
+        let too_many = serde_json::json!(ids(MAX_FOCUS as u128 + 1));
+        assert!(serde_json::from_value::<Focus>(too_many).is_err());
+    }
 }

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::{
-    commands::FamilyCommand,
+    commands::MemberCommand,
     errors::FamilyError,
     events::{DomainEvent, FamilyEvent, Picture},
     state::Family,
@@ -64,11 +64,11 @@ impl Family {
     /// Checks the members commands and returns the events they produce, as (subject, event).
     pub(super) fn decide_members(
         &self,
-        command: FamilyCommand,
+        command: MemberCommand,
         me: Uuid,
     ) -> Result<Vec<(Uuid, DomainEvent)>, FamilyError> {
         use DomainEvent as E;
-        use FamilyCommand as C;
+        use MemberCommand as C;
         let family = || self.family_id.ok_or(FamilyError::NoFamily);
         let one = |subject, event| Ok(vec![(subject, event)]);
         match command {
@@ -117,7 +117,6 @@ impl Family {
                     },
                 )
             }
-            _ => Ok(Vec::new()),
         }
     }
 

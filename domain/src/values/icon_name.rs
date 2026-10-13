@@ -78,4 +78,14 @@ mod tests {
             assert_eq!(name.parse::<IconName>(), Err(NotAnIconName), "{name:?}");
         }
     }
+
+    #[test]
+    fn an_icon_name_is_written_and_read_back_as_text() {
+        let icon: IconName = "sailing".parse().expect("an icon name");
+        assert_eq!(icon.to_string(), "sailing");
+        let json = serde_json::to_string(&icon).expect("written");
+        assert_eq!(json, "\"sailing\"");
+        assert_eq!(serde_json::from_str::<IconName>(&json).ok(), Some(icon));
+        assert!(serde_json::from_str::<IconName>("\"Sailing\"").is_err());
+    }
 }

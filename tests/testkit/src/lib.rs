@@ -45,9 +45,19 @@ fn build_worker() -> Result<()> {
     static BUILT: OnceLock<Result<(), String>> = OnceLock::new();
     BUILT
         .get_or_init(|| {
-            let status = Command::new("worker-build")
+            // Its own environment: not the test run's (coverage flags, the
+            // target folder), which belong to the host build, not the Worker.
+            let mut command = Command::new("worker-build");
+            command
                 .arg("--release")
                 .current_dir(worker_dir())
+                .env_clear();
+            for name in ["PATH", "HOME"] {
+                if let Some(value) = std::env::var_os(name) {
+                    command.env(name, value);
+                }
+            }
+            let status = command
                 .status()
                 .map_err(|error| format!("worker-build did not run (Nix shell?): {error}"))?;
             if status.success() {

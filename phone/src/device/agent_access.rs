@@ -10,7 +10,7 @@
 //! reads. The same shape as the OAuth device flow (RFC 8628).
 
 use anyhow::{Context, Result, ensure};
-use tackly_domain::FamilyCommand;
+use tackly_domain::MemberCommand;
 use tackly_wire::{
     AgentAccessRequest, AgentRequestState, ApproveAgent, Bytes, ClaimAgent, MAX_AGENT_SECONDS,
 };
@@ -192,7 +192,7 @@ impl Device {
             .await?;
         // The family's record says who the agent is and until when; the
         // snapshot carries it to the agent (and the flush, to the others).
-        self.run(FamilyCommand::AdmitAgent {
+        self.run(MemberCommand::AdmitAgent {
             member_id: ask.device_id,
             name: AGENT_NAME.parse()?,
             until: chrono::Utc::now() + duration,

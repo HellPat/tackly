@@ -6,8 +6,19 @@ use uuid::Uuid;
 use super::events::{Picture, PlaceLocation, Solution};
 use crate::values::{Focus, GeoPoint, IconName, Name};
 
+/// A command, by the part of the family it is about. Each area decides its
+/// own commands; a new command belongs to one by its type.
 #[derive(Clone, Debug)]
 pub enum FamilyCommand {
+    Members(MemberCommand),
+    Tasks(TaskCommand),
+    Places(PlaceCommand),
+    Problems(ProblemCommand),
+}
+
+/// The family and who is in it.
+#[derive(Clone, Debug)]
+pub enum MemberCommand {
     CreateFamily {
         family_id: Uuid,
         name: Name,
@@ -32,7 +43,11 @@ pub enum FamilyCommand {
         name: Name,
         until: DateTime<Utc>,
     },
+}
 
+/// Lists and tasks: what to do, who does it, and when it is done.
+#[derive(Clone, Debug)]
+pub enum TaskCommand {
     CreateList {
         list_id: Uuid,
         name: Name,
@@ -43,43 +58,6 @@ pub enum FamilyCommand {
     },
     DeleteList {
         list_id: Uuid,
-    },
-
-    CreatePlaceGroup {
-        group_id: Uuid,
-        name: Name,
-    },
-    RenamePlaceGroup {
-        group_id: Uuid,
-        name: Name,
-    },
-    DeletePlaceGroup {
-        group_id: Uuid,
-    },
-    CreatePlace {
-        place_id: Uuid,
-        group_id: Uuid,
-        name: Name,
-        location: PlaceLocation,
-    },
-    RenamePlace {
-        place_id: Uuid,
-        name: Name,
-    },
-    MovePlace {
-        place_id: Uuid,
-        group_id: Uuid,
-    },
-    DeletePlace {
-        place_id: Uuid,
-    },
-    AddPlaceLocation {
-        place_id: Uuid,
-        location: PlaceLocation,
-    },
-    RemovePlaceLocation {
-        place_id: Uuid,
-        location_id: Uuid,
     },
 
     /// `list_id: None` puts it in "Other".
@@ -127,7 +105,52 @@ pub enum FamilyCommand {
     ReopenTask {
         task_id: Uuid,
     },
+}
 
+/// Places, in groups, with their locations.
+#[derive(Clone, Debug)]
+pub enum PlaceCommand {
+    CreatePlaceGroup {
+        group_id: Uuid,
+        name: Name,
+    },
+    RenamePlaceGroup {
+        group_id: Uuid,
+        name: Name,
+    },
+    DeletePlaceGroup {
+        group_id: Uuid,
+    },
+    CreatePlace {
+        place_id: Uuid,
+        group_id: Uuid,
+        name: Name,
+        location: PlaceLocation,
+    },
+    RenamePlace {
+        place_id: Uuid,
+        name: Name,
+    },
+    MovePlace {
+        place_id: Uuid,
+        group_id: Uuid,
+    },
+    DeletePlace {
+        place_id: Uuid,
+    },
+    AddPlaceLocation {
+        place_id: Uuid,
+        location: PlaceLocation,
+    },
+    RemovePlaceLocation {
+        place_id: Uuid,
+        location_id: Uuid,
+    },
+}
+
+/// Problems with their solutions, and plans for a day.
+#[derive(Clone, Debug)]
+pub enum ProblemCommand {
     /// A problem the family knows from now on, with its solutions.
     CreateProblem {
         problem_id: Uuid,
@@ -176,59 +199,26 @@ pub enum FamilyCommand {
     },
 }
 
-/// The part of the family a command is about.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Area {
-    Members,
-    Tasks,
-    Places,
-    Problems,
+impl From<MemberCommand> for FamilyCommand {
+    fn from(command: MemberCommand) -> Self {
+        Self::Members(command)
+    }
 }
 
-impl FamilyCommand {
-    /// Every command belongs to exactly one area; adding one fails to compile
-    /// until it is placed here.
-    pub(super) fn area(&self) -> Area {
-        use FamilyCommand as C;
-        match self {
-            C::CreateFamily { .. }
-            | C::Join { .. }
-            | C::Rename { .. }
-            | C::SetPicture { .. }
-            | C::RemoveMember { .. }
-            | C::AdmitAgent { .. } => Area::Members,
-            C::CreateList { .. }
-            | C::RenameList { .. }
-            | C::DeleteList { .. }
-            | C::AddTask { .. }
-            | C::DeleteTask { .. }
-            | C::AddTaskToPlace { .. }
-            | C::RemoveTaskFromPlace { .. }
-            | C::AssignTask { .. }
-            | C::StartTask { .. }
-            | C::PauseTask { .. }
-            | C::CompleteTask { .. }
-            | C::LocateCompletion { .. }
-            | C::UndoCompletion { .. }
-            | C::ReopenTask { .. } => Area::Tasks,
-            C::CreatePlaceGroup { .. }
-            | C::RenamePlaceGroup { .. }
-            | C::DeletePlaceGroup { .. }
-            | C::CreatePlace { .. }
-            | C::RenamePlace { .. }
-            | C::MovePlace { .. }
-            | C::DeletePlace { .. }
-            | C::AddPlaceLocation { .. }
-            | C::RemovePlaceLocation { .. } => Area::Places,
-            C::CreateProblem { .. }
-            | C::RenameProblem { .. }
-            | C::AddSolution { .. }
-            | C::RemoveSolution { .. }
-            | C::NoticeProblem { .. }
-            | C::AssignProblem { .. }
-            | C::ResolveProblem { .. }
-            | C::ReopenProblem { .. }
-            | C::PlanDay { .. } => Area::Problems,
-        }
+impl From<TaskCommand> for FamilyCommand {
+    fn from(command: TaskCommand) -> Self {
+        Self::Tasks(command)
+    }
+}
+
+impl From<PlaceCommand> for FamilyCommand {
+    fn from(command: PlaceCommand) -> Self {
+        Self::Places(command)
+    }
+}
+
+impl From<ProblemCommand> for FamilyCommand {
+    fn from(command: ProblemCommand) -> Self {
+        Self::Problems(command)
     }
 }

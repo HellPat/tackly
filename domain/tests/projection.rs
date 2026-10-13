@@ -206,6 +206,382 @@ fn a_group_that_still_has_places_is_not_deleted() {
 }
 
 #[test]
+fn lists_follow_renames_and_a_list_with_open_tasks_stays() {
+    let family = replay(&given(vec![
+        the_smiths(),
+        vec![
+            shopping_list(),
+            by(
+                MONA,
+                SHOPPING,
+                Happened::ListRenamed {
+                    name: named("Groceries"),
+                },
+            ),
+            by(
+                PATRICK,
+                MILK,
+                Happened::TaskCreated {
+                    list_id: Some(SHOPPING),
+                    title: named("Milk"),
+                    place_ids: vec![],
+                    problem_id: None,
+                },
+            ),
+            by(MONA, SHOPPING, Happened::ListDeleted),
+            by(
+                MONA,
+                Uuid::from_u128(0xBAD),
+                Happened::ListRenamed { name: named("X") },
+            ),
+        ],
+    ]));
+
+    assert_eq!(family.lists[&SHOPPING].name, "Groceries");
+    assert_eq!(family.lists.len(), 1);
+}
+
+#[test]
+fn a_task_is_created_once_found_by_title_and_deleted() {
+    let created_again = by(
+        MONA,
+        MILK,
+        Happened::TaskCreated {
+            list_id: None,
+            title: named("Other milk"),
+            place_ids: vec![],
+            problem_id: None,
+        },
+    );
+    let family = replay(&given(vec![
+        the_smiths(),
+        vec![task(MILK, "Milk"), created_again, task(DISHES, "Dishes")],
+    ]));
+    assert_eq!(family.tasks[&MILK].title, "Milk");
+    assert_eq!(
+        family.task_by_title("Dishes").map(|task| task.id),
+        Some(DISHES)
+    );
+    assert!(family.task_by_title("Other milk").is_none());
+
+    let family = replay(&given(vec![
+        the_smiths(),
+        vec![task(MILK, "Milk"), by(MONA, MILK, Happened::TaskDeleted)],
+    ]));
+    assert!(family.tasks.is_empty());
+}
+
+#[test]
+fn a_task_is_needed_at_places_that_exist_and_taken_off_them() {
+    let family = replay(&given(vec![
+        the_smiths(),
+        lidl_in_the_grocery_store(),
+        vec![
+            task(MILK, "Milk"),
+            by(
+                MONA,
+                MILK,
+                Happened::TaskPlaceAdded {
+                    place_id: Uuid::from_u128(0xBAD),
+                },
+            ),
+            by(MONA, MILK, Happened::TaskPlaceAdded { place_id: LIDL }),
+            by(MONA, MILK, Happened::TaskPlaceAdded { place_id: LIDL }),
+        ],
+    ]));
+    assert_eq!(family.tasks[&MILK].place_ids, vec![LIDL]);
+
+    let family = replay(&given(vec![
+        the_smiths(),
+        lidl_in_the_grocery_store(),
+        vec![
+            task(MILK, "Milk"),
+            by(MONA, MILK, Happened::TaskPlaceAdded { place_id: LIDL }),
+            by(MONA, MILK, Happened::TaskPlaceRemoved { place_id: LIDL }),
+            by(
+                MONA,
+                Uuid::from_u128(0xBAD),
+                Happened::TaskPlaceRemoved { place_id: LIDL },
+            ),
+        ],
+    ]));
+    assert!(family.tasks[&MILK].place_ids.is_empty());
+}
+
+#[test]
+fn work_on_a_task_that_is_gone_or_done_changes_nothing() {
+    let gone = Uuid::from_u128(0xBAD);
+    let family = replay(&given(vec![
+        the_smiths(),
+        vec![
+            task(MILK, "Milk"),
+            by(MARA, MILK, Happened::TaskCompleted { location: None }),
+            by(
+                MONA,
+                MILK,
+                Happened::TaskAssigned {
+                    member_id: Some(MONA),
+                },
+            ),
+            by(MONA, MILK, Happened::TaskStarted),
+            by(
+                MONA,
+                gone,
+                Happened::TaskAssigned {
+                    member_id: Some(MONA),
+                },
+            ),
+            by(MONA, gone, Happened::TaskStarted),
+            by(MONA, gone, Happened::TaskCompleted { location: None }),
+            task(DISHES, "Dishes"),
+            by(
+                MONA,
+                DISHES,
+                Happened::TaskAssigned {
+                    member_id: Some(gone),
+                },
+            ),
+        ],
+    ]));
+
+    let milk = &family.tasks[&MILK];
+    assert_eq!(milk.assignee, None);
+    assert!(milk.sessions.is_empty());
+    assert_eq!(family.tasks[&DISHES].assignee, None);
+    assert_eq!(family.tasks.len(), 2);
+}
+
+#[test]
+fn giving_myself_the_task_i_work_on_keeps_the_work_going() {
+    let family = replay(&given(vec![
+        the_smiths(),
+        vec![
+            task(DISHES, "Dishes"),
+            by(MONA, DISHES, Happened::TaskStarted),
+            by(
+                MONA,
+                DISHES,
+                Happened::TaskAssigned {
+                    member_id: Some(MONA),
+                },
+            ),
+        ],
+    ]));
+    assert_eq!(family.tasks[&DISHES].progress(), Some(Progress::Working));
+}
+
+#[test]
+fn an_empty_list_is_deleted() {
+    let family = replay(&given(vec![
+        the_smiths(),
+        vec![shopping_list(), by(MONA, SHOPPING, Happened::ListDeleted)],
+    ]));
+    assert!(family.lists.is_empty());
+}
+
+#[test]
+fn someone_working_shows_as_working() {
+    let family = replay(&given(vec![
+        the_smiths(),
+        vec![
+            task(DISHES, "Dishes"),
+            by(MONA, DISHES, Happened::TaskStarted),
+        ],
+    ]));
+    assert_eq!(family.tasks[&DISHES].progress(), Some(Progress::Working));
+}
+
+/// A second group, for moving places.
+const DRUGSTORE: Uuid = Uuid::from_u128(0x31);
+
+#[test]
+fn groups_and_places_follow_their_renames_and_moves() {
+    let family = replay(&given(vec![
+        the_smiths(),
+        lidl_in_the_grocery_store(),
+        vec![
+            by(
+                MONA,
+                GROCERY_STORE,
+                Happened::PlaceGroupRenamed {
+                    name: named("Food"),
+                },
+            ),
+            by(
+                PATRICK,
+                DRUGSTORE,
+                Happened::PlaceGroupCreated {
+                    name: named("Drugstore"),
+                },
+            ),
+            by(
+                MONA,
+                LIDL,
+                Happened::PlaceRenamed {
+                    name: named("Lidl"),
+                },
+            ),
+            by(
+                MONA,
+                LIDL,
+                Happened::PlaceMoved {
+                    group_id: DRUGSTORE,
+                },
+            ),
+        ],
+    ]));
+
+    assert_eq!(family.place_groups[&GROCERY_STORE].name, "Food");
+    assert_eq!(family.places[&LIDL].name, "Lidl");
+    assert_eq!(family.places[&LIDL].group_id, DRUGSTORE);
+    assert_eq!(family.places_in(DRUGSTORE).count(), 1);
+    assert_eq!(family.places_in(GROCERY_STORE).count(), 0);
+}
+
+#[test]
+fn what_points_at_a_group_or_place_that_is_gone_changes_nothing() {
+    let unknown = Uuid::from_u128(0xBAD);
+    let family = replay(&given(vec![
+        the_smiths(),
+        lidl_in_the_grocery_store(),
+        vec![
+            by(
+                MONA,
+                unknown,
+                Happened::PlaceGroupRenamed { name: named("X") },
+            ),
+            by(MONA, unknown, Happened::PlaceRenamed { name: named("X") }),
+            by(
+                MONA,
+                unknown,
+                Happened::PlaceMoved {
+                    group_id: GROCERY_STORE,
+                },
+            ),
+            by(MONA, LIDL, Happened::PlaceMoved { group_id: unknown }),
+            by(MONA, unknown, Happened::PlaceDeleted),
+            by(
+                MONA,
+                unknown,
+                Happened::PlaceLocationAdded {
+                    location: backnang(),
+                },
+            ),
+            by(
+                MONA,
+                unknown,
+                Happened::PlaceLocationRemoved {
+                    location_id: winnenden().id,
+                },
+            ),
+            by(
+                MONA,
+                unknown,
+                Happened::PlaceCreated {
+                    group_id: unknown,
+                    name: named("Nowhere"),
+                    location: winnenden(),
+                },
+            ),
+        ],
+    ]));
+
+    assert_eq!(family.place_groups.len(), 1);
+    assert_eq!(family.place_groups[&GROCERY_STORE].name, "Grocery Store");
+    assert_eq!(family.places.len(), 1);
+    assert_eq!(family.places[&LIDL].name, "LIDL");
+    assert_eq!(family.places[&LIDL].group_id, GROCERY_STORE);
+}
+
+#[test]
+fn an_empty_group_is_deleted() {
+    let family = replay(&given(vec![
+        the_smiths(),
+        lidl_in_the_grocery_store(),
+        vec![
+            by(MONA, LIDL, Happened::PlaceDeleted),
+            by(MONA, GROCERY_STORE, Happened::PlaceGroupDeleted),
+        ],
+    ]));
+
+    assert!(family.place_groups.is_empty());
+}
+
+#[test]
+fn a_location_is_added_once_and_the_last_one_stays() {
+    let added = || {
+        by(
+            MONA,
+            LIDL,
+            Happened::PlaceLocationAdded {
+                location: backnang(),
+            },
+        )
+    };
+    let family = replay(&given(vec![
+        the_smiths(),
+        lidl_in_the_grocery_store(),
+        vec![added(), added()],
+    ]));
+    assert_eq!(
+        family.places[&LIDL].locations,
+        vec![winnenden(), backnang()]
+    );
+
+    let family = replay(&given(vec![
+        the_smiths(),
+        lidl_in_the_grocery_store(),
+        vec![
+            added(),
+            by(
+                MONA,
+                LIDL,
+                Happened::PlaceLocationRemoved {
+                    location_id: winnenden().id,
+                },
+            ),
+            by(
+                MONA,
+                LIDL,
+                Happened::PlaceLocationRemoved {
+                    location_id: backnang().id,
+                },
+            ),
+        ],
+    ]));
+    assert_eq!(family.places[&LIDL].locations, vec![backnang()]);
+}
+
+#[test]
+fn open_tasks_at_a_place_leave_out_the_rest() {
+    let at_lidl = |id, title: &str| {
+        by(
+            PATRICK,
+            id,
+            Happened::TaskCreated {
+                list_id: None,
+                title: named(title),
+                place_ids: vec![LIDL],
+                problem_id: None,
+            },
+        )
+    };
+    let family = replay(&given(vec![
+        the_smiths(),
+        lidl_in_the_grocery_store(),
+        vec![
+            at_lidl(MILK, "Milk"),
+            at_lidl(DISHES, "Soap"),
+            task(Uuid::from_u128(0x52), "Elsewhere"),
+            by(MONA, DISHES, Happened::TaskCompleted { location: None }),
+        ],
+    ]));
+
+    let open: Vec<Uuid> = family.open_tasks_at(LIDL).map(|task| task.id).collect();
+    assert_eq!(open, vec![MILK]);
+}
+
+#[test]
 fn members_names_and_pictures_follow_their_changes() {
     let family = replay(&given(vec![
         the_smiths(),
@@ -280,6 +656,7 @@ fn removed_and_admitted_count_only_from_the_head() {
     ]));
     assert!(!family.members.contains_key(&MARA));
     assert!(family.is_agent(AGENT));
+    assert!(!family.is_agent(MONA), "a person is no agent");
     assert_eq!(family.members[&AGENT].agent_until, Some(until));
     assert_eq!(family.head(), Some(PATRICK), "the head stays");
     assert_eq!(
@@ -290,6 +667,48 @@ fn removed_and_admitted_count_only_from_the_head() {
         vec![PATRICK, MONA]
     );
     assert_eq!(family.agents().count(), 1);
+}
+
+#[test]
+fn a_second_family_created_on_the_same_phone_is_ignored() {
+    let family = replay(&given(vec![
+        the_smiths(),
+        vec![by(
+            MONA,
+            Uuid::from_u128(0x11),
+            Happened::FamilyCreated {
+                name: named("The Joneses"),
+                owner_name: named("Mona"),
+            },
+        )],
+    ]));
+    assert_eq!(family.family_id, Some(SMITHS));
+    assert_eq!(family.name.as_deref(), Some("The Smiths"));
+    assert_eq!(family.head(), Some(PATRICK));
+}
+
+#[test]
+fn a_family_is_written_and_read_back_whole() {
+    let family = replay(&given(vec![
+        the_smiths(),
+        vec![shopping_list()],
+        lidl_in_the_grocery_store(),
+        vec![task(MILK, "Milk"), by(MONA, MILK, Happened::TaskStarted)],
+        out_of_food(),
+        out_of_food_noticed_for(MONA),
+    ]));
+    let json = serde_json::to_string(&family).expect("written");
+    let back: tackly_domain::Family = serde_json::from_str(&json).expect("read back");
+    assert_eq!(back, family);
+}
+
+#[test]
+fn an_event_from_a_newer_app_is_skipped() {
+    let family = replay(&given(vec![
+        the_smiths(),
+        vec![by(MONA, SMITHS, Happened::Unknown)],
+    ]));
+    assert_eq!(family, replay(&the_smiths()));
 }
 
 // ---- problems and plans ---------------------------------------------------------------------------
@@ -358,6 +777,60 @@ fn noticed_again_it_has_only_the_new_steps() {
     let steps: Vec<Uuid> = family.steps(OUT_OF_FOOD).map(|task| task.id).collect();
     assert_eq!(steps, vec![Uuid::from_u128(0x90)]);
     assert_eq!(family.problems[&OUT_OF_FOOD].holder(), Some(MONA));
+}
+
+#[test]
+fn problems_follow_renames_and_lose_removed_solutions() {
+    let gone = Uuid::from_u128(0xBAD);
+    let family = replay(&given(vec![
+        the_smiths(),
+        out_of_food(),
+        vec![
+            by(
+                MONA,
+                OUT_OF_FOOD,
+                Happened::ProblemRenamed {
+                    title: named("Nothing to eat"),
+                },
+            ),
+            by(
+                MONA,
+                OUT_OF_FOOD,
+                Happened::ProblemSolutionRemoved {
+                    solution_id: COOK_PASTA,
+                },
+            ),
+            by(MONA, gone, Happened::ProblemRenamed { title: named("X") }),
+            by(
+                MONA,
+                gone,
+                Happened::ProblemSolutionRemoved {
+                    solution_id: GO_SHOPPING,
+                },
+            ),
+        ],
+    ]));
+    let problem = &family.problems[&OUT_OF_FOOD];
+    assert_eq!(problem.title, "Nothing to eat");
+    assert_eq!(problem.solutions, vec![go_shopping()]);
+    assert_eq!(family.problems.len(), 1);
+}
+
+#[test]
+fn a_handed_over_problem_is_open_and_held_by_the_new_member() {
+    let family = replay(&given(vec![
+        the_smiths(),
+        out_of_food(),
+        out_of_food_noticed_for(MONA),
+        vec![by(
+            MONA,
+            OUT_OF_FOOD,
+            Happened::ProblemAssigned { member_id: MARA },
+        )],
+    ]));
+    let open: Vec<Uuid> = family.open_problems().map(|problem| problem.id).collect();
+    assert_eq!(open, vec![OUT_OF_FOOD]);
+    assert_eq!(family.problems[&OUT_OF_FOOD].holder(), Some(MARA));
 }
 
 #[test]

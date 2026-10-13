@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::values::GeoPoint;
 
 use super::{
-    commands::FamilyCommand,
+    commands::TaskCommand,
     errors::FamilyError,
     events::{DomainEvent, FamilyEvent},
     state::Family,
@@ -92,10 +92,8 @@ impl Task {
         for session in &self.sessions {
             let end = session.end.unwrap_or(now);
             total += end - session.start;
-            let from = session.start.max(day_start);
-            if end > from {
-                today += end - from;
-            }
+            // A session that ended before today adds nothing to today.
+            today += (end - session.start.max(day_start)).max(Duration::zero());
         }
         (total, today)
     }
@@ -145,11 +143,11 @@ impl Family {
     /// Checks the tasks commands and returns the events they produce, as (subject, event).
     pub(super) fn decide_tasks(
         &self,
-        command: FamilyCommand,
+        command: TaskCommand,
         me: Uuid,
     ) -> Result<Vec<(Uuid, DomainEvent)>, FamilyError> {
         use DomainEvent as E;
-        use FamilyCommand as C;
+        use TaskCommand as C;
         let list = |id: Uuid| self.lists.get(&id).ok_or(FamilyError::UnknownList);
         let place = |id: Uuid| self.places.get(&id).ok_or(FamilyError::UnknownPlace);
         let one = |subject, event| Ok(vec![(subject, event)]);
@@ -267,7 +265,6 @@ impl Family {
                 }
                 one(task_id, E::TaskReopened)
             }
-            _ => Ok(Vec::new()),
         }
     }
 

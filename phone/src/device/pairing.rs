@@ -11,7 +11,7 @@
 use anyhow::{Context, Result, ensure};
 use std::time::Duration;
 
-use tackly_domain::{FamilyCommand, Name};
+use tackly_domain::{MemberCommand, Name};
 use tackly_wire::{
     ApproveJoin, Bytes, ClaimInvite, CreateInvite, Digest, InviteProof, InviteState,
 };
@@ -259,7 +259,7 @@ impl Device {
         })
         .await?;
         // Announce ourselves.
-        self.run(FamilyCommand::Join { name: my_name }).await?;
+        self.run(MemberCommand::Join { name: my_name }).await?;
         self.flush().await?;
         Ok(true)
     }

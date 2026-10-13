@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::{
-    commands::FamilyCommand,
+    commands::ProblemCommand,
     errors::FamilyError,
     events::{DomainEvent, FamilyEvent, Solution},
     state::Family,
@@ -91,11 +91,11 @@ impl Family {
     /// Checks the problems commands and returns the events they produce, as (subject, event).
     pub(super) fn decide_problems(
         &self,
-        command: FamilyCommand,
+        command: ProblemCommand,
         me: Uuid,
     ) -> Result<Vec<(Uuid, DomainEvent)>, FamilyError> {
         use DomainEvent as E;
-        use FamilyCommand as C;
+        use ProblemCommand as C;
         let one = |subject, event| Ok(vec![(subject, event)]);
         match command {
             C::CreateProblem {
@@ -210,7 +210,6 @@ impl Family {
                 events.push((me, E::DayPlanned { day, task_ids }));
                 Ok(events)
             }
-            _ => Ok(Vec::new()),
         }
     }
 

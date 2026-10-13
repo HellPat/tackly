@@ -9,7 +9,7 @@ use cqrs_es::{Aggregate, event_sink::EventSink};
 use uuid::Uuid;
 
 use super::{
-    commands::{Area, FamilyCommand},
+    commands::FamilyCommand,
     errors::FamilyError,
     events::{DomainEvent, FamilyEvent},
     state::Family,
@@ -61,11 +61,11 @@ impl Family {
         command: FamilyCommand,
         me: Uuid,
     ) -> Result<Vec<(Uuid, DomainEvent)>, FamilyError> {
-        match command.area() {
-            Area::Members => self.decide_members(command, me),
-            Area::Tasks => self.decide_tasks(command, me),
-            Area::Places => self.decide_places(command, me),
-            Area::Problems => self.decide_problems(command, me),
+        match command {
+            FamilyCommand::Members(command) => self.decide_members(command, me),
+            FamilyCommand::Tasks(command) => self.decide_tasks(command, me),
+            FamilyCommand::Places(command) => self.decide_places(command, me),
+            FamilyCommand::Problems(command) => self.decide_problems(command, me),
         }
     }
 }
@@ -99,5 +99,25 @@ impl Aggregate for Family {
 
     fn apply(&mut self, event: FamilyEvent) {
         self.apply_event(&event);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn on_a_phone_events_get_the_clock_and_fresh_ids() {
+        let device = Uuid::from_u128(1);
+        let context = CommandContext::for_device(device);
+        assert_eq!(context.device_id, device);
+        assert_ne!((context.event_ids)(), (context.event_ids)());
+        let before = Utc::now();
+        let at = (context.clock)();
+        assert!(at >= before && at <= Utc::now());
+        assert_eq!(
+            format!("{context:?}"),
+            format!("CommandContext {{ device_id: {device} }}")
+        );
     }
 }

@@ -40,6 +40,14 @@ relay-deps:
 acceptance: relay-deps
     {{shell}} cargo test --locked -p tackly-acceptance --test acceptance
 
+# Line coverage of the domain: every line and function must run in its tests.
+coverage:
+    {{shell}} cargo llvm-cov --locked -p tackly-domain --fail-under-lines 100 --fail-under-functions 100
+
+# Mutation testing of the domain: every mutant must make a test fail.
+mutants:
+    {{shell}} cargo mutants -p tackly-domain --timeout 120 --cargo-arg=--locked
+
 # Compile the app's styles (Tailwind) into apps/app/src/style.css. Run after
 # changing class names; CI checks the result is up to date.
 css:

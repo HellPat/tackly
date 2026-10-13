@@ -19,7 +19,7 @@
             # Rust with the Android standard libraries, so `just android` works,
             # and WebAssembly for the relay (a Cloudflare Worker).
             (fx.combine [
-              (fx.stable.withComponents [ "cargo" "clippy" "rust-src" "rust-std" "rustc" "rustfmt" ])
+              (fx.stable.withComponents [ "cargo" "clippy" "llvm-tools-preview" "rust-src" "rust-std" "rustc" "rustfmt" ])
               fx.targets.aarch64-linux-android.stable.rust-std
               fx.targets.x86_64-linux-android.stable.rust-std
               fx.targets.wasm32-unknown-unknown.stable.rust-std
@@ -33,6 +33,8 @@
             sqlite
             tailwindcss_4  # `just css` compiles the app styles
             worker-build   # builds the relay for Cloudflare Workers
+            cargo-llvm-cov # `just coverage`
+            cargo-mutants  # `just mutants`
           ]) ++ pkgs.lib.optionals pkgs.stdenv.isLinux (with pkgs; [
             gtk3
             libsoup_3

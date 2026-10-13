@@ -53,10 +53,6 @@ impl GeoPoint {
     pub fn longitude(&self) -> f64 {
         self.longitude
     }
-
-    pub fn accuracy_meters(&self) -> Option<f64> {
-        self.accuracy_meters
-    }
 }
 
 /// `52.52,13.405`: latitude, longitude.
@@ -147,5 +143,18 @@ mod tests {
     fn an_event_with_a_point_off_the_globe_is_refused() {
         assert!(serde_json::from_str::<GeoPoint>(r#"{"latitude":1.0,"longitude":2.0}"#).is_ok());
         assert!(serde_json::from_str::<GeoPoint>(r#"{"latitude":91.0,"longitude":2.0}"#).is_err());
+    }
+
+    #[test]
+    fn a_point_is_written_and_read_back_with_its_accuracy() {
+        let point = GeoPoint::new(48.8752, 9.3775, Some(12.0)).expect("a point");
+        let json = serde_json::to_value(point).expect("written");
+        assert_eq!(
+            json,
+            serde_json::json!({"latitude": 48.8752, "longitude": 9.3775, "accuracy_meters": 12.0})
+        );
+        assert_eq!(serde_json::from_value::<GeoPoint>(json).ok(), Some(point));
+        let off = serde_json::json!({"latitude": 91.0, "longitude": 0.0});
+        assert!(serde_json::from_value::<GeoPoint>(off).is_err());
     }
 }

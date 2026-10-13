@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result};
 use chrono::NaiveDate;
-use tackly_domain::{FamilyCommand, Focus, Solution};
+use tackly_domain::{Focus, ProblemCommand, Solution};
 use uuid::Uuid;
 
 use super::Device;
@@ -19,7 +19,7 @@ impl Device {
         solutions: &[&str],
     ) -> Result<Uuid> {
         let problem_id = Uuid::now_v7();
-        self.run(FamilyCommand::CreateProblem {
+        self.run(ProblemCommand::CreateProblem {
             problem_id,
             title: title.parse()?,
             icon: icon.parse()?,
@@ -38,7 +38,7 @@ impl Device {
     }
 
     pub async fn rename_problem(&mut self, problem_id: Uuid, title: &str) -> Result<()> {
-        self.run(FamilyCommand::RenameProblem {
+        self.run(ProblemCommand::RenameProblem {
             problem_id,
             title: title.parse()?,
         })
@@ -47,7 +47,7 @@ impl Device {
 
     /// While the problem is open, the solution is a step for whoever has it right away.
     pub async fn add_solution(&mut self, problem_id: Uuid, title: &str) -> Result<()> {
-        self.run(FamilyCommand::AddSolution {
+        self.run(ProblemCommand::AddSolution {
             problem_id,
             solution: Solution {
                 id: Uuid::now_v7(),
@@ -59,7 +59,7 @@ impl Device {
     }
 
     pub async fn remove_solution(&mut self, problem_id: Uuid, solution_id: Uuid) -> Result<()> {
-        self.run(FamilyCommand::RemoveSolution {
+        self.run(ProblemCommand::RemoveSolution {
             problem_id,
             solution_id,
         })
@@ -74,7 +74,7 @@ impl Device {
             .get(&problem_id)
             .map(|problem| problem.solutions.len())
             .context("unknown problem")?;
-        self.run(FamilyCommand::NoticeProblem {
+        self.run(ProblemCommand::NoticeProblem {
             problem_id,
             member_id,
             task_ids: (0..solutions).map(|_| Uuid::now_v7()).collect(),
@@ -83,7 +83,7 @@ impl Device {
     }
 
     pub async fn assign_problem(&mut self, problem_id: Uuid, member_id: Uuid) -> Result<()> {
-        self.run(FamilyCommand::AssignProblem {
+        self.run(ProblemCommand::AssignProblem {
             problem_id,
             member_id,
         })
@@ -91,19 +91,20 @@ impl Device {
     }
 
     pub async fn resolve_problem(&mut self, problem_id: Uuid) -> Result<()> {
-        self.run(FamilyCommand::ResolveProblem { problem_id }).await
+        self.run(ProblemCommand::ResolveProblem { problem_id })
+            .await
     }
 
     /// Undo of resolving: open again, with the same steps.
     pub async fn reopen_problem(&mut self, problem_id: Uuid) -> Result<()> {
-        self.run(FamilyCommand::ReopenProblem { problem_id }).await
+        self.run(ProblemCommand::ReopenProblem { problem_id }).await
     }
 
     // ---- plans -----------------------------------------------------------------------------
 
     /// My focus for a day, in order; free tasks become mine. Replaces an earlier plan.
     pub async fn plan_day(&mut self, day: NaiveDate, task_ids: &[Uuid]) -> Result<()> {
-        self.run(FamilyCommand::PlanDay {
+        self.run(ProblemCommand::PlanDay {
             day,
             task_ids: Focus::new(task_ids.iter().copied())?,
         })

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::{
-    commands::FamilyCommand,
+    commands::PlaceCommand,
     errors::FamilyError,
     events::{DomainEvent, FamilyEvent, PlaceLocation},
     state::Family,
@@ -42,11 +42,11 @@ impl Family {
     /// Checks the places commands and returns the events they produce, as (subject, event).
     pub(super) fn decide_places(
         &self,
-        command: FamilyCommand,
+        command: PlaceCommand,
         _me: Uuid,
     ) -> Result<Vec<(Uuid, DomainEvent)>, FamilyError> {
         use DomainEvent as E;
-        use FamilyCommand as C;
+        use PlaceCommand as C;
         let group = |id: Uuid| self.place_groups.get(&id).ok_or(FamilyError::UnknownGroup);
         let place = |id: Uuid| self.places.get(&id).ok_or(FamilyError::UnknownPlace);
         let one = |subject, event| Ok(vec![(subject, event)]);
@@ -105,7 +105,6 @@ impl Family {
                 }
                 one(place_id, E::PlaceLocationRemoved { location_id })
             }
-            _ => Ok(Vec::new()),
         }
     }
 

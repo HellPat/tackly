@@ -21,12 +21,6 @@ pub enum PhotoError {
     TooBig,
 }
 
-impl Photo {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
 impl FromStr for Photo {
     type Err = PhotoError;
 
@@ -90,8 +84,25 @@ mod tests {
     }
 
     #[test]
+    fn a_photo_may_be_as_big_as_the_limit() {
+        let largest = format!("{PREFIX}{}", "A".repeat(MAX_PHOTO_BYTES - PREFIX.len()));
+        assert!(largest.parse::<Photo>().is_ok());
+    }
+
+    #[test]
     fn a_big_one_is_refused() {
         let big = format!("{PREFIX}{}", "A".repeat(MAX_PHOTO_BYTES));
         assert_eq!(big.parse::<Photo>(), Err(PhotoError::TooBig));
+    }
+
+    #[test]
+    fn a_photo_is_written_and_read_back_as_its_data_url() {
+        let url = "data:image/jpeg;base64,/9j/4AAQSkZJRg==";
+        let photo: Photo = url.parse().expect("a photo");
+        assert_eq!(photo.to_string(), url);
+        let json = serde_json::to_string(&photo).expect("written");
+        assert_eq!(json, format!("\"{url}\""));
+        assert_eq!(serde_json::from_str::<Photo>(&json).ok(), Some(photo));
+        assert!(serde_json::from_str::<Photo>("\"https://example.org\"").is_err());
     }
 }

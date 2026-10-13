@@ -127,7 +127,7 @@ mod tests {
             .filter_map(Feature::into_location)
             .collect();
         assert_eq!(locations.len(), 1);
-        assert_eq!(locations[0].name.as_str(), "Lidl Winnenden");
+        assert_eq!(locations[0].name.to_string(), "Lidl Winnenden");
         assert_eq!(
             locations[0].address.as_deref(),
             Some("Marbacher Straße 12, 71364 Winnenden")
