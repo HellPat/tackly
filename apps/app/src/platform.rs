@@ -32,21 +32,18 @@ fn default_data_dir() -> PathBuf {
         .join(".tackly")
 }
 
+/// The relay every build uses unless told otherwise.
+const PRODUCTION_RELAY: &str = "https://relay.tackly.hellpat.com";
+
 /// The relay a new family goes to unless the person picks another. In order:
 /// `TACKLY_SERVER_URL` when the app starts, the address this build was made
-/// for (`TACKLY_DEFAULT_SERVER` when it was built), and the computer's own relay.
+/// for (`TACKLY_DEFAULT_SERVER` when it was built), and the production relay.
 pub fn default_server() -> String {
-    // The emulator reaches the computer it runs on at 10.0.2.2.
-    let local = if cfg!(target_os = "android") {
-        "http://10.0.2.2:3000"
-    } else {
-        "http://127.0.0.1:3000"
-    };
     std::env::var("TACKLY_SERVER_URL")
         .ok()
         .or_else(|| option_env!("TACKLY_DEFAULT_SERVER").map(str::to_owned))
         .filter(|address| !address.trim().is_empty())
-        .unwrap_or_else(|| local.to_owned())
+        .unwrap_or_else(|| PRODUCTION_RELAY.to_owned())
 }
 
 /// Asks Android for the location permission, once, right after creating or
