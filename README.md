@@ -94,6 +94,7 @@ This builds everything, starts the relay and opens **three app windows**
 | `just css` | compile the styles (Tailwind) after changing class names; CI checks they are up to date |
 | `just android-build` | debug APK (Android SDK and NDK needed; the Nix shell has the rest) |
 | `just android` | build, install and start it on the emulator or device, booting the first AVD if none runs |
+| `just emulate` | open the first AVD with its window and run the app on it; Ctrl-C or closing the window stops both |
 | `just android-test` | the Playwright-on-Android suite |
 
 Without Nix, install Rust (with the clippy component and the

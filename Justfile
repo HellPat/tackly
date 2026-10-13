@@ -67,6 +67,10 @@ android-build:
 android:
     {{shell}} {{scripts}}/android.sh run
 
+# Open the emulator with its window and run the app on it; exiting here closes the emulator.
+emulate:
+    {{shell}} {{scripts}}/android.sh emulate
+
 # The Playwright-on-Android suite: real taps and keyboard in an emulator.
 android-test:
     {{shell}} {{scripts}}/android.sh test

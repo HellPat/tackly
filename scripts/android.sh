@@ -4,6 +4,8 @@
 #   scripts/android.sh build   debug APK
 #   scripts/android.sh run     build, install and start it on the running
 #                              emulator or device (boots the first AVD if none)
+#   scripts/android.sh emulate run in an emulator window; closing it (or
+#                              Ctrl-C here) shuts the emulator down too
 #   scripts/android.sh test    run + the Playwright-on-Android suite
 set -euo pipefail
 
@@ -41,9 +43,28 @@ install_and_start() {
   adb shell am start -W -n "$activity"
 }
 
+# Opens the first AVD with its window, runs the app on it and stays until the
+# emulator is closed or this is interrupted, which closes the emulator.
+emulate() {
+  local avd
+  avd="$(emulator -list-avds | head -n 1)"
+  [[ -n "$avd" ]] || { echo 'No AVD. Create one in Android Studio.' >&2; exit 1; }
+  device_is_ready && { echo 'An emulator or device is already running; use just android.' >&2; exit 1; }
+  emulator -avd "$avd" -no-snapshot >"$root/.dev/emulator.log" 2>&1 </dev/null &
+  local pid=$!
+  trap 'kill "$pid" 2>/dev/null || true' EXIT
+  trap 'exit 130' INT TERM
+  build
+  for _ in {1..90}; do device_is_ready && break; kill -0 "$pid" 2>/dev/null || exit 1; sleep 2; done
+  install_and_start
+  echo "Running on ${avd}. Close the emulator or press Ctrl-C to stop."
+  wait "$pid" || true
+}
+
 mkdir -p "$root/.dev"
 case "${1:-}" in
   build) build ;;
+  emulate) emulate ;;
   run) build; ensure_device; install_and_start ;;
   test)
     build
@@ -55,5 +76,5 @@ case "${1:-}" in
     npx playwright install android
     node suite.mjs
     ;;
-  *) echo "usage: $0 build|run|test" >&2; exit 2 ;;
+  *) echo "usage: $0 build|run|emulate|test" >&2; exit 2 ;;
 esac
