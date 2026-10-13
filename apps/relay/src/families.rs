@@ -22,7 +22,7 @@ struct Found {}
 /// is recognised and answered the same way; any other request for an existing
 /// family is a conflict.
 pub async fn create(call: &mut Call<'_>) -> ApiResult {
-    let input: CreateFamily = call.body().await?;
+    let input: CreateFamily = call.body()?;
     let token_hash = input.token_hash.as_bytes().as_slice();
     let exists = call
         .db

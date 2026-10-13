@@ -15,3 +15,15 @@ pub fn qr_svg(text: &str) -> String {
         })
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_invitation_becomes_an_svg_and_too_much_text_none() {
+        let svg = qr_svg("tackly://join?c=abc");
+        assert!(svg.contains("<svg") && svg.contains("#1b1c18"), "{svg}");
+        assert_eq!(qr_svg(&"x".repeat(8000)), "");
+    }
+}

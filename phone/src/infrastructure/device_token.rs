@@ -77,6 +77,11 @@ mod tests {
     }
 
     #[test]
+    fn a_short_one_is_not_a_token() {
+        assert_eq!("AAAA".parse::<DeviceToken>(), Err(BinaryError::NotADigest));
+    }
+
+    #[test]
     fn other_text_is_not_a_token() {
         assert!("short".parse::<DeviceToken>().is_err());
         assert!("???".parse::<DeviceToken>().is_err());

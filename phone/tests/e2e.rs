@@ -15,7 +15,7 @@ use tackly_domain::{Family, GeoPoint, Photo, Picture, PlaceLocation, Progress, T
 use tackly_phone::{
     Device, InviteProgress, SharedDevice,
     infrastructure::{device_token::DeviceToken, relay_client::Api},
-    run_live,
+    run_live_until,
 };
 use tackly_testkit::Relay;
 use tokio::{sync::Mutex, task::JoinHandle};
@@ -62,7 +62,11 @@ impl Phone {
 
     /// Same as the app: sync keeps running while the phone is in a family.
     fn go_live(&mut self) {
-        self.live = Some(tokio::spawn(run_live(self.device.clone(), || {})));
+        self.live = Some(tokio::spawn(run_live_until(
+            self.device.clone(),
+            || {},
+            std::future::pending(),
+        )));
     }
 
     async fn state(&self) -> Result<Family> {
@@ -750,6 +754,16 @@ async fn the_head_removes_a_member_who_then_gets_nothing_new() -> Result<()> {
         "Mona is not the head"
     );
     patrick.device.lock().await.remove_member(mara_id).await?;
+    ensure!(
+        patrick
+            .device
+            .lock()
+            .await
+            .remove_member(mara_id)
+            .await
+            .is_err(),
+        "she is out already"
+    );
 
     eventually("Patrick and Mona no longer list Mara", || async {
         Ok(!patrick.state().await?.members.contains_key(&mara_id)
@@ -897,19 +911,54 @@ async fn a_denied_agent_is_turned_away() -> Result<()> {
     let asks = patrick.device.lock().await.agent_asks().await?;
     let ask = asks.into_iter().next().context("the request is there")?;
     patrick.device.lock().await.deny_agent(&ask).await?;
+    let denied = agent
+        .device
+        .lock()
+        .await
+        .complete_access(&access)
+        .await
+        .err()
+        .context("denied")?;
     ensure!(
-        agent
-            .device
-            .lock()
-            .await
-            .complete_access(&access)
-            .await
-            .is_err(),
-        "denied"
+        denied.to_string().contains("did not allow"),
+        "it says so: {denied}"
     );
     ensure!(
         patrick.device.lock().await.agent_asks().await?.is_empty(),
         "nothing waits any more"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_agent_that_cannot_reach_the_relay_is_not_told_it_was_denied() -> Result<()> {
+    let dir = scratch_dir("agent-offline")?;
+    let mut relay = Relay::reserve(&dir)?;
+    if needs_local_relay(&relay) {
+        return Ok(());
+    }
+    relay.start().await?;
+    let (patrick, _mona, _mara) = family_of_three(&dir, &relay).await?;
+    let agent = Phone::new("agent", &dir)?;
+    let family = family_id_of(&patrick).await?;
+    let access = agent
+        .device
+        .lock()
+        .await
+        .ask_for_access(&relay.url(), family)
+        .await?;
+    relay.stop();
+    let failed = agent
+        .device
+        .lock()
+        .await
+        .complete_access(&access)
+        .await
+        .err()
+        .context("the relay is down")?;
+    ensure!(
+        !failed.to_string().contains("did not allow"),
+        "not a denial: {failed}"
     );
     Ok(())
 }
@@ -1051,6 +1100,72 @@ async fn a_new_family_comes_with_a_recovery_code_the_head_must_confirm() -> Resu
             .await
             .is_err(),
         "the old code opens nothing"
+    );
+    Ok(())
+}
+
+/// A phone that encrypted for a group that moved on meanwhile (someone was let
+/// in) catches up and sends again.
+#[tokio::test]
+async fn a_phone_behind_the_group_catches_up_and_sends_again() -> Result<()> {
+    let dir = scratch_dir("stale-epoch")?;
+    let mut relay = Relay::reserve(&dir)?;
+    relay.start().await?;
+    let mut patrick = Phone::new("patrick", &dir)?;
+    patrick
+        .device
+        .lock()
+        .await
+        .create_family(&relay.url(), "The Smiths", "Patrick")
+        .await?;
+    patrick.go_live();
+    let mut mona = Phone::new("mona", &dir)?;
+    pair(&patrick, &mut mona, "Mona").await?;
+    if let Some(live) = mona.live.take() {
+        live.abort();
+    }
+    mona.add_task("Milk").await?;
+    let mut mara = Phone::new("mara", &dir)?;
+    pair(&patrick, &mut mara, "Mara").await?;
+    mona.device.lock().await.flush().await?;
+    eventually("Mara sees Milk", || async {
+        mara.sees("Milk", |_| true).await
+    })
+    .await?;
+    Ok(())
+}
+
+/// A restore the relay refuses (here: the head's token no longer counts)
+/// leaves nothing half done on the new phone. A second recovery code
+/// replaces the first, whose backup goes.
+#[tokio::test]
+async fn a_refused_restore_leaves_nothing_behind() -> Result<()> {
+    let dir = scratch_dir("refused-restore")?;
+    let mut relay = Relay::reserve(&dir)?;
+    if needs_local_relay(&relay) {
+        return Ok(());
+    }
+    relay.start().await?;
+    let (patrick, _mona, _mara) = family_of_three(&dir, &relay).await?;
+    // A damaged key file does not stop a new code.
+    std::fs::write(dir.join("patrick/secrets/recovery-recipient"), b"damaged")?;
+    let first = patrick.device.lock().await.new_recovery_code().await?;
+    let code = patrick.device.lock().await.new_recovery_code().await?;
+    let mut lost = Phone::new("lost", &dir)?;
+    let replaced = lost.device.lock().await.restore(&relay.url(), &first).await;
+    ensure!(replaced.is_err(), "the first code's backup is gone");
+
+    let patrick_id = patrick.id().await;
+    rusqlite::Connection::open(relay.database_file()?)?.execute(
+        "UPDATE devices SET token_hash = zeroblob(32) WHERE id = ?",
+        [patrick_id.to_string()],
+    )?;
+    lost = Phone::new("refused", &dir)?;
+    let refused = lost.device.lock().await.restore(&relay.url(), &code).await;
+    ensure!(refused.is_err(), "the relay refuses the old token");
+    ensure!(
+        lost.device.lock().await.membership().is_none() && lost.state().await?.tasks.is_empty(),
+        "nothing half done"
     );
     Ok(())
 }

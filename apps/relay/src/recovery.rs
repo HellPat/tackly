@@ -25,7 +25,7 @@ struct BlobRow {
 
 pub async fn put(call: &mut Call<'_>, family_id: Uuid, id: Digest) -> ApiResult {
     Device::authenticate_owner(call, family_id).await?;
-    let input: RecoveryBlob = call.body().await?;
+    let input: RecoveryBlob = call.body()?;
     let blob = input.blob.as_slice();
     if blob.is_empty() || blob.len() > MAX_RECOVERY_BYTES {
         return Err(bad_request("invalid backup size"));

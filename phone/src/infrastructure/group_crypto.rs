@@ -361,10 +361,11 @@ impl Mls {
             .process_message(&self.provider, message)
             .map_err(|error| anyhow!("message failed verification: {error:?}"))?;
         let sender = device_of(processed.credential()).context("sender without a device ID")?;
+        // A member commits by its leaf; anyone else who commits joins from
+        // outside (others only propose, which this app does not use).
         let commiter = match processed.sender() {
             Sender::Member(leaf) => Some(Commiter::Member(*leaf)),
-            Sender::NewMemberCommit => None,
-            _ => return Ok(Incoming::Other),
+            _ => None,
         };
         let incoming = match processed.into_content() {
             ProcessedMessageContent::ApplicationMessage(message) => Incoming::Application {
@@ -576,6 +577,29 @@ pub fn agent_code(key_package: &[u8]) -> AgentCode {
 mod tests {
     use super::*;
 
+    /// What came in: a message (its sender and text), a commit (merged,
+    /// removed me), or neither.
+    type Read = (Option<(Uuid, Vec<u8>)>, Option<(bool, bool)>);
+
+    fn read(incoming: Incoming) -> Read {
+        match incoming {
+            Incoming::Application { sender, bytes } => (Some((sender, bytes)), None),
+            Incoming::Commit {
+                merged, removed_me, ..
+            } => (None, Some((merged, removed_me))),
+            Incoming::Other => (None, None),
+        }
+    }
+
+    fn committed(incoming: Incoming) -> Option<(bool, bool)> {
+        read(incoming).1
+    }
+
+    /// Who sent a message, and what it says.
+    fn said(incoming: Incoming) -> Option<(Uuid, Vec<u8>)> {
+        read(incoming).0
+    }
+
     fn phone(name: &str) -> (Mls, Uuid, tempfile::TempDir) {
         let dir = tempfile::tempdir().expect("temp dir");
         let id = Uuid::new_v4();
@@ -607,12 +631,10 @@ mod tests {
         assert_eq!(head.members(family).expect("members").len(), 2);
 
         let secret = head.encrypt(family, b"milk").expect("encrypt");
-        match joiner.decrypt(family, &secret, head_id).expect("decrypt") {
-            Incoming::Application { sender, bytes } => {
-                assert_eq!((sender, bytes.as_slice()), (head_id, b"milk".as_slice()));
-            }
-            _ => panic!("expected an application message"),
-        }
+        assert_eq!(
+            said(joiner.decrypt(family, &secret, head_id).expect("decrypt")),
+            Some((head_id, b"milk".to_vec()))
+        );
         assert!(
             stranger.decrypt(family, &secret, head_id).is_err(),
             "no group, no reading"
@@ -648,29 +670,31 @@ mod tests {
             .expect("add");
         head.merge_pending(family).expect("merge");
         third.join(&welcome).expect("join");
-        match member.decrypt(family, &added, head_id).expect("decrypt") {
-            Incoming::Commit { merged, .. } => assert!(merged, "the head added someone"),
-            _ => panic!("expected a commit"),
-        }
+        assert_eq!(
+            committed(member.decrypt(family, &added, head_id).expect("decrypt"))
+                .map(|(merged, _)| merged),
+            Some(true),
+            "the head added someone"
+        );
 
         // The member tries to throw the head out: nobody listens.
         let coup = member.remove_member(family, head_id).expect("commit");
-        match third.decrypt(family, &coup, head_id).expect("decrypt") {
-            Incoming::Commit { merged, .. } => assert!(!merged, "not from the head"),
-            _ => panic!("expected a commit"),
-        }
+        assert_eq!(
+            committed(third.decrypt(family, &coup, head_id).expect("decrypt"))
+                .map(|(merged, _)| merged),
+            Some(false),
+            "not from the head"
+        );
         assert_eq!(third.members(family).expect("members").len(), 3);
         member.clear_pending(family).expect("clear");
 
         // The head removes the third: it is out, the member sees that.
         let out = head.remove_member(family, third_id).expect("commit");
         head.merge_pending(family).expect("merge");
-        match third.decrypt(family, &out, head_id).expect("decrypt") {
-            Incoming::Commit {
-                merged, removed_me, ..
-            } => assert!(merged && removed_me),
-            _ => panic!("expected a commit"),
-        }
+        assert_eq!(
+            committed(third.decrypt(family, &out, head_id).expect("decrypt")),
+            Some((true, true))
+        );
         let later = head.encrypt(family, b"after").expect("encrypt");
         assert!(third.decrypt(family, &later, head_id).is_err());
         assert_eq!(head.members(family).expect("members").len(), 2);
@@ -689,37 +713,42 @@ mod tests {
         let (mut back, _, _d) = phone("back");
         back.adopt_signer(&signer, head_id).expect("adopt");
         let commit = back.rejoin(family, &group_info).expect("rejoin");
-        match member.decrypt(family, &commit, head_id).expect("decrypt") {
-            Incoming::Commit { merged, .. } => assert!(merged, "the head's key"),
-            _ => panic!("expected a commit"),
-        }
+        assert_eq!(
+            committed(member.decrypt(family, &commit, head_id).expect("decrypt"))
+                .map(|(merged, _)| merged),
+            Some(true),
+            "the head's key"
+        );
         assert_eq!(member.members(family).expect("members").len(), 2);
         let hello = back.encrypt(family, b"back").expect("encrypt");
-        assert!(matches!(
-            member.decrypt(family, &hello, head_id).expect("decrypt"),
-            Incoming::Application { sender, .. } if sender == head_id
-        ));
+        assert_eq!(
+            said(member.decrypt(family, &hello, head_id).expect("decrypt")),
+            Some((head_id, b"back".to_vec()))
+        );
 
         // Now the head moves to a fresh key: the old one (still on the lost
         // phone) is no longer the head's.
         let rotation = back.rotate_signer(family, head_id).expect("rotate");
         back.merge_rotation(family, head_id).expect("merge");
-        match member.decrypt(family, &rotation, head_id).expect("decrypt") {
-            Incoming::Commit { merged, .. } => assert!(merged),
-            _ => panic!("expected a commit"),
-        }
+        assert_eq!(
+            committed(member.decrypt(family, &rotation, head_id).expect("decrypt"))
+                .map(|(merged, _)| merged),
+            Some(true)
+        );
         let fresh_info = back.export_group_info(family).expect("group info");
         thief.adopt_signer(&signer, head_id).expect("adopt");
         let stale = thief.rejoin(family, &fresh_info).expect("rejoin");
-        match member.decrypt(family, &stale, head_id).expect("decrypt") {
-            Incoming::Commit { merged, .. } => assert!(!merged, "the old key is out"),
-            _ => panic!("expected a commit"),
-        }
+        assert_eq!(
+            committed(member.decrypt(family, &stale, head_id).expect("decrypt"))
+                .map(|(merged, _)| merged),
+            Some(false),
+            "the old key is out"
+        );
         let after = back.encrypt(family, b"still me").expect("encrypt");
-        assert!(matches!(
-            member.decrypt(family, &after, head_id).expect("decrypt"),
-            Incoming::Application { sender, .. } if sender == head_id
-        ));
+        assert_eq!(
+            said(member.decrypt(family, &after, head_id).expect("decrypt")),
+            Some((head_id, b"still me".to_vec()))
+        );
     }
 
     #[test]
@@ -756,6 +785,53 @@ mod tests {
         assert_ne!(
             confirmation_code(b"s", b"kp"),
             confirmation_code(b"t", b"kp")
+        );
+    }
+
+    #[test]
+    fn a_message_of_the_wrong_kind_is_refused() {
+        let (mut head, _, mut member, member_id, family, _dirs) = family();
+        let key_package = member.key_package().expect("key package");
+        let welcome_bytes = {
+            let (mut other, other_id, _dir) = phone("other");
+            let other_package = other.key_package().expect("key package");
+            let (_, welcome) = head
+                .add_member(family, other_id, &other_package)
+                .expect("add");
+            head.clear_pending(family).expect("clear");
+            welcome
+        };
+        let refused = |result: Result<_>, why: &str| {
+            let error = result.expect_err("refused").to_string();
+            assert!(error.contains(why), "{error}");
+        };
+        refused(
+            head.add_member(family, member_id, &welcome_bytes)
+                .map(|_| ()),
+            "not a key package",
+        );
+        refused(member.join(&key_package).map(|_| ()), "not a welcome");
+        refused(
+            head.rejoin(family, &key_package).map(|_| ()),
+            "not a group info",
+        );
+    }
+
+    #[test]
+    fn a_proposal_is_something_else() {
+        let (mut head, head_id, member, _, family, _dirs) = family();
+        let mut group = member.group(family).expect("group");
+        let (proposal, _) = group
+            .propose_self_update(
+                &member.provider,
+                &member.signer,
+                LeafNodeParameters::default(),
+            )
+            .expect("propose");
+        let bytes = proposal.to_bytes().expect("bytes");
+        assert_eq!(
+            committed(head.decrypt(family, &bytes, head_id).expect("read")),
+            None
         );
     }
 }

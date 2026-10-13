@@ -49,7 +49,7 @@ pub struct EncryptedEvent {
 /// phone catches up with the group and encrypts again.
 pub const STALE_EPOCH: &str = "stale epoch";
 /// The largest MLS message the server takes (a snapshot chunk stays below it).
-pub const MAX_MESSAGE_BYTES: usize = 2 * 1024 * 1024;
+pub const MAX_MESSAGE_BYTES: usize = 2_097_152; // 2 MiB
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AppendEvents {
@@ -86,7 +86,7 @@ pub struct CreateInvite {
 }
 
 /// The longest an AI agent may be let in for.
-pub const MAX_AGENT_SECONDS: i64 = 30 * 24 * 60 * 60;
+pub const MAX_AGENT_SECONDS: i64 = 2_592_000; // 30 days
 /// How many requests for an AI agent's access wait for a family at once.
 pub const MAX_PENDING_AGENT_REQUESTS: i64 = 5;
 
@@ -213,7 +213,7 @@ pub struct RecoveryBlob {
 }
 
 /// The largest recovery backup the relay keeps.
-pub const MAX_RECOVERY_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_RECOVERY_BYTES: usize = 16_777_216; // 16 MiB
 
 /// A device moves to a new token (after coming back from a backup, so that
 /// the lost phone's token stops working).
@@ -225,4 +225,15 @@ pub struct RotateToken {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ApiErrorBody {
     pub error: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_relay_keeps_the_sha256_of_the_token_text() {
+        assert_eq!(token_hash("secret"), Digest::sha256(b"secret"));
+        assert_ne!(token_hash("secret"), token_hash("secret2"));
+    }
 }

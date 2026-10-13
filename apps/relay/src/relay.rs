@@ -76,11 +76,14 @@ impl DurableObject for Relay {
     }
 }
 
-/// One request, with what its handler needs.
+/// One request, with what its handler needs. Its body is read in full before
+/// the handler runs: a handler that answers without needing the body (a
+/// refusal, say) must not leave it unread, which breaks the runtime.
 pub struct Call<'a> {
     pub db: &'a Db,
     pub state: &'a State,
     pub request: Request,
+    body: Vec<u8>,
 }
 
 impl Call<'_> {
@@ -97,17 +100,9 @@ impl Call<'_> {
             .map(|(_, value)| value.into_owned())
     }
 
-    /// The JSON body, at most [`MAX_REQUEST_BYTES`].
-    pub async fn body<T: DeserializeOwned>(&mut self) -> Result<T, ApiError> {
-        let bytes = self
-            .request
-            .bytes()
-            .await
-            .map_err(|_| bad_request("unreadable body"))?;
-        if bytes.len() > MAX_REQUEST_BYTES {
-            return Err(ApiError(413, "request too large"));
-        }
-        serde_json::from_slice(&bytes).map_err(|_| ApiError(422, "invalid body"))
+    /// The JSON body.
+    pub fn body<T: DeserializeOwned>(&self) -> Result<T, ApiError> {
+        serde_json::from_slice(&self.body).map_err(|_| ApiError(422, "invalid body"))
     }
 }
 
@@ -128,6 +123,14 @@ impl Relay {
             schema::migrate(&db).await?;
             self.migrated.set(true);
         }
+        let mut request = request;
+        let body = request
+            .bytes()
+            .await
+            .map_err(|_| bad_request("unreadable body"))?;
+        if body.len() > MAX_REQUEST_BYTES {
+            return Err(ApiError(413, "request too large"));
+        }
         let method = request.method();
         let path = request.path();
         let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
@@ -135,6 +138,7 @@ impl Relay {
             db: &db,
             state: &self.state,
             request,
+            body,
         };
         let call = &mut call;
         use Method::{Delete, Get, Post, Put};

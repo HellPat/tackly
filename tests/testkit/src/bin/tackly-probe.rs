@@ -12,7 +12,7 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
-use tackly_phone::{Device, InviteProgress, InviteTicket, run_live};
+use tackly_phone::{Device, InviteProgress, InviteTicket, run_live_until};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     sync::Mutex,
@@ -31,7 +31,11 @@ async fn main() -> Result<()> {
         .await
         .create_family(&relay.parse()?, "The Smiths", "Patrick")
         .await?;
-    tokio::spawn(run_live(device.clone(), || {}));
+    tokio::spawn(run_live_until(
+        device.clone(),
+        || {},
+        std::future::pending(),
+    ));
 
     let mut ticket: Option<InviteTicket> = None;
     let mut lines = BufReader::new(tokio::io::stdin()).lines();

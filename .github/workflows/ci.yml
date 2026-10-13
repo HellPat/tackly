@@ -30,21 +30,29 @@ jobs:
       - name: Unit and end-to-end tests (the relay under wrangler dev, three phones, live, outages)
         run: cargo test --locked -p tackly-domain -p tackly-wire -p tackly-phone -p tackly-agent
 
-  domain-quality:
-    # The rules: every line runs in their tests, and every mutant (a small
-    # change to the code, as cargo-mutants makes them) fails a test.
+  quality:
+    # Every line of domain, wire, phone and agent runs in their tests (the
+    # phone's and the agent's against the relay under wrangler dev), and every
+    # mutant (a small change to the code, as cargo-mutants makes them) of the
+    # fast crates fails a test.
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
       - run: rustup component add llvm-tools-preview
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov,cargo-mutants
-      - name: Every line and function of the domain runs in its tests
-        run: cargo llvm-cov --locked -p tackly-domain --fail-under-lines 100 --fail-under-functions 100
-      - name: Every mutant of the domain is caught
-        run: cargo mutants -p tackly-domain --timeout 120 --cargo-arg=--locked
+      - uses: ./.github/actions/relay-tools
+      - name: Every line runs in a test
+        run: |
+          for crate in tackly-domain tackly-wire tackly-phone tackly-agent; do
+            scripts/coverage.sh "$crate"
+          done
+      - name: Every mutant is caught
+        env:
+          TACKLY_RELAY_DIR: ${{ github.workspace }}/apps/relay
+        run: cargo mutants -p tackly-domain -p tackly-wire -p tackly-agent --timeout 300 --cargo-arg=--locked
 
   deploy-relay:
     # Cloudflare builds and deploys the relay (apps/relay) only when this

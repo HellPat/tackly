@@ -295,3 +295,167 @@ impl Device {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use tackly_testkit::Relay;
+
+    use super::*;
+
+    /// A family of one, with Milk, on a real relay.
+    async fn head(dir: &tempfile::TempDir, relay: &Relay) -> Result<Device> {
+        let mut head = Device::open(dir.path().join("head"))?;
+        let url: ServerUrl = relay.url().as_str().parse()?;
+        head.create_family(&url, "The Smiths", "Patrick").await?;
+        head.add_task("Milk", None, &[]).await?;
+        Ok(head)
+    }
+
+    #[tokio::test]
+    async fn a_new_member_gets_the_history_and_what_came_in_between_after_it() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let mut relay = Relay::reserve(dir.path())?;
+        relay.start().await?;
+        let mut head = head(&dir, &relay).await?;
+        let ticket = head.create_invite().await?;
+        ensure!(head.invite_progress(&ticket).await? == InviteProgress::Waiting);
+
+        let mut mona = Device::open(dir.path().join("mona"))?;
+        let request = mona.request_join(&ticket.link).await?;
+        ensure!(
+            !mona.complete_join(&request, "Mona").await?,
+            "not let in yet"
+        );
+        let mona_id = mona.device_id();
+        let asked = head.invite_progress(&ticket).await?;
+        ensure!(
+            matches!(asked, InviteProgress::Requested { device_id, .. } if device_id == mona_id),
+            "{asked:?}"
+        );
+
+        // The head lets her in step by step, and adds Eggs before it sends
+        // the history: Mona sees Eggs first and keeps it for after.
+        let membership = head.joined()?.clone();
+        let api = head.api()?;
+        let key_package = api
+            .invite_status(
+                membership.family_id,
+                &membership.device_token,
+                ticket.invite_id,
+            )
+            .await?
+            .pending_key_package
+            .context("a key package")?
+            .into_vec();
+        let welcome = head.commit_add(mona_id, &key_package).await?;
+        api.approve_join(
+            membership.family_id,
+            &membership.device_token,
+            ticket.invite_id,
+            &ApproveJoin {
+                device_id: mona_id,
+                welcome: Bytes::from(welcome),
+            },
+        )
+        .await?;
+        ensure!(head.invite_progress(&ticket).await? == InviteProgress::Approved);
+        head.add_task("Eggs", None, &[]).await?;
+        head.flush().await?;
+        let joining = tokio::spawn(async move {
+            let done = mona.complete_join(&request, "Mona").await?;
+            anyhow::Ok((done, mona))
+        });
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        head.send_snapshot().await?;
+        let (done, mona) = joining.await??;
+        ensure!(done, "in");
+        let state = mona.state()?;
+        let titles: Vec<&str> = state
+            .tasks
+            .values()
+            .map(|task| task.title.as_str())
+            .collect();
+        ensure!(
+            titles.contains(&"Milk") && titles.contains(&"Eggs"),
+            "{titles:?}"
+        );
+        ensure!(
+            head.invite_progress(&ticket).await? == InviteProgress::Approved,
+            "used counts as let in"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_big_history_comes_in_parts() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let mut relay = Relay::reserve(dir.path())?;
+        relay.start().await?;
+        let mut head = head(&dir, &relay).await?;
+        // Pictures are the biggest events: enough of them fill more than one
+        // part of the history.
+        let photo: tackly_domain::Photo = format!(
+            "data:image/jpeg;base64,{}",
+            "A".repeat(tackly_domain::MAX_PHOTO_BYTES - 30)
+        )
+        .parse()?;
+        for tint in 0..8 {
+            head.set_picture(tackly_domain::Picture {
+                icon: "face".parse()?,
+                tint,
+                photo: Some(photo.clone()),
+            })
+            .await?;
+        }
+        let ticket = head.create_invite().await?;
+        let mut mona = Device::open(dir.path().join("mona"))?;
+        let request = mona.request_join(&ticket.link).await?;
+        let mona_id = mona.device_id();
+        head.approve_join(&ticket, mona_id).await?;
+        ensure!(mona.complete_join(&request, "Mona").await?, "in");
+        let head_id = head.device_id();
+        let picture = mona.state()?.members[&head_id].picture.clone();
+        ensure!(
+            picture.is_some_and(|picture| picture.tint == 7),
+            "the whole history"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_or_expired_invitation_is_gone() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let mut relay = Relay::reserve(dir.path())?;
+        relay.start().await?;
+        let mut head = head(&dir, &relay).await?;
+        let membership = head.joined()?.clone();
+
+        let cancelled = head.create_invite().await?;
+        reqwest::Client::new()
+            .delete(format!(
+                "{}/v1/families/{}/invites/{}",
+                membership.server_url, membership.family_id, cancelled.invite_id
+            ))
+            .bearer_auth(membership.device_token.as_str())
+            .send()
+            .await?
+            .error_for_status()?;
+        ensure!(head.invite_progress(&cancelled).await? == InviteProgress::Gone);
+
+        let expired = head.create_invite().await?;
+        let database = rusqlite::Connection::open(relay.database_file()?)?;
+        let sql = "UPDATE invitations SET expires_at = '2000-01-01T00:00:00.000Z' WHERE id = ?";
+        let changed = database.execute(sql, [expired.invite_id.to_string()]);
+        ensure!(changed.ok() == Some(1));
+        ensure!(head.invite_progress(&expired).await? == InviteProgress::Gone);
+
+        // Without the relay, neither side learns anything.
+        let open = head.create_invite().await?;
+        let mut mona = Device::open(dir.path().join("mona"))?;
+        let request = mona.request_join(&open.link).await?;
+        relay.stop();
+        ensure!(head.invite_progress(&open).await.is_err());
+        ensure!(mona.complete_join(&request, "Mona").await.is_err());
+        Ok(())
+    }
+}

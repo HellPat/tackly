@@ -180,4 +180,24 @@ mod tests {
     fn what_is_inside_stays_out_of_logs() {
         assert_eq!(format!("{:?}", Bytes::from(vec![1, 2, 3])), "Bytes(3)");
     }
+
+    #[test]
+    fn bytes_know_their_length_and_give_up_their_contents() {
+        let bytes = Bytes::from([1, 2, 3].as_slice());
+        assert_eq!((bytes.len(), bytes.is_empty()), (3, false));
+        assert!(Bytes::from(Vec::new()).is_empty());
+        assert_eq!(bytes.into_vec(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn a_digest_is_its_32_bytes_and_shows_them() {
+        let digest = Digest::from([7; 32]);
+        assert_eq!(digest.as_bytes(), &[7; 32]);
+        assert_eq!(format!("{digest:?}"), format!("Digest({digest})"));
+        let json = serde_json::to_string(&digest).expect("json");
+        assert_eq!(json, format!("\"{digest}\""));
+        assert_eq!(serde_json::from_str::<Digest>(&json).ok(), Some(digest));
+        assert!(serde_json::from_str::<Digest>("1").is_err());
+        assert!(serde_json::from_str::<Bytes>("1").is_err());
+    }
 }

@@ -1,6 +1,6 @@
 //! Typed HTTP client for the sync relay.
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use reqwest::{Client, RequestBuilder, Response, StatusCode};
 use serde::{Serialize, de::DeserializeOwned};
 use tackly_wire::*;
@@ -100,14 +100,6 @@ impl Api {
         }
     }
 
-    pub async fn health(&self) -> Result<()> {
-        let response = self.http.get(self.url("/health")).send().await?;
-        if response.status() != StatusCode::NO_CONTENT {
-            bail!("unexpected health status {}", response.status());
-        }
-        Ok(())
-    }
-
     /// Registers the family. Repeating it with the same token is harmless.
     pub async fn create_family(
         &self,
@@ -182,19 +174,6 @@ impl Api {
     ) -> Result<InviteStatus> {
         let path = format!("/v1/families/{family}/invites/{invite}/approve");
         self.send(self.post(&path, Some(token), body)).await
-    }
-
-    pub async fn cancel_invite(
-        &self,
-        family: Uuid,
-        token: &DeviceToken,
-        invite: Uuid,
-    ) -> Result<InviteStatus> {
-        let request = self
-            .http
-            .delete(self.url(&format!("/v1/families/{family}/invites/{invite}")))
-            .bearer_auth(token.as_str());
-        self.send(request).await
     }
 
     /// The head takes a device's access to the relay away.
@@ -346,12 +325,10 @@ impl Api {
         token: &DeviceToken,
         after: i64,
     ) -> Result<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>> {
-        let url = self.url(&format!("/v1/families/{family}/stream?after={after}"));
-        let url = match url.split_once("://") {
-            Some(("https", rest)) => format!("wss://{rest}"),
-            Some((_, rest)) => format!("ws://{rest}"),
-            None => bail!("not a URL: {url}"),
-        };
+        // The relay's address is http:// or https://: ws:// or wss:// here.
+        let url = self
+            .url(&format!("/v1/families/{family}/stream?after={after}"))
+            .replacen("http", "ws", 1);
         let mut request = url.into_client_request()?;
         request.headers_mut().insert(
             "authorization",
@@ -361,5 +338,19 @@ impl Api {
         let (socket, _) =
             tokio::time::timeout(std::time::Duration::from_secs(15), connect).await??;
         Ok(socket)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_refusal_says_the_status_and_why() {
+        let refused = HttpError(StatusCode::GONE, "invitation unavailable".into());
+        assert_eq!(
+            refused.to_string(),
+            "server answered 410 Gone: invitation unavailable"
+        );
     }
 }

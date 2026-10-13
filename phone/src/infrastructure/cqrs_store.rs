@@ -111,3 +111,41 @@ impl Query<Family> for UploadTrigger {
         self.0.notify_one();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use tackly_domain::DomainEvent;
+    use uuid::Uuid;
+
+    use super::*;
+    use crate::infrastructure::{local_store::EventStore, secrets::Secrets};
+
+    #[tokio::test]
+    async fn a_log_that_cannot_be_read_or_written_is_an_unexpected_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tackly.db");
+        let events = EventStore::open(&path, &Secrets::new(dir.path())).unwrap();
+        let store = DeviceStore::new(SharedStore::new(events));
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute_batch("DROP TABLE events")
+            .unwrap();
+
+        let loaded = store.load_events("family").await;
+        assert!(matches!(loaded, Err(AggregateError::UnexpectedError(_))));
+        let event = FamilyEvent {
+            id: Uuid::new_v4(),
+            subject_id: Uuid::new_v4(),
+            origin_device_id: Uuid::new_v4(),
+            occurred_at: Utc::now(),
+            event: DomainEvent::TaskStarted,
+        };
+        let context = DeviceContext {
+            aggregate: Family::default(),
+            sequence: 0,
+        };
+        let committed = store.commit(vec![event], context, HashMap::new()).await;
+        assert!(matches!(committed, Err(AggregateError::UnexpectedError(_))));
+    }
+}

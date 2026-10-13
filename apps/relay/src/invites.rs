@@ -33,7 +33,7 @@ struct ExpiryRow {
 
 pub async fn create(call: &mut Call<'_>, family_id: Uuid) -> ApiResult {
     let caller = Device::authenticate_owner(call, family_id).await?;
-    let input: CreateInvite = call.body().await?;
+    let input: CreateInvite = call.body()?;
     let row: ExpiryRow = call
         .db
         .first(
@@ -55,7 +55,7 @@ pub async fn create(call: &mut Call<'_>, family_id: Uuid) -> ApiResult {
 
 /// The new phone asks to join, proving it knows the invitation's secret.
 pub async fn request(call: &mut Call<'_>, invite_id: Uuid) -> ApiResult {
-    let input: InviteProof = call.body().await?;
+    let input: InviteProof = call.body()?;
     let key_package = input.key_package.as_slice();
     if key_package.is_empty() || key_package.len() > MAX_KEY_PACKAGE_BYTES {
         return Err(bad_request("invalid key package size"));
@@ -121,7 +121,7 @@ pub async fn status(call: &mut Call<'_>, family_id: Uuid, invite_id: Uuid) -> Ap
 /// The head, after comparing the six digits, leaves the welcome here.
 pub async fn approve(call: &mut Call<'_>, family_id: Uuid, invite_id: Uuid) -> ApiResult {
     Device::authenticate_owner(call, family_id).await?;
-    let input: ApproveJoin = call.body().await?;
+    let input: ApproveJoin = call.body()?;
     let welcome = input.welcome.as_slice();
     if welcome.is_empty() || welcome.len() > MAX_WELCOME_BYTES {
         return Err(bad_request("invalid welcome size"));
@@ -163,7 +163,7 @@ struct ClaimRow {
 struct Found {}
 
 pub async fn claim(call: &mut Call<'_>, invite_id: Uuid) -> ApiResult {
-    let input: ClaimInvite = call.body().await?;
+    let input: ClaimInvite = call.body()?;
     let token_hash = input.token_hash.as_bytes().as_slice();
     let row: ClaimRow = call
         .db

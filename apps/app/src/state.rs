@@ -12,7 +12,8 @@ use chrono::{DateTime, Local, NaiveDate, Utc};
 use dioxus::{core::spawn_forever, prelude::*};
 use tackly_domain::{Family, Picture, PlaceLocation};
 use tackly_phone::{
-    AgentAsk, Device, Geocoder, InviteTicket, Membership, RecoveryCode, SharedDevice, run_live,
+    AgentAsk, Device, Geocoder, InviteTicket, Membership, RecoveryCode, SharedDevice,
+    run_live_until,
 };
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -664,10 +665,14 @@ impl AppState {
         let (changed, mut wake) = tokio::sync::mpsc::unbounded_channel::<()>();
         let device = self.device();
         spawn(async move {
-            run_live(device, move || {
-                // The receiver lives as long as the app does.
-                let _ = changed.send(());
-            })
+            run_live_until(
+                device,
+                move || {
+                    // The receiver lives as long as the app does.
+                    let _ = changed.send(());
+                },
+                std::future::pending(),
+            )
             .await;
         });
         // The head's phone looks for AI agents asking for access.

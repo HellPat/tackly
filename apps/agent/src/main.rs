@@ -9,7 +9,7 @@ use std::{collections::HashSet, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use tackly_phone::{Device, SharedDevice, infrastructure::server_url::ServerUrl, run_live};
+use tackly_phone::{Device, SharedDevice, infrastructure::server_url::ServerUrl, run_live_until};
 use uuid::Uuid;
 
 #[derive(Parser)]
@@ -96,23 +96,29 @@ async fn catch_up(device: &mut Device) {
     }
 }
 
-/// Prints every event once, as it arrives.
+/// Prints every event once, as it arrives, until Ctrl-C.
 async fn follow(device: Device) -> Result<()> {
     let device: SharedDevice = std::sync::Arc::new(tokio::sync::Mutex::new(device));
     let (changed, mut wake) = tokio::sync::mpsc::unbounded_channel::<()>();
-    let live = tokio::spawn(run_live(device.clone(), move || {
-        let _ = changed.send(());
-    }));
+    let live = tokio::spawn(run_live_until(
+        device.clone(),
+        move || {
+            let _ = changed.send(());
+        },
+        std::future::pending(),
+    ));
+    let stop = tokio::signal::ctrl_c();
+    tokio::pin!(stop);
     let mut printed = HashSet::new();
     loop {
-        let events = device.lock().await.events()?;
-        for event in events {
+        for event in device.lock().await.events()? {
             if printed.insert(event.id) {
                 println!("{}", serde_json::to_string(&event)?);
             }
         }
-        if wake.recv().await.is_none() {
-            break;
+        tokio::select! {
+            Some(()) = wake.recv() => {}
+            _ = &mut stop => break,
         }
     }
     live.abort();

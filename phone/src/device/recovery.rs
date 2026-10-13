@@ -143,12 +143,10 @@ impl Device {
     /// Backs the family up when it changed since the last time (the head's
     /// phone, after every flush).
     pub(super) async fn backup(&mut self) -> Result<()> {
+        // Only the head keeps a recovery key, so only the head backs up.
         let Some(recipient) = kept_recipient(&self.secrets)? else {
             return Ok(());
         };
-        if !self.joined()?.owner {
-            return Ok(());
-        }
         let mark = self.backup_mark()?;
         if self.backed_up == Some(mark) {
             return Ok(());

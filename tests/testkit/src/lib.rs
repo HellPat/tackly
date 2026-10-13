@@ -35,9 +35,13 @@ enum Target {
     Deployed(ServerUrl),
 }
 
-/// The Worker's folder in the repository.
+/// The Worker's folder: in the repository, or `TACKLY_RELAY_DIR` (mutation
+/// testing runs from a copy of the sources that has no `node_modules`).
 fn worker_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/relay")
+    std::env::var_os("TACKLY_RELAY_DIR").map_or_else(
+        || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/relay"),
+        PathBuf::from,
+    )
 }
 
 /// Builds the Worker once per test run; every `wrangler dev` uses that build.

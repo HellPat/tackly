@@ -64,11 +64,9 @@ impl FromStr for ServerUrl {
                 ServerUrlError::Scheme
             }
         })?;
+        // http and https addresses always have a host once they parse.
         if !matches!(url.scheme(), "http" | "https") {
             return Err(ServerUrlError::Scheme);
-        }
-        if url.host_str().is_none_or(str::is_empty) {
-            return Err(ServerUrlError::Host);
         }
         if url.query().is_some()
             || url.fragment().is_some()
@@ -77,7 +75,7 @@ impl FromStr for ServerUrl {
         {
             return Err(ServerUrlError::Extras);
         }
-        if url.scheme() == "http" && !is_local(&url) {
+        if url.scheme() == "http" && !url.host().is_some_and(is_local) {
             return Err(ServerUrlError::Cleartext);
         }
         Ok(Self(url.as_str().trim_end_matches('/').to_owned()))
@@ -87,17 +85,16 @@ impl FromStr for ServerUrl {
 /// A host on the person's own network, where plain HTTP stays at home: the
 /// loopback, the private ranges (and the Android emulator's 10.0.2.2), a name
 /// with no dot, or a `.local` one.
-fn is_local(url: &reqwest::Url) -> bool {
+fn is_local(host: url::Host<&str>) -> bool {
     use url::Host;
-    match url.host() {
-        Some(Host::Ipv4(ip)) => ip.is_loopback() || ip.is_private() || ip.is_link_local(),
-        Some(Host::Ipv6(ip)) => ip.is_loopback(),
-        Some(Host::Domain(name)) => {
+    match host {
+        Host::Ipv4(ip) => ip.is_loopback() || ip.is_private() || ip.is_link_local(),
+        Host::Ipv6(ip) => ip.is_loopback(),
+        Host::Domain(name) => {
             name.eq_ignore_ascii_case("localhost")
                 || !name.contains('.')
                 || name.to_ascii_lowercase().ends_with(".local")
         }
-        None => false,
     }
 }
 
@@ -189,5 +186,41 @@ mod tests {
             "\"http://127.0.0.1:3000\""
         );
         assert!(serde_json::from_str::<ServerUrl>("\"not a url\"").is_err());
+    }
+
+    #[test]
+    fn each_refusal_says_what_is_wrong() {
+        let said = |text: &str| {
+            text.parse::<ServerUrl>()
+                .err()
+                .map(|error| error.to_string())
+        };
+        assert_eq!(
+            said("relay.example.org").as_deref(),
+            Some("the server address must start with http:// or https://")
+        );
+        assert_eq!(
+            said("https://").as_deref(),
+            Some("the server address needs a host, such as https://relay.example.org")
+        );
+        assert_eq!(
+            said("https://relay.example.org/?a=1").as_deref(),
+            Some("the server address is only the relay's address, nothing after it")
+        );
+        assert_eq!(
+            said("http://relay.example.org").as_deref(),
+            Some("a server on the internet needs https://; http:// is only for your own network")
+        );
+        assert_eq!(
+            said("ftp://relay.example.org").as_deref(),
+            said("relay.example.org").as_deref()
+        );
+    }
+
+    #[test]
+    fn the_own_computer_over_ipv6_is_local_too() {
+        let url: ServerUrl = "http://[::1]:3000".parse().expect("local");
+        assert_eq!(url.as_str(), "http://[::1]:3000");
+        assert!("http://[2001:db8::1]".parse::<ServerUrl>().is_err());
     }
 }

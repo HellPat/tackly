@@ -86,20 +86,20 @@ impl Device {
     ) -> Result<()> {
         let membership = self.joined()?.clone();
         let api = self.api()?;
-        for attempt in 0..=EPOCH_RETRIES {
+        let mut retries = 0;
+        loop {
             let batch = make(self)?;
             match api
                 .append(membership.family_id, &membership.device_token, batch)
                 .await
             {
-                Ok(_) => return Ok(()),
-                Err(error) if HttpError::is_stale_epoch(&error) && attempt < EPOCH_RETRIES => {
+                Err(error) if HttpError::is_stale_epoch(&error) && retries < EPOCH_RETRIES => {
+                    retries += 1;
                     self.pull().await?;
                 }
-                Err(error) => return Err(error),
+                sent => return sent.map(|_| ()),
             }
         }
-        unreachable!("the loop returns")
     }
 
     /// Sends one commit (a change to who is in the group) to the relay. It is

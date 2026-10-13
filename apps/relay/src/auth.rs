@@ -84,7 +84,7 @@ pub async fn revoke(call: &mut Call<'_>, family_id: Uuid, device_id: Uuid) -> Ap
 /// say) stops working at once.
 pub async fn rotate(call: &mut Call<'_>, family_id: Uuid) -> ApiResult {
     let caller = Device::authenticate(call, family_id).await?;
-    let input: RotateToken = call.body().await?;
+    let input: RotateToken = call.body()?;
     call.db
         .run(
             "UPDATE devices SET token_hash = ? WHERE id = ? AND family_id = ?",

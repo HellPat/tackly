@@ -6761,10 +6761,14 @@ name = "tackly-agent"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
+ "libc",
  "serde_json",
  "tackly-domain",
  "tackly-phone",
+ "tackly-testkit",
+ "tempfile",
  "tokio",
  "uuid",
 ]

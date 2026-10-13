@@ -81,7 +81,7 @@ pub async fn append(call: &mut Call<'_>, family_id: Uuid) -> ApiResult {
     if caller.agent {
         return Err(forbidden("an AI agent only reads"));
     }
-    let input: AppendEvents = call.body().await?;
+    let input: AppendEvents = call.body()?;
     if input.events.is_empty() || input.events.len() > MAX_APPEND_BATCH {
         return Err(bad_request("send between one and eight events"));
     }

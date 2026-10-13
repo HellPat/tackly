@@ -48,3 +48,29 @@ impl Secrets {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_secret_is_written_read_and_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let secrets = Secrets::new(dir.path());
+        assert_eq!(secrets.read("key").unwrap(), None);
+        secrets.write("key", b"value").unwrap();
+        assert_eq!(secrets.read("key").unwrap().as_deref(), Some(&b"value"[..]));
+        secrets.delete("key").unwrap();
+        secrets.delete("key").unwrap();
+        assert_eq!(secrets.read("key").unwrap(), None);
+    }
+
+    #[test]
+    fn what_is_not_a_file_cannot_be_read_or_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let secrets = Secrets::new(dir.path());
+        std::fs::create_dir_all(dir.path().join("secrets/folder")).unwrap();
+        assert!(secrets.read("folder").is_err());
+        assert!(secrets.delete("folder").is_err());
+    }
+}

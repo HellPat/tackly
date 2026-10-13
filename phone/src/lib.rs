@@ -10,4 +10,4 @@ pub use device::{
     InviteTicket, JoinRequest, LiveTarget, Membership, RecoveryCode, RecoveryCodeError,
 };
 pub use infrastructure::geocoder::Geocoder;
-pub use live::{SharedDevice, run_live};
+pub use live::{SharedDevice, run_live_until};

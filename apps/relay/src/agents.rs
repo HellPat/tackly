@@ -46,7 +46,7 @@ struct Count {
 /// The agent asks. No token: it has none yet. At most a few requests wait for
 /// a family at once, so that nobody can bury the head's phone in them.
 pub async fn ask(call: &mut Call<'_>, family_id: Uuid) -> ApiResult {
-    let input: AgentAccessRequest = call.body().await?;
+    let input: AgentAccessRequest = call.body()?;
     let key_package = input.key_package.as_slice();
     if key_package.is_empty() || key_package.len() > MAX_KEY_PACKAGE_BYTES {
         return Err(bad_request("invalid key package size"));
@@ -126,7 +126,7 @@ pub async fn pending(call: &mut Call<'_>, family_id: Uuid) -> ApiResult {
 /// The head allows the agent for a time and leaves the welcome.
 pub async fn approve(call: &mut Call<'_>, family_id: Uuid, request_id: Uuid) -> ApiResult {
     Device::authenticate_owner(call, family_id).await?;
-    let input: ApproveAgent = call.body().await?;
+    let input: ApproveAgent = call.body()?;
     if !(1..=MAX_AGENT_SECONDS).contains(&input.agent_seconds) {
         return Err(bad_request("an agent reads for a second to thirty days"));
     }
@@ -180,7 +180,7 @@ struct ClaimRow {
 /// The agent asks how it is doing. Once allowed, it gets its access: the relay
 /// records the token hash the agent chose, which ends when its time is over.
 pub async fn claim(call: &mut Call<'_>, request_id: Uuid) -> ApiResult {
-    let input: ClaimAgent = call.body().await?;
+    let input: ClaimAgent = call.body()?;
     let token_hash = input.token_hash.as_bytes().as_slice();
     let db = call.db;
     let row: ClaimRow = db

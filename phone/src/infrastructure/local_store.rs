@@ -41,9 +41,7 @@ pub struct EventStore {
 
 impl EventStore {
     pub fn open(path: &Path, secrets: &Secrets) -> Result<Self> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+        std::fs::create_dir_all(path.parent().context("no folder for the event database")?)?;
         let db = Connection::open(path).context("open Tackly event database")?;
         db.execute_batch(
             "PRAGMA journal_mode=WAL;
@@ -97,11 +95,16 @@ impl EventStore {
     pub fn insert(&self, event: &FamilyEvent, server_sequence: Option<i64>) -> Result<()> {
         let id = event.id.to_string();
         let envelope = seal(&self.local_key, &serde_json::to_vec(event)?, &id)?;
+        // Known already (the relay sends our own events back): only what the
+        // relay says about it changes.
         self.db.execute(
-            "INSERT OR IGNORE INTO events
+            "INSERT INTO events
              (event_id, schema_version, aggregate_id, occurred_at_utc, origin_device_id,
               local_nonce, local_ciphertext, local_mac, server_sequence, pushed)
-             VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT (event_id) DO UPDATE
+               SET server_sequence = excluded.server_sequence, pushed = 1
+               WHERE excluded.server_sequence IS NOT NULL",
             params![
                 id,
                 event.subject_id.to_string(),
@@ -114,12 +117,6 @@ impl EventStore {
                 i64::from(server_sequence.is_some()),
             ],
         )?;
-        if let Some(sequence) = server_sequence {
-            self.db.execute(
-                "UPDATE events SET server_sequence=?, pushed=1 WHERE event_id=?",
-                params![sequence, id],
-            )?;
-        }
         Ok(())
     }
 
@@ -231,5 +228,94 @@ impl EventStore {
         secrets.write("local_event_key", &self.local_key)?;
         secrets.write("device_id", self.device_id.to_string().as_bytes())?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use tackly_domain::DomainEvent;
+
+    use super::*;
+
+    fn started(by: Uuid) -> FamilyEvent {
+        FamilyEvent {
+            id: Uuid::new_v4(),
+            subject_id: Uuid::new_v4(),
+            origin_device_id: by,
+            occurred_at: Utc::now(),
+            event: DomainEvent::TaskStarted,
+        }
+    }
+
+    fn store(dir: &tempfile::TempDir) -> (EventStore, Secrets) {
+        let secrets = Secrets::new(dir.path());
+        let store = EventStore::open(&dir.path().join("tackly.db"), &secrets).unwrap();
+        (store, secrets)
+    }
+
+    #[test]
+    fn a_file_that_is_no_database_is_not_opened() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tackly.db");
+        std::fs::write(&path, b"not a database at all, not even close").unwrap();
+        assert!(EventStore::open(&path, &Secrets::new(dir.path())).is_err());
+        assert!(EventStore::open(Path::new("/"), &Secrets::new(dir.path())).is_err());
+    }
+
+    #[test]
+    fn events_without_their_key_or_identity_are_not_opened() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, secrets) = store(&dir);
+        store.insert(&started(store.device_id), None).unwrap();
+        let key = secrets.read("local_event_key").unwrap().unwrap();
+        drop(store);
+
+        secrets.delete("local_event_key").unwrap();
+        let missing_key = EventStore::open(&dir.path().join("tackly.db"), &secrets);
+        assert!(
+            missing_key
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("device key is missing")
+        );
+
+        secrets.write("local_event_key", &key[..31]).unwrap();
+        let short_key = EventStore::open(&dir.path().join("tackly.db"), &secrets);
+        assert!(
+            short_key
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("invalid local event key")
+        );
+
+        secrets.write("local_event_key", &key).unwrap();
+        secrets.delete("device_id").unwrap();
+        let missing_id = EventStore::open(&dir.path().join("tackly.db"), &secrets);
+        assert!(
+            missing_id
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("identity is missing")
+        );
+    }
+
+    #[test]
+    fn when_the_database_refuses_to_write_every_change_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut store, secrets) = store(&dir);
+        let event = started(store.device_id);
+        store.insert(&event, None).unwrap();
+        store.db.execute_batch("PRAGMA query_only = ON").unwrap();
+
+        assert!(store.insert(&started(store.device_id), None).is_err());
+        assert!(store.insert(&event, Some(1)).is_err());
+        assert!(store.confirm(event.id, 1).is_err());
+        assert!(store.mark_pushed(event.id).is_err());
+        assert!(store.advance_cursor(5).is_err());
+        assert!(store.clear(&secrets).is_err());
     }
 }
